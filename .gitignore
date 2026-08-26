@@ -1,0 +1,21 @@
+node_modules/
+package-lock.json
+
+# clasp — contém o ID do script e credenciais locais
+.clasp.json
+.clasprc.json
+
+# credenciais: nada de chave de conta de serviço neste repositório.
+# O acesso ao Firestore é pelo token da própria execução
+# (ScriptApp.getOAuthToken), justamente para não existir credencial parada.
+*.pem
+*.key
+*.p12
+service-account*.json
+credentials.json
+.env
+.env.*
+
+# scratch
+*.log
+.DS_Store

@@ -1,0 +1,466 @@
+<style>
+  /* Estilos do formulário interno (Cadastro.html), servido pelo Apps Script.
+     Tudo inline: o iframe do Google Sites bloqueia recursos externos.
+
+     ESTE ARQUIVO TEM UM GÊMEO: `docs/painel/estilos.css` é o miolo deste
+     <style>, byte a byte, porque o painel mudou para o GitHub Pages e lá não
+     existe `include()`. Copiar CSS é o começo de duas telas que divergem em
+     silêncio, e por isso a cópia é CONFERIDA: `testes/painel-site.js` compara os
+     dois e falha se alguém editar um só. Para atualizar o gêmeo:
+
+       node -e "const f=require('fs'),t=f.readFileSync('apps-script/Estilos.html','utf8'); \
+         f.writeFileSync('docs/painel/estilos.css', t.slice(t.indexOf('<style>')+8, t.lastIndexOf('</style>')))"
+
+     Alternativa descartada: servir o CSS do Pages para o Cadastro.html. Ele roda
+     dentro do iframe do Google Sites, que bloqueia recurso externo — foi por
+     isso que este arquivo nasceu inline. */
+
+  /* Mesma paleta do site público — extraída de unicesusc.edu.br.
+     Ver docs/assets/estilos.css. Aqui a fonte fica no stack do sistema:
+     o Apps Script serve estas páginas de outro domínio, e carregar o
+     Montserrat de lá exigiria hospedá-lo duas vezes. */
+  :root {
+    --vinho: #5c2235;
+    --vinho-escuro: #451a28;
+    --vinho-claro: #f3ebee;
+    --rosa: #8b3651;
+    --texto: #2e2e2e;
+    --texto-fraco: #4f4f4f;
+    --borda: #cfd2d3;
+    --fundo: #f7f5f6;
+    --branco: #ffffff;
+    --verde: #1a7f37;
+    --verde-fundo: #e6f4ea;
+    --ambar: #9a6700;
+    --ambar-fundo: #fff8e5;
+    --vermelho: #c22a22;
+    --vermelho-fundo: #fbeceb;
+    --roxo: #6639ba;
+    --roxo-fundo: #f2ecfb;
+    --foco: rgba(92, 34, 53, .18);
+    --raio: 8px;
+    --sombra: 0 1px 3px rgba(46, 30, 36, .08), 0 1px 2px rgba(46, 30, 36, .06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--texto);
+    background: var(--fundo);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 { margin: 0 0 .5rem; line-height: 1.25; font-weight: 600; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; }
+  h3 { font-size: .95rem; }
+  p { margin: 0 0 .75rem; }
+  a { color: var(--vinho); }
+
+  .container { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  .container--estreito { max-width: 680px; }
+
+  .cabecalho {
+    background: var(--vinho);
+    color: #fff;
+    padding: 18px 16px;
+  }
+  .cabecalho .container { padding: 0 16px; }
+  .cabecalho h1 { color: #fff; margin: 0; }
+  .cabecalho p { color: #e3ccd4; margin: .2rem 0 0; font-size: .875rem; }
+  .cabecalho__linha { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+  .cartao {
+    background: var(--branco);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio);
+    padding: 20px;
+    box-shadow: var(--sombra);
+    margin-bottom: 16px;
+  }
+
+  /* ---------------------------------------------------- Formulário */
+
+  .campo { margin-bottom: 16px; }
+  .campo label { display: block; font-weight: 600; font-size: .875rem; margin-bottom: 5px; }
+  .campo .dica { font-weight: 400; color: var(--texto-fraco); font-size: .8rem; }
+
+  input[type=text], input[type=email], input[type=tel], input[type=date],
+  input[type=password], input[type=number], select, textarea {
+    width: 100%;
+    padding: 9px 11px;
+    font: inherit;
+    font-size: .925rem;
+    color: var(--texto);
+    background: var(--branco);
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--vinho);
+    box-shadow: 0 0 0 3px var(--foco);
+  }
+  input[aria-invalid="true"] { border-color: var(--vermelho); }
+  textarea { min-height: 84px; resize: vertical; }
+
+  .erro-campo { color: var(--vermelho); font-size: .8rem; margin-top: 4px; display: none; }
+  .erro-campo.visivel { display: block; }
+
+  .grade-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .grade-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; }
+  @media (max-width: 640px) {
+    .grade-2, .grade-3 { grid-template-columns: 1fr; }
+  }
+
+  .checkbox { display: flex; gap: 10px; align-items: flex-start; }
+  .checkbox input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; }
+  .checkbox label { font-weight: 400; font-size: .875rem; }
+
+  /* ---------------------------------------------------- Botões */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    font: inherit;
+    font-size: .9rem;
+    font-weight: 500;
+    color: var(--texto);
+    background: var(--branco);
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  .btn:hover:not(:disabled) { background: #f3f4f6; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn--primario { background: var(--vinho); border-color: var(--vinho); color: #fff; }
+  .btn--primario:hover:not(:disabled) { background: var(--vinho-escuro); border-color: var(--vinho-escuro); }
+  .btn--perigo { color: var(--vermelho); border-color: #f5c2c0; }
+  .btn--perigo:hover:not(:disabled) { background: var(--vermelho-fundo); }
+  .btn--bloco { width: 100%; justify-content: center; }
+  .btn--pequeno { padding: 5px 10px; font-size: .82rem; }
+
+  /* ---------------------------------------------------- Avisos */
+
+  .aviso {
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-size: .875rem;
+    margin-bottom: 16px;
+    border: 1px solid transparent;
+  }
+  .aviso--erro { background: var(--vermelho-fundo); border-color: #f5c2c0; color: #7d1a12; }
+  .aviso--sucesso { background: var(--verde-fundo); border-color: #b7e0c3; color: #14532d; }
+  .aviso--atencao { background: var(--ambar-fundo); border-color: #f0dca4; color: #6b4900; }
+  .aviso--info { background: var(--vinho-claro); border-color: #e0cdd4; color: var(--vinho-escuro); }
+
+  /* ---------------------------------------------------- Tabela */
+
+  .tabela-wrap { overflow-x: auto; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--branco); }
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--borda); white-space: nowrap; }
+  th { background: var(--fundo); font-weight: 600; font-size: .8rem; color: var(--texto-fraco); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #fafbfc; }
+  /* `white-space: normal` sozinho não resolve e-mail: ele quebra em ESPAÇO, e
+     'algum.nome.comprido@exemplo.com.br' não tem nenhum — a célula continuava
+     esticando a tabela até nascer barra de rolagem horizontal. `anywhere` quebra
+     só quando não cabe, e não no meio de palavra que caberia (o que
+     `break-all` faria com todo nome de aluno). */
+  td.quebra { white-space: normal; min-width: 140px; overflow-wrap: anywhere; }
+
+  .selo {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .selo--CONFIRMADO { background: var(--verde-fundo); color: var(--verde); }
+  .selo--SO_INSCRITO { background: var(--vinho-claro); color: var(--vinho); }
+  .selo--SO_MATRICULADO { background: var(--roxo-fundo); color: var(--roxo); }
+  .selo--DIVERGENCIA { background: var(--ambar-fundo); color: var(--ambar); }
+
+  /* ---------------------------------------------------- Painel */
+
+  .abas { display: flex; gap: 2px; border-bottom: 1px solid var(--borda); margin-bottom: 20px; overflow-x: auto; }
+  .aba {
+    padding: 9px 14px;
+    font: inherit;
+    font-size: .9rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--texto-fraco);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .aba:hover { color: var(--texto); }
+  .aba--ativa { color: var(--vinho); border-bottom-color: var(--vinho); font-weight: 600; }
+
+  .cartoes-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: var(--branco); border: 1px solid var(--borda); border-radius: var(--raio); padding: 14px 16px; }
+  .kpi__valor { font-size: 1.75rem; font-weight: 600; line-height: 1.1; }
+  .kpi__rotulo { font-size: .8rem; color: var(--texto-fraco); margin-top: 2px; }
+  .kpi--verde .kpi__valor { color: var(--verde); }
+  .kpi--vinho .kpi__valor { color: var(--vinho); }
+  .kpi--roxo .kpi__valor { color: var(--roxo); }
+  .kpi--ambar .kpi__valor { color: var(--ambar); }
+
+  .filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .filtros .campo { margin-bottom: 0; }
+  .filtros input, .filtros select { min-width: 160px; }
+
+  .barra-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+
+  .paginacao { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-size: .875rem; color: var(--texto-fraco); }
+
+  /* ---------------------------------------------------- Modal */
+
+  .modal-fundo {
+    position: fixed; inset: 0;
+    background: rgba(27, 31, 36, .45);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 24px 16px; overflow-y: auto; z-index: 50;
+  }
+  .modal {
+    background: var(--branco);
+    border-radius: var(--raio);
+    width: 100%; max-width: 780px;
+    box-shadow: 0 8px 32px rgba(27, 31, 36, .24);
+  }
+  /* As janelas de LISTA — "Inscritos" da aba Projetos e da aba Disciplinas.
+
+     780px é a largura de um FORMULÁRIO, e é ela que os outros seis usam: linha
+     de campo mais larga que isso obriga o olho a atravessar a tela para ligar o
+     rótulo ao que foi digitado. Só que as três tabelas de gente têm seis colunas
+     (a última é "Recebida em"/"Contato"), e nessa largura elas nascem cortadas —
+     a coordenação tinha de rolar na horizontal para ver a última.
+
+     Por isso o modificador, e não uma largura nova no `.modal`: quem alarga a
+     janela é a JANELA QUE MOSTRA LISTA, e ela mesma limpa a classe ao fechar
+     (ver `fecharModal`), porque o `#modal-fundo` é um só e a próxima janela a
+     abrir pode ser um formulário.
+
+     `width: 100%` repete o do `.modal` de propósito: `max-width` sozinho não
+     encolhe nada, e é o `width` que faz a janela caber num celular. */
+  .modal--largo { width: 100%; max-width: 1180px; }
+  .modal__cabecalho { padding: 16px 20px; border-bottom: 1px solid var(--borda); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .modal__corpo { padding: 20px; }
+  .modal__rodape { padding: 14px 20px; border-top: 1px solid var(--borda); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  /* O aviso da janela (ver a marcação do #modal-fundo). Ele mora entre o corpo e
+     o rodapé, que são caixas com recuo próprio — sem este, o balão encostaria na
+     borda. Vazio, o elemento não ocupa altura nenhuma, que é o estado normal. */
+  #mensagem-modal { padding: 0 20px; }
+  .fechar { background: none; border: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: var(--texto-fraco); padding: 0 4px; }
+
+  .comparativo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .comparativo { grid-template-columns: 1fr; } }
+  .comparativo__coluna { border: 1px solid var(--borda); border-radius: 6px; padding: 14px; }
+  .comparativo__coluna h3 { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--borda); }
+  .par { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: .85rem; }
+  .par dt { color: var(--texto-fraco); flex-shrink: 0; }
+  .par dd { margin: 0; text-align: right; word-break: break-word; }
+  .par--diferente { background: var(--ambar-fundo); margin: 0 -6px; padding: 4px 6px; border-radius: 4px; }
+
+  /* ------------------------------------------------ Inclusão em lote */
+
+  /* A tabela geral usa `white-space: nowrap`, que é o que faz a lista de alunos
+     rolar em vez de espremer. Aqui cada célula é um CAMPO, e campo espremido
+     esconde o que a coordenação está digitando — por isso as larguras são
+     declaradas, e não deixadas para o conteúdo. */
+  .tabela-lote td, .tabela-lote th { white-space: normal; vertical-align: top; }
+  .tabela-lote td { padding: 6px 8px; }
+  .tabela-lote input { min-width: 0; }
+  .tabela-lote .col-curso { width: 46%; }
+  .tabela-lote .col-turma { width: 20%; }
+  .tabela-lote .col-curta { width: 13%; }
+  .tabela-lote .col-acao { width: 8%; text-align: right; }
+
+  /* "no fim, embaixo, do lado direito, um botao para adicionar uma nova linha" */
+  .rodape-direita { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+  .erro-linha { color: var(--vermelho); font-size: .8rem; margin-top: 4px; }
+
+  /* ------------------------------------------------ Seletor de banner */
+
+  /* O seletor abre POR CIMA do formulário de projeto, que também é um modal.
+     Sem z-index maior, os dois empatam e o de projeto ganha por vir depois
+     no HTML — foi o que fez a janela "ir para trás". */
+  #modal-banner { z-index: 60; }
+
+  .zona-upload--banner {
+    display: block;
+    padding: 26px 20px;
+    margin-bottom: 8px;
+  }
+  .zona-upload--banner input[type=file] {
+    /* `display:none` some com o campo para o leitor de tela também; tirar da
+       tela mantendo-o focável é o jeito acessível de esconder. */
+    position: absolute;
+    width: 1px; height: 1px;
+    opacity: 0;
+    overflow: hidden;
+  }
+
+  .banner-escolhido {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px; border: 1px solid var(--borda); border-radius: 6px;
+    background: var(--fundo);
+  }
+  .banner-escolhido img {
+    display: block; width: 100%; height: auto;
+    border-radius: 4px; border: 1px solid var(--borda);
+  }
+
+  .galeria-banners {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 12px; margin-bottom: 6px;
+  }
+
+  .banner-opcao {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px; background: var(--branco); cursor: pointer;
+    border: 2px solid var(--borda); border-radius: 8px;
+    font: inherit; text-align: left; color: inherit;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .banner-opcao:hover { border-color: var(--vinho); box-shadow: var(--sombra); }
+  .banner-opcao--ativa { border-color: var(--vinho); background: var(--vinho-claro); }
+  .banner-opcao img {
+    display: block; width: 100%; height: auto;
+    border-radius: 4px; background: var(--fundo);
+  }
+  .banner-opcao__legenda { font-size: .82rem; font-weight: 600; word-break: break-word; }
+  .banner-opcao__detalhe { font-size: .74rem; color: var(--texto-fraco); }
+
+  /* ---------------------------------------------------- Utilitários */
+
+  .oculto { display: none !important; }
+  .texto-fraco { color: var(--texto-fraco); }
+  .pequeno { font-size: .82rem; }
+  .centro { text-align: center; }
+  .mt { margin-top: 16px; }
+  .mb { margin-bottom: 16px; }
+  .carregando { color: var(--texto-fraco); padding: 32px; text-align: center; font-size: .9rem; }
+
+  .zona-upload {
+    /* `label` é inline por padrão, e elemento inline com borda que quebra em
+       várias linhas desenha a borda EM PEDAÇOS — aparecem colchetes soltos de
+       um lado só, como se a tela estivesse desformatada. `block` faz a borda
+       envolver a área inteira, que é o que a moldura tracejada quer dizer. */
+    display: block;
+    border: 2px dashed var(--borda);
+    border-radius: var(--raio);
+    padding: 32px 20px;
+    text-align: center;
+    background: var(--branco);
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .zona-upload:hover, .zona-upload.arrastando { border-color: var(--vinho); background: var(--vinho-claro); }
+  .zona-upload input { display: none; }
+
+  .passos { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .passo { display: flex; align-items: center; gap: 7px; font-size: .85rem; color: var(--texto-fraco); }
+  .passo__num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--borda); color: var(--texto-fraco);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .75rem; font-weight: 600;
+  }
+  .passo--ativo { color: var(--vinho); font-weight: 600; }
+  .passo--ativo .passo__num { background: var(--vinho); color: #fff; }
+  .passo--feito .passo__num { background: var(--verde); color: #fff; }
+  .passo__seta { color: var(--borda); margin: 0 4px; }
+
+  /* ---------------------------------------------------- Impressão (o "PDF") */
+
+  /* O "Exportar PDF" das três tabelas de gente é o "Salvar como PDF" do próprio
+     navegador. Não há biblioteca de PDF aqui, nem poderia haver: esta tela não
+     carrega recurso de terceiro e não gasta nada. E o que o navegador entrega de
+     graça é justamente o caro — paginação, `<thead>` repetido em toda página e a
+     imagem do banner embutida no arquivo.
+
+     O preço é este bloco. `#area-impressao` nasce vazio e escondido; no clique,
+     `imprimirRelatorio_` o preenche, põe a classe `imprimindo` no `<body>` e
+     chama `window.print()`. Aí — e só aí — a impressão troca a tela por ele.
+
+     A CLASSE NO BODY não é cerimônia. Sem ela isto valeria para todo Ctrl+P, e
+     o `Cadastro.html` (o gêmeo deste CSS, que não tem `#area-impressao` nenhum)
+     imprimiria folha em branco — o formulário do aluno é impresso de verdade,
+     por quem preenche no balcão.
+
+     E o `.modal-fundo` é o motivo de a regra ser "esconde TUDO" e não "esconde o
+     painel": ele é `position: fixed` cobrindo a página com fundo escuro, e
+     sobrando na impressão sai uma página PRETA inteira. */
+  #area-impressao { display: none; }
+
+  @media print {
+    @page { margin: 14mm 12mm; }
+
+    body.imprimindo { background: #fff; }
+    body.imprimindo > *:not(#area-impressao) { display: none !important; }
+    body.imprimindo #area-impressao { display: block; color: #000; }
+
+    .impressao__topo { border-bottom: 3px solid var(--vinho); padding-bottom: 10px; margin-bottom: 12px; }
+    /* Sem banner o topo continua inteiro: o `<img>` simplesmente não é montado,
+       e nada aqui reserva espaço para ele. */
+    .impressao__banner {
+      display: block; width: 100%; max-height: 26mm; object-fit: cover;
+      border-radius: 4px; margin-bottom: 10px;
+    }
+    .impressao__titulo { font-size: 1.5rem; color: var(--vinho); margin: 0 0 4px; }
+    .impressao__ficha { margin: 0 0 2px; font-size: .82rem; }
+    .impressao__recorte { margin: 6px 0 0; font-size: .78rem; color: var(--texto-fraco); }
+
+    #area-impressao table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+    /* `table-header-group` é o padrão do `<thead>` e está escrito mesmo assim:
+       a regra geral desta folha põe `position: sticky` no `th`, e cabeçalho
+       grudado não é repetido pelo navegador em cada página impressa. */
+    #area-impressao thead { display: table-header-group; }
+    #area-impressao th {
+      position: static;
+      background: var(--vinho-claro);
+      color: var(--vinho-escuro);
+      border-bottom: 1.5px solid var(--vinho);
+      text-align: left; font-size: .72rem; padding: 5px 6px;
+      /* O navegador imprime "economizando tinta" por padrão, e sem isto o fundo
+         da faixa some — o cabeçalho fica igual à primeira linha de dados. */
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    #area-impressao td {
+      padding: 4px 6px; border-bottom: 1px solid #d8d8d8;
+      /* A regra geral é `nowrap`: na tela isso vira barra de rolagem, no papel
+         viraria coluna cortada — e no papel não há para onde rolar. */
+      white-space: normal; overflow-wrap: anywhere; vertical-align: top;
+    }
+    /* Aluno partido no meio entre duas páginas se lê como dois alunos. */
+    #area-impressao tr { break-inside: avoid; page-break-inside: avoid; }
+
+    /* O selo em papel. Quem informa é o TEXTO ("Em projeto", "Sem projeto",
+       "Fora da lista"), que já vai escrito dentro do selo; a borda é o que sobra
+       numa impressora preto-e-branco. A cor é enfeite para quem imprime
+       colorido — nenhuma distinção desta folha depende dela. */
+    .impressao__selo {
+      display: inline-block; padding: 1px 6px; border-radius: 999px;
+      border: 1px solid var(--texto-fraco); font-size: .68rem; font-weight: 600;
+      white-space: nowrap;
+    }
+    .impressao__selo--COM_PROJETO { border-color: var(--verde); color: var(--verde); }
+    .impressao__selo--SEM_PROJETO { border-color: var(--roxo); color: var(--roxo); }
+    .impressao__selo--FORA_DA_LISTA { border-color: var(--vinho); color: var(--vinho); }
+
+    .impressao__rodape {
+      margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--borda);
+      font-size: .7rem; color: var(--texto-fraco); text-align: center;
+    }
+  }
+</style>

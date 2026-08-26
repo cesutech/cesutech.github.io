@@ -1,0 +1,263 @@
+<!-- Cadastro.html — formulário público de inscrição.
+     Não exige conta Google. É o que o aluno vê dentro do Google Sites. -->
+<?!= include('Estilos') ?>
+
+<div class="cabecalho">
+  <div class="container container--estreito">
+    <h1>CESUTECH</h1>
+    <p>Inscrição para os cursos de extensão</p>
+  </div>
+</div>
+
+<div class="container container--estreito">
+
+  <div id="fechado" class="cartao oculto">
+    <div class="aviso aviso--atencao" style="margin:0">
+      <strong>Inscrições encerradas.</strong><br>
+      No momento não estamos recebendo novas inscrições. Procure a coordenação do CESUTECH para mais informações.
+    </div>
+  </div>
+
+  <div id="sucesso" class="cartao oculto">
+    <div class="aviso aviso--sucesso" style="margin:0">
+      <strong id="sucesso-titulo">Inscrição registrada.</strong>
+      <p id="sucesso-texto" style="margin:.5rem 0 0"></p>
+      <p id="sucesso-protocolo" class="pequeno" style="margin:.5rem 0 0"></p>
+    </div>
+    <button class="btn mt" onclick="novaInscricao()">Fazer outra inscrição</button>
+  </div>
+
+  <form id="formulario" class="cartao" novalidate>
+    <p class="texto-fraco pequeno" style="margin-bottom:20px">
+      Preencha os dados abaixo. Campos com <strong>*</strong> são obrigatórios.
+    </p>
+
+    <div id="erro-geral" class="aviso aviso--erro oculto"></div>
+
+    <div class="grade-2">
+      <div class="campo">
+        <label for="matricula">Matrícula *</label>
+        <input type="text" id="matricula" name="matricula" inputmode="numeric" autocomplete="off">
+        <div class="erro-campo" id="erro-matricula">Informe sua matrícula.</div>
+      </div>
+
+      <div class="campo">
+        <label for="nome">Nome completo *</label>
+        <input type="text" id="nome" name="nome" autocomplete="name">
+        <div class="erro-campo" id="erro-nome">Informe o nome e o sobrenome.</div>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label for="curso_fase">Curso e fase *</label>
+      <select id="curso_fase" name="curso_fase"></select>
+      <div class="erro-campo" id="erro-curso_fase">Selecione seu curso e fase.</div>
+    </div>
+
+    <div class="grade-2">
+      <div class="campo">
+        <label for="email">Seu melhor e-mail *</label>
+        <input type="email" id="email" name="email" autocomplete="email">
+        <div class="erro-campo" id="erro-email">E-mail inválido.</div>
+      </div>
+
+      <div class="campo">
+        <label for="whatsapp">WhatsApp *</label>
+        <input type="tel" id="whatsapp" name="whatsapp" inputmode="numeric" maxlength="15" placeholder="(00) 00000-0000">
+        <div class="erro-campo" id="erro-whatsapp">WhatsApp inválido.</div>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label for="observacoes">Observações <span class="dica">(opcional)</span></label>
+      <textarea id="observacoes" name="observacoes"
+        placeholder="Alguma informação que a coordenação precise saber?"></textarea>
+    </div>
+
+    <div class="campo checkbox">
+      <input type="checkbox" id="declara_ciencia">
+      <label for="declara_ciencia" id="rotulo-declaracao"></label>
+    </div>
+    <div class="erro-campo" id="erro-declaracao" style="margin:-8px 0 12px">
+      É necessário declarar ciência para participar.
+    </div>
+
+    <div class="campo checkbox">
+      <input type="checkbox" id="autoriza_imagem">
+      <label for="autoriza_imagem" id="rotulo-imagem"></label>
+    </div>
+
+    <div class="campo checkbox">
+      <input type="checkbox" id="consentimento_lgpd" required>
+      <label for="consentimento_lgpd" id="rotulo-lgpd"></label>
+    </div>
+    <div class="erro-campo" id="erro-lgpd" style="margin-top:-8px;margin-bottom:16px">
+      É necessário aceitar para concluir a inscrição.
+    </div>
+
+    <button type="submit" class="btn btn--primario btn--bloco" id="botao-enviar">Enviar inscrição</button>
+  </form>
+
+</div>
+
+<script>
+  var DADOS = <?!= dadosIniciais ?>;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!DADOS.aberto) {
+      document.getElementById('formulario').classList.add('oculto');
+      document.getElementById('fechado').classList.remove('oculto');
+      return;
+    }
+
+    preencherSelect('curso_fase', DADOS.cursosFases, 'Selecione seu curso e fase...');
+    document.getElementById('rotulo-lgpd').textContent = DADOS.textoLgpd;
+    document.getElementById('rotulo-declaracao').textContent = DADOS.textoDeclaracao;
+    document.getElementById('rotulo-imagem').textContent = DADOS.textoImagem;
+
+    document.getElementById('whatsapp').addEventListener('input', function (e) {
+      e.target.value = mascaraTelefone(e.target.value);
+    });
+
+    document.getElementById('formulario').addEventListener('submit', enviar);
+  });
+
+  function preencherSelect(id, opcoes, textoVazio) {
+    var el = document.getElementById(id);
+    el.innerHTML = '<option value="">' + textoVazio + '</option>';
+    (opcoes || []).forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o;
+      opt.textContent = o;
+      el.appendChild(opt);
+    });
+  }
+
+  // ------------------------------------------------------------ Máscaras
+
+  function mascaraTelefone(v) {
+    var d = v.replace(/\D/g, '').slice(0, 11);
+    if (d.length > 10) return d.replace(/(\d{2})(\d{5})(\d{1,4})/, '($1) $2-$3');
+    if (d.length > 6) return d.replace(/(\d{2})(\d{4})(\d{1,4})/, '($1) $2-$3');
+    if (d.length > 2) return d.replace(/(\d{2})(\d{1,5})/, '($1) $2');
+    if (d.length > 0) return '(' + d;
+    return d;
+  }
+
+  // ------------------------------------------------------------ Validação
+  // Espelha 04_Inscricoes.gs. O servidor revalida tudo — isto aqui é só
+  // para o aluno não descobrir o erro depois de enviar.
+
+  function marcarErro(campo, temErro) {
+    var input = document.getElementById(campo);
+    var erro = document.getElementById('erro-' + campo);
+    if (input) input.setAttribute('aria-invalid', temErro ? 'true' : 'false');
+    if (erro) erro.classList.toggle('visivel', temErro);
+    return !temErro;
+  }
+
+  function validar() {
+    var ok = true;
+
+    if (DADOS.exigirMatricula) {
+      var m = document.getElementById('matricula').value.replace(/[^A-Za-z0-9]/g, '');
+      ok = marcarErro('matricula', m.length < 4 || m.length > 20) && ok;
+    }
+
+    var nome = document.getElementById('nome').value.trim();
+    ok = marcarErro('nome', nome.split(/\s+/).filter(Boolean).length < 2) && ok;
+
+    var email = document.getElementById('email').value.trim();
+    ok = marcarErro('email', !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) && ok;
+
+    ok = marcarErro('curso_fase', !document.getElementById('curso_fase').value) && ok;
+
+    var tel = document.getElementById('whatsapp').value.replace(/\D/g, '');
+    ok = marcarErro('whatsapp', tel.length < 10 || tel.length > 11) && ok;
+
+    var ciencia = document.getElementById('declara_ciencia').checked;
+    document.getElementById('erro-declaracao').classList.toggle('visivel', !ciencia);
+    if (!ciencia) ok = false;
+
+    var lgpd = document.getElementById('consentimento_lgpd').checked;
+    document.getElementById('erro-lgpd').classList.toggle('visivel', !lgpd);
+    if (!lgpd) ok = false;
+
+    return ok;
+  }
+
+  // ------------------------------------------------------------ Envio
+
+  function enviar(ev) {
+    ev.preventDefault();
+    document.getElementById('erro-geral').classList.add('oculto');
+
+    if (!validar()) return;
+
+    var botao = document.getElementById('botao-enviar');
+    botao.disabled = true;
+    botao.textContent = 'Enviando...';
+
+    var dados = {
+      matricula: document.getElementById('matricula').value.trim(),
+      nome: document.getElementById('nome').value.trim(),
+      email: document.getElementById('email').value.trim(),
+      whatsapp: document.getElementById('whatsapp').value.replace(/\D/g, ''),
+      curso_fase: document.getElementById('curso_fase').value,
+      observacoes: document.getElementById('observacoes').value.trim(),
+      declara_ciencia: document.getElementById('declara_ciencia').checked,
+      autoriza_imagem: document.getElementById('autoriza_imagem').checked,
+      consentimento_lgpd: document.getElementById('consentimento_lgpd').checked
+    };
+
+    google.script.run
+      .withSuccessHandler(aoResponder)
+      .withFailureHandler(aoFalhar)
+      .submeterInscricao(dados);
+  }
+
+  function aoResponder(r) {
+    var botao = document.getElementById('botao-enviar');
+    botao.disabled = false;
+    botao.textContent = 'Enviar inscrição';
+
+    if (!r || !r.ok) {
+      var erro = document.getElementById('erro-geral');
+      erro.textContent = (r && r.erro) || 'Não foi possível registrar a inscrição.';
+      erro.classList.remove('oculto');
+      window.scrollTo(0, 0);
+      return;
+    }
+
+    document.getElementById('formulario').classList.add('oculto');
+    document.getElementById('sucesso').classList.remove('oculto');
+    document.getElementById('sucesso-titulo').textContent =
+      r.duplicada ? 'Você já estava inscrito.' : 'Inscrição registrada.';
+    document.getElementById('sucesso-texto').textContent =
+      r.mensagem + (r.duplicada ? '' : ' A coordenação entrará em contato pelo e-mail informado.');
+    document.getElementById('sucesso-protocolo').textContent =
+      r.protocolo ? 'Protocolo: ' + r.protocolo : '';
+    window.scrollTo(0, 0);
+  }
+
+  function aoFalhar(e) {
+    var botao = document.getElementById('botao-enviar');
+    botao.disabled = false;
+    botao.textContent = 'Enviar inscrição';
+
+    var erro = document.getElementById('erro-geral');
+    erro.textContent = 'Erro de conexão: ' + (e && e.message ? e.message : 'tente novamente.');
+    erro.classList.remove('oculto');
+    window.scrollTo(0, 0);
+  }
+
+  function novaInscricao() {
+    document.getElementById('formulario').reset();
+    document.getElementById('formulario').classList.remove('oculto');
+    document.getElementById('sucesso').classList.add('oculto');
+    ['matricula', 'nome', 'email', 'whatsapp', 'curso_fase'].forEach(function (c) { marcarErro(c, false); });
+    document.getElementById('erro-lgpd').classList.remove('visivel');
+    document.getElementById('erro-declaracao').classList.remove('visivel');
+    window.scrollTo(0, 0);
+  }
+</script>

@@ -1,0 +1,46 @@
+{
+  "banners": [
+    {
+      "arquivo": "arte-digital-floripa.jpg",
+      "rotulo": "Arte Digital Floripa",
+      "largura": 1920,
+      "altura": 480,
+      "tamanhoKb": 69
+    },
+    {
+      "arquivo": "cabecalho.jpg",
+      "rotulo": "Cabecalho",
+      "largura": 1920,
+      "altura": 480,
+      "tamanhoKb": 57
+    },
+    {
+      "arquivo": "conectando-geracoes.jpg",
+      "rotulo": "Conectando Geracoes",
+      "largura": 1920,
+      "altura": 480,
+      "tamanhoKb": 91
+    },
+    {
+      "arquivo": "empreende-mais-feiras.jpg",
+      "rotulo": "Empreende Mais Feiras",
+      "largura": 998,
+      "altura": 250,
+      "tamanhoKb": 41
+    },
+    {
+      "arquivo": "empreender-com-proposito.jpg",
+      "rotulo": "Empreender Com Proposito",
+      "largura": 999,
+      "altura": 250,
+      "tamanhoKb": 45
+    },
+    {
+      "arquivo": "r-cidades.jpg",
+      "rotulo": "R Cidades",
+      "largura": 999,
+      "altura": 250,
+      "tamanhoKb": 35
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Publica o conteúdo de docs/ no GitHub Pages.
+#
+# Existe porque o construtor "legacy" do Pages ficou intermitente em 06/08/2026:
+# seis publicações seguidas falharam com a mensagem "Page build failed", sem
+# detalhe nenhum, e uma delas ficou mais de uma hora em "building". O sintoma
+# prático foi pior que a falha: correções anunciadas como no ar continuavam sem
+# chegar ao navegador, e a gente descobria olhando o arquivo publicado.
+#
+# Este caminho dá log de verdade — quando falha, dá para ler por quê.
+name: Publicar o site
+
+on:
+  push:
+    branches: [main]
+  # Permite republicar sem commit, quando só a publicação falhou.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Não cancela publicação em andamento: quem já está subindo termina.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    environment:
+      name: github-pages
+      url: ${{ steps.publicacao.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # `docs/` tem `.nojekyll`: o conteúdo é servido como está, sem processamento.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: publicacao
+        uses: actions/deploy-pages@v4

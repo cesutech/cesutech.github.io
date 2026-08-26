@@ -1,0 +1,104 @@
+<!-- Admin.html — o painel MUDOU DE ENDEREÇO. Esta página só leva até ele.
+
+     ================================================================ A decisão
+
+     O painel de gestão era este arquivo, servido em `/exec?p=admin`. Ele agora é
+     `docs/painel/index.html`, servido pelo GitHub Pages. Restava escolher o que
+     fazer com o endereço antigo, e as duas opções eram reais:
+
+       (a) continuar servindo o painel completo aqui, como segunda porta;
+       (b) mandar para o novo endereço, e ter uma porta só.
+
+     Ficou (b), e o argumento é este: a opção (a) não cria uma reserva, cria uma
+     CÓPIA. Duas telas com os mesmos 22 botões, falando com o mesmo servidor, uma
+     por `google.script.run` e outra por POST. Toda correção teria de ser feita
+     duas vezes, e a que ninguém abre é a que deixa de ser feita — sem barulho,
+     porque ela continua carregando. O dia em que a reserva fosse necessária
+     seria o primeiro dia em que alguém descobriria que ela envelheceu meses.
+
+     E ela não seria uma reserva de verdade. O caminho de socorro deste sistema
+     nunca foi "o outro painel": é o link por e-mail, e o `liberarMeuAcesso()`
+     rodado no editor do Apps Script, que abre o sistema mesmo com o painel
+     inteiro fora do ar. Uma cópia do painel não protege contra nada disso — se o
+     `/exec` cair, as DUAS param, porque as duas falam com ele.
+
+     O QUE SE PERDE, e é honesto dizer: quem tiver o `?p=admin` salvo cai aqui em
+     vez de cair no painel. Por isso esta página não é um redirecionamento mudo —
+     ela mostra o endereço novo, escrito, para ser lido e guardado. Um redirect
+     automático e silencioso levaria a pessoa ao lugar certo e a deixaria com o
+     link velho para sempre.
+
+     ============================================== Por que o botão, e não só o script
+
+     Esta página roda dentro do iframe que o Apps Script usa para servir HTML. Um
+     `top.location = ...` disparado sozinho, sem clique, é bloqueado nesse iframe
+     — o navegador só permite navegação do topo iniciada por gesto do usuário. Ou
+     seja: a tentativa automática abaixo PODE simplesmente não acontecer, e é por
+     isso que o link `target="_top"` é o mecanismo principal e está sempre
+     visível. Se a tentativa funcionar, ótimo; se não, ninguém fica preso.
+
+     Se um dia o painel voltar para cá, o arquivo inteiro está no histórico do
+     git — o commit que o moveu tem o nome dos dois lados. -->
+<?!= include('Estilos') ?>
+
+<div class="cabecalho">
+  <div class="container container--estreito">
+    <h1>CESUTECH — Gestão de Alunos</h1>
+    <p>O painel mudou de endereço</p>
+  </div>
+</div>
+
+<div class="container container--estreito">
+  <div class="cartao mt">
+    <h2>O painel agora fica aqui</h2>
+
+    <p>
+      <a class="btn btn--primario btn--bloco" id="ir-para-o-painel" target="_top"
+         href="https://cesutech.github.io/painel/">
+        Abrir o painel de gestão
+      </a>
+    </p>
+
+    <p class="pequeno">
+      Endereço novo, para salvar nos favoritos:<br>
+      <strong>https://cesutech.github.io/painel/</strong>
+    </p>
+
+    <div class="aviso aviso--info">
+      <strong>Nada mudou no que o painel faz.</strong> São as mesmas abas, o mesmo
+      servidor e o mesmo banco. O que mudou é o lugar de onde a página é servida —
+      e é isso que torna possível entrar com a <strong>conta Google</strong>, que
+      neste endereço antigo não funcionava.
+    </div>
+
+    <p class="texto-fraco pequeno">
+      Se o botão do Google recusar sua conta, o endereço novo tem
+      <strong>"Não consigo entrar com o Google"</strong>: ele manda um link de acesso
+      para o seu e-mail, e é por ele que se conserta a configuração. O PIN que existia
+      aqui foi removido.
+    </p>
+
+    <p class="texto-fraco pequeno">
+      O formulário de inscrição do aluno <strong>não mudou de lugar</strong>: continua
+      sendo este mesmo endereço, sem o <code>?p=admin</code>.
+    </p>
+  </div>
+</div>
+
+<script>
+  // A tentativa automática. Ela é a segunda linha de defesa, não a primeira:
+  // dentro do iframe do Apps Script a navegação do topo sem clique costuma ser
+  // bloqueada, e o `catch` existe porque nesse caso o navegador LANÇA — sem ele,
+  // o erro apareceria no console e mais nada. O link acima continua na tela dos
+  // dois jeitos.
+  try {
+    var destino = document.getElementById('ir-para-o-painel').href;
+    if (window.top && window.top !== window.self) {
+      window.top.location.href = destino;
+    } else {
+      window.location.href = destino;
+    }
+  } catch (e) {
+    // Bloqueado: o professor clica no botão. É o caminho normal, não a exceção.
+  }
+</script>

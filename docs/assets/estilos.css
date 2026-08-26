@@ -1,0 +1,443 @@
+/* CESUTECH — estilos do site público (GitHub Pages).
+   Sem dependência externa: nada de CDN, fonte ou ícone remoto. */
+
+/* Paleta e tipografia extraídas de unicesusc.edu.br (post-2.css do tema).
+   #5c2235 é a cor dominante do site: 78 ocorrências, 21 delas como fundo. */
+:root {
+  --vinho: #5c2235;          /* primária da marca */
+  --vinho-escuro: #451a28;   /* hover */
+  --vinho-claro: #f3ebee;    /* fundos suaves */
+  --rosa: #8b3651;           /* variação secundária do site */
+  --vermelho: #c22a22;       /* acento da marca — também serve de erro */
+  --vermelho-fundo: #fbeceb;
+  --ambar: #9a6700;
+  --texto: #2e2e2e;
+  --texto-fraco: #4f4f4f;    /* cor de texto do site */
+  --borda: #cfd2d3;          /* cor de borda do site */
+  --fundo: #ffffff;
+  --fundo-alt: #f5f5f5;
+  --verde: #1a7f37;
+  --verde-fundo: #e6f4ea;
+  --foco: rgba(92, 34, 53, .18);
+  --raio: 10px;
+  --sombra: 0 1px 3px rgba(46, 30, 36, .08), 0 8px 24px rgba(46, 30, 36, .07);
+  --largura: 1080px;
+}
+
+/* Montserrat é a fonte do site da faculdade (48 ocorrências no tema).
+   Hospedada aqui, não via CDN do Google: sob a LGPD, evitar que o navegador
+   do aluno faça requisição a um terceiro só para buscar fonte. É variável,
+   então um arquivo por subset cobre os pesos 400-700. */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fontes/montserrat-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fontes/montserrat-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font: 16px/1.6 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  color: var(--texto);
+  background: var(--fundo);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
+}
+
+h1, h2, h3 { line-height: 1.2; margin: 0 0 .5rem; font-weight: 650; letter-spacing: -.01em; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); }
+h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); }
+h3 { font-size: 1.05rem; }
+p { margin: 0 0 1rem; }
+a { color: var(--vinho); }
+
+.container { max-width: var(--largura); margin: 0 auto; padding: 0 20px; }
+
+/* ------------------------------------------------------------ Cabeçalho */
+
+.topo {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--borda);
+}
+.topo__linha {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; height: 62px;
+}
+.marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: var(--texto); text-decoration: none; }
+.marca__selo {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--vinho); color: #fff;
+  display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+}
+.topo nav { display: flex; gap: 22px; align-items: center; }
+.topo nav a { color: var(--texto-fraco); text-decoration: none; font-size: .92rem; font-weight: 500; }
+.topo nav a:hover { color: var(--vinho); }
+/* `.topo nav a` (0,2,1) vence `.btn--primario` (0,1,0), então o botão herdava o
+   cinza dos links do menu e ficava apagado. Precisa de especificidade maior. */
+.topo nav a.btn--primario {
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(92, 34, 53, .3);
+}
+.topo nav a.btn--primario:hover { color: #fff; }
+@media (max-width: 720px) { .topo nav a:not(.btn) { display: none; } }
+
+/* ------------------------------------------------------------ Botões */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 22px;
+  font: inherit; font-size: .95rem; font-weight: 600;
+  border-radius: 8px; border: 1px solid var(--borda);
+  background: var(--fundo); color: var(--texto);
+  text-decoration: none; cursor: pointer;
+  transition: background .15s, border-color .15s, transform .06s;
+}
+.btn:hover:not(:disabled) { background: var(--fundo-alt); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn--primario { background: var(--vinho); border-color: var(--vinho); color: #fff; }
+.btn--primario:hover:not(:disabled) { background: var(--vinho-escuro); border-color: var(--vinho-escuro); }
+.btn--bloco { width: 100%; }
+.btn--grande { padding: 14px 30px; font-size: 1rem; }
+
+/* ------------------------------------------------------------ Hero */
+
+.hero {
+  padding: clamp(56px, 9vw, 100px) 0;
+  background:
+    radial-gradient(1000px 400px at 15% -10%, var(--vinho-claro), transparent 60%),
+    linear-gradient(180deg, #fff 0%, var(--fundo-alt) 100%);
+  border-bottom: 1px solid var(--borda);
+}
+.hero__grade { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; }
+@media (max-width: 860px) { .hero__grade { grid-template-columns: 1fr; gap: 36px; } }
+
+.etiqueta {
+  display: inline-block; padding: 5px 13px; margin-bottom: 18px;
+  background: var(--vinho-claro); color: var(--vinho-escuro);
+  border-radius: 999px; font-size: .8rem; font-weight: 650;
+  letter-spacing: .03em; text-transform: uppercase;
+}
+.hero p.chamada { font-size: 1.12rem; color: var(--texto-fraco); max-width: 52ch; }
+.hero__acoes { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+
+.hero__cartao {
+  background: var(--fundo); border: 1px solid var(--borda);
+  border-radius: var(--raio); padding: 26px; box-shadow: var(--sombra);
+}
+.hero__cartao h3 { margin-bottom: 14px; }
+.lista-limpa { list-style: none; padding: 0; margin: 0; }
+.lista-limpa li { display: flex; gap: 11px; padding: 8px 0; font-size: .93rem; color: var(--texto-fraco); }
+.lista-limpa li::before { content: "✓"; color: var(--verde); font-weight: 700; flex-shrink: 0; }
+
+/* ------------------------------------------------------------ Seções */
+
+.secao { padding: clamp(48px, 7vw, 80px) 0; }
+/* O cabeçalho é fixo: sem esta margem, a âncora para embaixo dele e o título
+   da seção fica escondido. */
+.secao[id] { scroll-margin-top: 78px; }
+.secao--alt { background: var(--fundo-alt); border-block: 1px solid var(--borda); }
+.secao__cabecalho { max-width: 62ch; margin-bottom: 38px; }
+.secao__cabecalho p { color: var(--texto-fraco); margin: 0; }
+
+/* ----------------------------------------------------------- Projetos */
+
+.faixa-banner { background: var(--vinho); }
+.faixa-banner img { display: block; width: 100%; height: auto; }
+
+.grade-projetos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.cartao-projeto {
+  background: var(--fundo);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  overflow: hidden;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.cartao-projeto:hover { border-color: var(--vinho); box-shadow: var(--sombra); transform: translateY(-2px); }
+.cartao-projeto--indisponivel { opacity: .72; }
+.cartao-projeto--indisponivel:hover { transform: none; }
+
+.cartao-projeto__botao {
+  display: block; width: 100%; padding: 0;
+  background: none; border: none; font: inherit;
+  text-align: left; cursor: pointer; color: inherit;
+}
+.cartao-projeto__banner { display: block; width: 100%; height: auto; }
+.cartao-projeto__corpo { padding: 18px 20px 20px; }
+.cartao-projeto__corpo h3 { font-size: 1rem; margin-bottom: 6px; }
+.cartao-projeto__prof { font-size: .84rem; color: var(--texto-fraco); margin: 0 0 12px; }
+
+.selo-vagas {
+  display: inline-block; padding: 4px 11px; border-radius: 999px;
+  font-size: .78rem; font-weight: 650;
+}
+.selo-vagas--aberto { background: var(--verde-fundo); color: var(--verde); }
+.selo-vagas--poucas { background: #fff8e5; color: var(--ambar); }
+.selo-vagas--esgotado { background: var(--vermelho-fundo); color: var(--vermelho); }
+.selo-vagas--fechado { background: var(--fundo-alt); color: var(--texto-fraco); }
+
+/* ------------------------------------------------- Detalhe do projeto */
+
+/* Na tela de detalhe o banner institucional some, e o padding da seção
+   (até 80px) deixava um vazio grande antes do "Todos os projetos". */
+#tela-projeto > .secao { padding-top: 24px; }
+
+.projeto-voltar { margin-bottom: 20px; }
+.projeto-banner { border-radius: var(--raio); overflow: hidden; margin-bottom: 36px; }
+.projeto-banner img { display: block; width: 100%; height: auto; }
+
+.projeto-grade { display: grid; grid-template-columns: 1fr 340px; gap: 40px; align-items: start; }
+@media (max-width: 860px) { .projeto-grade { grid-template-columns: 1fr; gap: 28px; } }
+
+.projeto-coordenacao { color: var(--vinho); font-weight: 600; margin-bottom: 18px; }
+
+.projeto-info { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 22px 0 0; }
+.projeto-info dt { font-weight: 600; font-size: .88rem; color: var(--texto-fraco); }
+.projeto-info dd { margin: 0; font-size: .92rem; }
+
+.projeto-lateral { position: sticky; top: 82px; }
+.cartao-vagas {
+  background: var(--fundo); border: 1px solid var(--borda);
+  border-radius: var(--raio); padding: 22px; box-shadow: var(--sombra);
+}
+
+.vagas-numeros { font-size: .92rem; color: var(--texto-fraco); margin-bottom: 10px; }
+.vagas-numeros strong { color: var(--texto); font-size: 1.05rem; }
+
+.vagas-barra {
+  height: 8px; background: var(--fundo-alt); border: 1px solid var(--borda);
+  border-radius: 999px; overflow: hidden; margin-bottom: 20px;
+}
+.vagas-barra__preenchida { height: 100%; background: var(--verde); transition: width .3s; }
+.vagas-barra__preenchida--quase { background: var(--ambar); }
+.vagas-barra__preenchida--cheia { background: var(--vermelho); }
+
+/* A frase que ocupa o lugar da BARRA quando o servidor não contou a ocupação
+   (`contar_ocupacao_na_lista` em NAO). Carrega a margem de baixo que era da
+   barra — sem ela o botão de inscrição encosta no texto. */
+.vagas-nota {
+  font-size: .82rem; line-height: 1.45; color: var(--texto-fraco);
+  margin: 0 0 20px;
+}
+
+/* A mensagem que ocupa o lugar do botão quando o projeto lota. */
+.aviso-esgotado {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 18px; border-radius: 8px;
+  background: var(--vermelho-fundo); border: 1px solid #f0c4c1;
+}
+.aviso-esgotado strong { color: var(--vermelho); font-size: 1.05rem; }
+.aviso-esgotado span { font-size: .89rem; color: #7d1a12; }
+
+/* O que ocupa o lugar do botão para quem já se inscreveu neste projeto.
+   Verde, e não vermelho: é confirmação, não impedimento. */
+.ja-inscrito {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 18px; border-radius: 8px;
+  background: var(--verde-fundo); border: 1px solid #b7e0c3;
+}
+.ja-inscrito strong { color: #14532d; font-size: 1.05rem; }
+.ja-inscrito span { font-size: .89rem; color: #14532d; }
+/* Seletor com o `span` junto de propósito: `.ja-inscrito span` acima tem
+   especificidade maior que a classe sozinha, e o tamanho da fonte não pegaria. */
+.ja-inscrito span.ja-inscrito__protocolo {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .82rem;
+}
+
+/* A saída para o navegador compartilhado — discreta de propósito: existe para
+   quem precisa, sem convidar quem já está inscrito a se inscrever de novo. */
+.ligacao-discreta {
+  background: none; border: none; padding: 2px 0;
+  font: inherit; font-size: .82rem; color: var(--texto-fraco);
+  text-decoration: underline; cursor: pointer; text-align: left;
+}
+.ligacao-discreta:hover { color: var(--vinho); }
+
+.marca__sub {
+  font-size: .74rem; font-weight: 500; color: var(--texto-fraco);
+  border-left: 1px solid var(--borda); padding-left: 10px; margin-left: 2px;
+}
+@media (max-width: 560px) { .marca__sub { display: none; } }
+
+.carregando { padding: 40px; text-align: center; color: var(--texto-fraco); }
+
+/* ------------------------------------------------------------ Formulário */
+
+/* O formulário abre logo abaixo do cartão de vagas; sem esta folga ele cola no
+   conteúdo acima e a página fica sufocada. */
+.form-envolucro { max-width: 720px; margin: 0 auto; padding-top: 44px; }
+.cartao-form {
+  background: var(--fundo); border: 1px solid var(--borda);
+  border-radius: var(--raio); padding: clamp(22px, 4vw, 36px);
+  box-shadow: var(--sombra);
+}
+
+.campo { margin-bottom: 18px; }
+.campo label { display: block; font-weight: 600; font-size: .88rem; margin-bottom: 6px; }
+.campo .dica { font-weight: 400; color: var(--texto-fraco); }
+
+input[type=text], input[type=email], input[type=tel], input[type=date], select, textarea {
+  width: 100%; padding: 11px 13px;
+  font: inherit; font-size: .95rem; color: var(--texto);
+  background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px;
+  transition: border-color .12s, box-shadow .12s;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--vinho);
+  box-shadow: 0 0 0 3px var(--foco);
+}
+input[aria-invalid="true"] { border-color: var(--vermelho); }
+textarea { min-height: 92px; resize: vertical; }
+
+.grade-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+@media (max-width: 620px) { .grade-2 { grid-template-columns: 1fr; } }
+
+.erro-campo { color: var(--vermelho); font-size: .82rem; margin-top: 5px; display: none; }
+/* Matrícula fora da lista em modo AVISAR não é erro — é ressalva. */
+.erro-campo--aviso { color: var(--ambar); }
+
+/* Verde só depois de conferida contra a lista oficial. O campo nasce neutro:
+   pintar de vermelho antes da primeira interação é ruído, não orientação. */
+input.campo--ok { border-color: var(--verde); }
+input.campo--ok:focus { box-shadow: 0 0 0 3px rgba(26, 127, 55, .16); }
+
+.selo-matricula { float: right; font-size: .76rem; font-weight: 500; color: var(--texto-fraco); }
+.selo-matricula--ok { color: var(--verde); font-weight: 650; }
+/* A conferência é uma ida ao servidor e demora segundos. O pulso é o que separa
+   "esperando resposta" de "travado" — sem ele o selo é texto parado numa tela
+   parada. A regra global de prefers-reduced-motion, no topo, desliga isto. */
+.selo-matricula--carregando { font-style: italic; animation: pulsar 1.3s ease-in-out infinite; }
+@keyframes pulsar { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+.erro-campo.visivel { display: block; }
+
+.checkbox { display: flex; gap: 11px; align-items: flex-start; }
+.checkbox input { margin-top: 4px; width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--vinho); }
+.checkbox label { font-weight: 400; font-size: .88rem; line-height: 1.5; }
+
+/* Honeypot: invisível para gente, preenchível por robô. Fora da ordem de
+   tabulação e escondido de leitores de tela — não é um campo real. */
+.armadilha {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px; height: 1px;
+  overflow: hidden;
+}
+
+.aviso {
+  padding: 13px 15px; border-radius: 8px; font-size: .9rem;
+  margin-bottom: 18px; border: 1px solid transparent;
+}
+.aviso--erro { background: var(--vermelho-fundo); border-color: #f5c2c0; color: #7d1a12; }
+.aviso--sucesso { background: var(--verde-fundo); border-color: #b7e0c3; color: #14532d; }
+.aviso--atencao { background: #fff8e5; border-color: #f0dca4; color: #6b4900; }
+.aviso--info { background: var(--vinho-claro); border-color: #e0cdd4; color: var(--vinho-escuro); }
+
+/* O `0` lateral que estava aqui anulava a margem do `.cartao-form` — os dois
+   seletores caem no MESMO elemento, e este vem depois. Com o texto curto e
+   centralizado do comprovante ninguém via; o parágrafo de orientações, longo e
+   alinhado à esquerda, encostava nas duas bordas. O vertical continua menor que
+   o do formulário: aqui não há campo, e o cartão respira melhor apertado. */
+.painel-sucesso { text-align: center; padding: 22px clamp(22px, 4vw, 36px); }
+.painel-sucesso__marca {
+  width: 62px; height: 62px; margin: 0 auto 18px; border-radius: 50%;
+  background: var(--verde-fundo); color: var(--verde);
+  display: grid; place-items: center; font-size: 1.9rem;
+}
+.protocolo {
+  display: inline-block; margin-top: 14px; padding: 8px 15px;
+  background: var(--fundo-alt); border: 1px solid var(--borda); border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86rem;
+}
+
+/* O resumo do projeto dentro do comprovante. Alinhado à ESQUERDA, ao contrário
+   do resto do painel: são dados para ler e conferir — nome, professor, local,
+   horário —, e texto centralizado em várias linhas é mais difícil de percorrer.
+   A linha acima o separa da mensagem de confirmação, como o canhoto de um
+   comprovante. */
+.sucesso-projeto {
+  text-align: left; margin-top: 26px; padding-top: 22px;
+  border-top: 1px solid var(--borda);
+}
+.sucesso-projeto__rotulo {
+  font-size: .74rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--texto-fraco); margin-bottom: 8px;
+}
+.sucesso-projeto__nome { font-size: 1.05rem; font-weight: 650; margin: 0 0 4px; }
+.sucesso-projeto__prof { color: var(--vinho); font-weight: 600; font-size: .9rem; margin: 0; }
+
+/* As orientações do professor: prosa de verdade, não rótulo. Entrelinha larga
+   porque é o único bloco do site que alguém lê inteiro — e é onde estão a data
+   e a sala do primeiro encontro. A medida fica presa em 62ch: linha longa demais
+   faz o olho perder o começo da seguinte, e o cartão pode ir a 720px. */
+.sucesso-projeto__orientacao {
+  margin: 14px 0 0; max-width: 62ch;
+  font-size: .93rem; line-height: 1.7; color: var(--texto-fraco);
+}
+.sucesso-projeto .projeto-info { margin-top: 16px; }
+
+/* ------------------------------------------------------------ Rodapé */
+
+.rodape {
+  background: var(--texto); color: #c9d1d9;
+  padding: 48px 0 30px; font-size: .9rem;
+}
+.rodape a { color: #9ecbff; }
+.rodape__grade { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 34px; margin-bottom: 32px; }
+@media (max-width: 720px) { .rodape__grade { grid-template-columns: 1fr; gap: 24px; } }
+.rodape h4 { color: #fff; font-size: .93rem; margin: 0 0 11px; }
+.rodape ul { list-style: none; padding: 0; margin: 0; }
+.rodape li { padding: 4px 0; }
+.rodape__base {
+  border-top: 1px solid #30363d; padding-top: 22px;
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  font-size: .82rem; color: #8b949e;
+}
+
+/* ------------------------------------------------------------ Utilitários */
+
+.oculto { display: none !important; }
+.texto-fraco { color: var(--texto-fraco); }
+.pequeno { font-size: .85rem; }
+.centro { text-align: center; }
+
+.pular-para-conteudo {
+  position: absolute; left: -9999px;
+  background: var(--vinho); color: #fff; padding: 11px 18px;
+  border-radius: 0 0 8px 0; z-index: 100;
+}
+.pular-para-conteudo:focus { left: 0; top: 0; }
+
+:focus-visible { outline: 2px solid var(--vinho); outline-offset: 2px; }

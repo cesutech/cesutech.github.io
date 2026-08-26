@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CESUTECH — Projetos de Extensão | UNICESUSC</title>
+  <meta name="description" content="Projetos de Extensão Curricularizada do CESUTECH. Escolha um projeto e faça sua inscrição.">
+  <meta name="theme-color" content="#5c2235">
+  <link rel="stylesheet" href="assets/estilos.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%235c2235'/><text y='68' x='50' text-anchor='middle' font-size='52' font-family='Arial' font-weight='bold' fill='white'>C</text></svg>">
+</head>
+<body>
+
+<a href="#projetos" class="pular-para-conteudo">Pular para os projetos</a>
+
+<header class="topo">
+  <div class="container topo__linha">
+    <a href="#" class="marca" onclick="voltarParaLista(event)">
+      <span>CESUTECH</span>
+      <span class="marca__sub">Projetos de Extensão</span>
+    </a>
+    <nav aria-label="Navegação principal">
+      <a href="#sobre">Sobre</a>
+      <a href="#projetos" class="btn btn--primario">Ver projetos</a>
+    </nav>
+  </div>
+</header>
+
+<main id="conteudo">
+
+  <!-- Banner oficial do CESUTECH -->
+  <section class="faixa-banner" id="faixa-banner">
+    <img src="assets/banners/cabecalho.jpg"
+         alt="CESUTECH — Projetos de Extensão · Centro Universitário UNICESUSC"
+         width="1920" height="480" fetchpriority="high">
+  </section>
+
+  <!-- ---------------------------------------------------- Lista de projetos -->
+  <div id="tela-lista">
+
+    <section class="secao" id="sobre">
+      <div class="container">
+        <div class="secao__cabecalho">
+          <h1>Projetos de Extensão Curricularizada</h1>
+          <p>
+            A Extensão Curricularizada integra o percurso acadêmico e aproxima o
+            conhecimento da universidade das demandas reais da comunidade.
+            Escolha abaixo o projeto do qual deseja participar neste semestre.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="secao secao--alt" id="projetos">
+      <div class="container">
+        <div class="secao__cabecalho">
+          <h2>Projetos Disponíveis</h2>
+          <p>Clique no projeto para ver os detalhes e fazer sua inscrição.</p>
+        </div>
+
+        <div id="aviso-config" class="aviso aviso--atencao oculto">
+          <strong>Site ainda não conectado.</strong>
+          Preencha <code>endpoint</code> em <code>docs/assets/config.js</code>
+          com a URL <code>/exec</code> do Apps Script.
+        </div>
+
+        <div id="carregando-projetos" class="carregando">Carregando projetos...</div>
+        <div class="grade-projetos" id="grade-projetos"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ------------------------------------------------- Detalhe + inscrição -->
+  <div id="tela-projeto" class="oculto">
+    <section class="secao">
+      <div class="container">
+
+        <button class="btn btn--pequeno projeto-voltar" onclick="voltarParaLista()">&lsaquo; Todos os projetos</button>
+
+        <div class="aviso aviso--erro oculto" id="aviso-perda-vaga"
+             role="alert" tabindex="-1"></div>
+
+        <div class="projeto-banner" id="projeto-banner"></div>
+
+        <div class="projeto-grade">
+          <div>
+            <h1 id="projeto-nome"></h1>
+            <p class="projeto-coordenacao" id="projeto-coordenacao"></p>
+            <p id="projeto-descricao"></p>
+            <dl class="projeto-info" id="projeto-info"></dl>
+          </div>
+
+          <aside class="projeto-lateral">
+            <div class="cartao-vagas" id="cartao-vagas"></div>
+          </aside>
+        </div>
+
+        <!-- Formulário do projeto -->
+        <div id="area-formulario" class="form-envolucro oculto">
+          <div class="cartao-form" id="cartao-form">
+
+            <h2>Inscrição — <span id="form-projeto-nome"></span></h2>
+
+            <!--
+              A orientação que a coordenação escreve para ESTE projeto: quem
+              coordena, quando é o primeiro encontro, o que fazer se lotar. Fica
+              aqui, entre o título e a linha dos obrigatórios, porque é o que o
+              aluno precisa ler ANTES de começar a preencher.
+
+              Nasce vazio e escondido. Quem o preenche é `mostrarProjeto`
+              (app.js), com o texto como TEXTO — nunca `innerHTML`: é campo
+              editado no painel e lido por centenas de pessoas, e um `<script>`
+              colado ali por descuido rodaria no navegador de cada uma. As
+              quebras de linha são desenhadas com <br> montados no DOM, uma por
+              linha do texto, e não por marcação vinda do banco.
+            -->
+            <p id="form-orientacao" class="oculto"></p>
+
+            <p class="texto-fraco pequeno">Campos com <strong>*</strong> são obrigatórios.</p>
+
+            <div id="erro-geral" class="aviso aviso--erro oculto" role="alert"></div>
+
+            <form id="formulario" novalidate>
+              <div class="grade-2">
+                <div class="campo">
+                  <label for="matricula">
+                    Matrícula *
+                    <span class="selo-matricula" id="selo-matricula" aria-live="polite"></span>
+                  </label>
+                  <input type="text" id="matricula" autocomplete="off" inputmode="numeric"
+                         aria-describedby="erro-matricula">
+                  <p class="erro-campo" id="erro-matricula"></p>
+                </div>
+                <div class="campo">
+                  <label for="nome">Nome completo *</label>
+                  <input type="text" id="nome" autocomplete="name">
+                  <p class="erro-campo" id="erro-nome">Informe o nome e o sobrenome.</p>
+                </div>
+              </div>
+
+              <div class="campo">
+                <label for="curso_fase">Curso e fase *</label>
+                <select id="curso_fase"></select>
+                <p class="erro-campo" id="erro-curso_fase">Selecione seu curso e fase.</p>
+              </div>
+
+              <div class="grade-2">
+                <div class="campo">
+                  <label for="email">Seu melhor e-mail *</label>
+                  <input type="email" id="email" autocomplete="email">
+                  <p class="erro-campo" id="erro-email">E-mail inválido.</p>
+                </div>
+                <div class="campo">
+                  <label for="whatsapp">WhatsApp *</label>
+                  <input type="tel" id="whatsapp" inputmode="numeric" maxlength="15" placeholder="(00) 00000-0000">
+                  <p class="erro-campo" id="erro-whatsapp">WhatsApp inválido.</p>
+                </div>
+              </div>
+
+              <!-- Honeypot — não é campo real. -->
+              <div class="armadilha" aria-hidden="true">
+                <label for="website">Não preencha este campo</label>
+                <input type="text" id="website" tabindex="-1" autocomplete="off">
+              </div>
+
+              <!--
+                AS TRÊS CAIXAS FICAM DESMARCADAS E EDITÁVEIS. DECISÃO DELIBERADA
+                DE 06/08/2026 — não é descuido nem sobra de rascunho.
+
+                Chegou a ser levantado marcá-las por padrão e travá-las, deixando
+                um único aceite no fim ("ao se inscrever você concorda com todos
+                os termos"). Foi RECUSADO, e o motivo é a caixa do meio: ela é a
+                autorização de uso de IMAGEM E VOZ. Marcada e travada, ela deixa
+                de ser escolha e vira condição da inscrição — o aluno que quer
+                participar do projeto mas não quer ser fotografado ficaria sem
+                como dizer não, a não ser desistindo da vaga.
+
+                Uso de imagem é finalidade SEPARADA da inscrição, e finalidade
+                separada pede consentimento separado. O servidor já trata as três
+                assim: `validarInscricao` (04_Inscricoes.gs) exige apenas
+                `declara_ciencia` e `consentimento_lgpd`, e grava
+                `autoriza_imagem` como SIM ou NÃO sem nunca recusar por causa
+                dela. Quem vier depois vai olhar estas três caixas soltas e
+                pensar em "simplificar": é para essa pessoa que este comentário
+                existe. Juntar as três num aceite só tira do aluno a única
+                escolha que ele tem aqui.
+              -->
+              <div class="campo checkbox">
+                <input type="checkbox" id="declara_ciencia">
+                <label for="declara_ciencia" id="rotulo-declaracao"></label>
+              </div>
+              <p class="erro-campo" id="erro-declaracao" style="margin:-10px 0 16px">
+                É necessário declarar ciência para participar.
+              </p>
+
+              <div class="campo checkbox">
+                <input type="checkbox" id="autoriza_imagem">
+                <label for="autoriza_imagem" id="rotulo-imagem"></label>
+              </div>
+
+              <div class="campo checkbox">
+                <input type="checkbox" id="consentimento_lgpd">
+                <label for="consentimento_lgpd" id="rotulo-lgpd"></label>
+              </div>
+              <p class="erro-campo" id="erro-lgpd" style="margin:-10px 0 18px">
+                É necessário aceitar para concluir a inscrição.
+              </p>
+
+              <button type="submit" class="btn btn--primario btn--bloco btn--grande" id="botao-enviar">
+                Confirmar inscrição
+              </button>
+
+              <div class="aviso aviso--info oculto" id="status-envio"
+                   role="status" aria-live="polite" style="margin:14px 0 0"></div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Confirmação.
+             O cartão é o comprovante que o aluno fotografa: mensagem, protocolo
+             e, abaixo dele, os dados do projeto em que ele acabou de entrar —
+             onde, quando e com quem. O botão de voltar fica FORA do cartão, para
+             não entrar na foto nem competir com o comprovante. -->
+        <div id="painel-sucesso" class="form-envolucro oculto">
+          <div class="cartao-form painel-sucesso">
+            <div class="painel-sucesso__marca" aria-hidden="true">✓</div>
+            <h2 id="sucesso-titulo">Inscrição registrada</h2>
+            <p id="sucesso-texto" class="texto-fraco"></p>
+            <p id="sucesso-aviso" class="aviso aviso--atencao oculto"></p>
+            <p id="sucesso-protocolo" class="protocolo oculto"></p>
+
+            <!--
+              O cartao mostra o NOME e as ORIENTACOES, e mais nada. A coordenacao,
+              o local e o horario sairam daqui em 12/08 porque o texto de
+              orientacoes ja os traz — escritos pelo proprio professor, na ordem
+              que ele quis. Repetir os mesmos fatos em duas formas obriga o aluno a
+              conferir se as duas concordam, e no dia em que discordarem ele nao
+              tem como saber qual vale.
+            -->
+            <div id="sucesso-projeto" class="sucesso-projeto oculto">
+              <h3 class="sucesso-projeto__rotulo">Seu projeto</h3>
+              <p class="sucesso-projeto__nome" id="sucesso-projeto-nome"></p>
+              <p class="sucesso-projeto__orientacao oculto" id="sucesso-projeto-orientacao"></p>
+            </div>
+          </div>
+
+          <p class="centro" style="margin:22px 0 0">
+            <button type="button" class="btn" onclick="voltarParaLista()">Voltar aos projetos</button>
+          </p>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+</main>
+
+<footer class="rodape">
+  <div class="container">
+    <div class="rodape__grade">
+      <div>
+        <h4>CESUTECH</h4>
+        <p style="margin:0;max-width:44ch">
+          Projetos de Extensão Curricularizada do Centro Universitário UNICESUSC.
+        </p>
+      </div>
+      <div>
+        <h4>Navegação</h4>
+        <ul>
+          <li><a href="#sobre">Sobre a extensão</a></li>
+          <li><a href="#projetos">Projetos disponíveis</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contato</h4>
+        <ul>
+          <li><a href="#" id="link-email">—</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="rodape__base">
+      <span id="rodape-instituicao">UNICESUSC</span>
+      <span>Tratamento de dados conforme a Lei nº 13.709/2018 (LGPD)</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

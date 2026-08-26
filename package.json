@@ -1,0 +1,10 @@
+{
+  "name": "unicesusc-cesutech",
+  "version": "0.1.0",
+  "description": "Cadastro e gestão de alunos do CESUTECH — Google Apps Script + Cloud Firestore",
+  "private": true,
+  "scripts": {
+    "test": "node testes/repo.js && node testes/config-log.js && node testes/acesso.js && node testes/invasao.js && node testes/projetos.js && node testes/inscricoes.js && node testes/auditorio.js && node testes/api.js && node testes/importacao.js && node testes/painel.js && node testes/painel-navegador.js && node testes/painel-site.js && node testes/reconciliacao.js && node testes/banners.js && node testes/disciplinas.js && node testes/consertos.js && node testes/site.js && node testes/planilha.js && node testes/backup.js"
+  },
+  "license": "MIT"
+}
