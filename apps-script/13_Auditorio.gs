@@ -52,6 +52,26 @@
  *    poucos documentos. Nem `__name__` DESC: o índice automático de `__name__` só
  *    cobre ascendente (a cicatriz está em `ultimosRegistros`, 04_Log.gs).
  *
+ * 3. NÃO SE PAGINA POR CURSOR. A janela das inscrições é UMA consulta, e quando
+ *    ela vem cheia a resposta confere o `total` do banco antes de dizer
+ *    `truncada` — cheia na medida não é cortada. As duas paginações possíveis
+ *    perdem alguma coisa, cada uma do seu jeito:
+ *
+ *    por `criado_em`, o cursor recomeça ESTRITAMENTE depois do último valor lido
+ *    (`fsCursor_` monta `startAt` com `before: false`, 02_Repo.gs) e `agora()`
+ *    grava com resolução de SEGUNDO (01_Utils.gs) — duas inscrições do mesmo
+ *    segundo na virada da página, e a segunda fica de fora, calada. A cicatriz
+ *    já está escrita: `reconciliar` (06_Reconciliacao.gs) pagina por `__name__`
+ *    e ordena na memória exatamente por causa disso;
+ *
+ *    por `__name__`, a paginação é exata e a ORDEM deixa de ser a de chegada: o
+ *    id é `hash(...)` (`chaveDedup_`, 04_Inscricoes.gs), então "as últimas que
+ *    chegaram" viraria "as primeiras do alfabeto do hash".
+ *
+ *    Truncar DIZENDO que truncou é o menor dos três males: a coordenação vê que
+ *    a lista não é a lista inteira e recorta a busca. Cortar calado é o que faz
+ *    alguém procurar um aluno que está no banco, não achar, e concluir errado.
+ *
  * ------------------------------------------------------------- A quarentena
  *
  * Anular COPIA para `inscricoes_anuladas` e só então apaga de `inscricoes`.
@@ -70,17 +90,73 @@
 var INSCRICOES_ANULADAS_COLECAO = 'inscricoes_anuladas';
 
 /**
- * Teto de ids por chamada.
+ * Teto de ESCRITA: quantos ids as três que gravam aceitam de uma vez.
  *
  * 200, e não "quantos vierem": cada id custa de uma a duas leituras e uma
- * escrita, e a execução do Apps Script morre aos 6 minutos. Um lote sem teto
- * falharia no meio — que é o único jeito de a quarentena ficar com metade do
- * serviço feito.
+ * escrita, a execução do Apps Script morre aos 6 minutos e o plano gratuito dá
+ * 20 mil escritas por dia. Um lote sem teto falharia no meio — que é o único
+ * jeito de a quarentena ficar com metade do serviço feito.
+ *
+ * Nunca teve a ver com quantas linhas a tela mostra. LER é barato e não corre
+ * contra o relógio da execução; quem manda na leitura é
+ * `AUDITORIO_RECENTES_MAXIMO`. Confundir os dois foi o defeito que fazia a tela
+ * marcar 500 linhas para o servidor tratar 200 delas e relatar sucesso.
+ *
+ * E ELE VIAJA: as duas leituras da aba devolvem este número em `lote_maximo`.
+ * Sem isso a tela não tem como saber onde a recusa começa — ela ofereceria
+ * "Anular as 300 marcadas", a pessoa clicaria, e a resposta seria um erro que
+ * ninguém tinha como prever antes do clique. Um número combinado de cabeça nos
+ * dois lados é o mesmo defeito com um passo a mais: o dia em que este teto
+ * mudar, só um dos lados muda junto.
  */
 var AUDITORIO_LOTE_MAXIMO = 200;
 
 /** Quantas inscrições recentes a tela pede quando não diz. */
 var AUDITORIO_RECENTES_PADRAO = 50;
+
+/**
+ * Teto de LEITURA: o tamanho máximo da janela de inscrições recentes.
+ *
+ * A conta, para 1000 não ser um número redondo escolhido no olho:
+ *
+ *   TAMANHO. São 275 inscrições hoje. Uma janela de inscrição vale 5 projetos ×
+ *   60 vagas = 300 confirmados, mais a fila de espera. 500 seria atravessado
+ *   pela janela seguinte — a lista voltaria a esconder gente, que é justamente o
+ *   defeito que este teto existe para não repetir. 1000 cobre duas janelas.
+ *
+ *   CUSTO. Uma abertura da aba são DUAS chamadas, e cada uma é uma execução
+ *   separada — o cache de `config()` não atravessa de uma para a outra. A conta,
+ *   linha por linha do que o código realmente pede:
+ *
+ *     inscricoesRecentes (o painel pede sempre no talo, 1000)
+ *       `exigirAdmin` ................ 0   (a sessão vive em ScriptProperties)
+ *       a janela ..................... uma leitura por inscrição que couber
+ *       o `total` .................... 1 agregação, e SÓ com a janela cheia
+ *
+ *     filaDeEspera
+ *       `exigirAdmin` ................ 0
+ *       a fila ....................... uma leitura por quem espera (teto 500)
+ *       a coleção de projetos ........ 5 hoje (vêm todos, ativos e inativos)
+ *       a configuração ............... 1 (`contar_ocupacao_na_lista`)
+ *       as contagens ................. 2 agregações por projeto ATIVO com a
+ *                                      fila ligada — o total e a espera —, 10
+ *                                      hoje; projeto que só aparece na fila
+ *                                      custa 1 leitura e 2 agregações à parte
+ *
+ *   Hoje, com 275 inscrições: 275 + 16, mais uma leitura por pessoa na fila.
+ *   Com a janela cheia: 1000 + 1 + 16, mais a fila — ~1.017 se ela estiver
+ *   vazia, ~1.517 se ela estiver no teto de 500.
+ *
+ *   A cota gratuita é de 50.000 leituras por dia, das quais o backup já leva
+ *   10.650 e a reconciliação 5.500 — sobram 33.850. E a aba se recarrega ao fim
+ *   de CADA anular e de CADA promover: um mutirão de 20 remoções são 21
+ *   aberturas — ~6.100 leituras hoje (291 cada, com a fila curta), e ~31.900 no
+ *   pior caso previsto, de janela cheia e fila no teto (1.517 cada). O primeiro
+ *   número é confortável; o segundo cabe raspando, e é ele que diz que o dia de
+ *   recarregar a aba inteira a cada clique acaba quando o evento passar de mil
+ *   inscrições.
+ */
+var AUDITORIO_RECENTES_MAXIMO = 1000;
 
 /**
  * Teto da fila lida de uma vez.
@@ -100,18 +176,37 @@ var AUDITORIO_FILA_MAXIMA = 500;
  * Ordena por `criado_em` DESC — campo de verdade, largura fixa, índice automático
  * de campo único, exatamente como `ultimosRegistros` (04_Log.gs) faz com o log.
  *
+ * UMA consulta, sem cursor, no teto de `AUDITORIO_RECENTES_MAXIMO` — o porquê de
+ * não paginar está no cabeçalho.
+ *
+ * A janela CHEIA é SUSPEITA de corte, e não prova dele: mil no banco com mil
+ * pedidas enche a janela sem deixar ninguém de fora. Quem confirma é o `total`
+ * da coleção — que a janela cheia já paga de qualquer jeito, então a conferência
+ * não custa uma leitura a mais —, e `truncada: true` só sai quando ele é MAIOR
+ * que o que veio. Com a janela folgada a agregação nem roda: `lidas` já É o
+ * total, e contá-lo seria leitura paga para repetir um número que a tela tem.
+ *
+ * Sem esse par, procurar alguém que ficou fora da janela devolve "não achei",
+ * que é indistinguível de "não existe" — e foi assim que 275 inscrições couberam
+ * numa tela de 200 sem ninguém perceber. O erro tem dois lados, e o outro é esta
+ * função dizendo "faltam as mais antigas" quando não falta nenhuma: quem lê essa
+ * frase vai procurar na aba Alunos alguém que estava na tela o tempo todo, e
+ * desiste achando que o sistema perdeu a inscrição.
+ *
  * O filtro por projeto acontece DEPOIS, em JavaScript, e a consequência precisa
- * ficar dita: ele corta o que o teto já trouxe. Pedir as últimas 200 e ver 12 de
- * um projeto não é defeito — é o que "as 12 mais recentes DENTRO das últimas 200"
- * significa. `lidas` volta na resposta justamente para a tela poder dizer isso.
- * Filtrar no servidor custaria índice composto (ver o cabeçalho).
+ * ficar dita: ele corta o que o teto já trouxe. Pedir a janela e ver 12 de um
+ * projeto não é defeito — é o que "as 12 mais recentes DENTRO da janela"
+ * significa. O painel não manda mais `projeto_id`: recebe a janela inteira e
+ * filtra no navegador, onde o filtro é de graça e não custa uma leitura por
+ * clique. O parâmetro fica de pé para quem ainda o mandar — filtrar no servidor
+ * é que custaria índice composto (ver o cabeçalho).
  */
 function inscricoesRecentes(payload) {
   try {
     exigirAdmin(payload && payload.token);
     payload = payload || {};
 
-    var limite = tetoDoLote_(payload.limite, AUDITORIO_RECENTES_PADRAO);
+    var limite = tetoDaLeitura_(payload.limite, AUDITORIO_RECENTES_PADRAO);
     var lidas = listar(INSCRICOES_COLECAO, {
       ordenarPor: 'criado_em',
       direcao: 'DESC',
@@ -123,9 +218,66 @@ function inscricoesRecentes(payload) {
       ? lidas.filter(function (i) { return String(i.projeto_id || '') === alvo; })
       : lidas;
 
-    return { ok: true, lidas: lidas.length, inscricoes: itens.map(resumoParaAuditorio_) };
+    // Contra o limite PEDIDO, e não contra o teto global: quem pede 50 e recebe
+    // 50 está vendo uma janela cheia, ainda que o teto fosse 1000. Comparar com
+    // o teto diria `truncada: false` para a tela que mais esconde gente.
+    var cheia = lidas.length >= limite;
+
+    // A janela cheia paga a agregação; a folgada não pergunta nada. `null` é a
+    // terceira resposta — "não perguntei" ou "perguntei e não veio" —, e ela é
+    // diferente de zero.
+    var total = cheia ? totalDeInscricoes_() : null;
+
+    // Cheia não é cortada. Com o total na mão, quem decide é ele: 1000 no banco
+    // e 1000 na tela é uma janela que encheu na medida, e anunciar corte aí
+    // manda a coordenação procurar em Alunos gente que já está aqui. Sem o total
+    // (a agregação falhou), a suspeita fica de pé — dizer "está tudo aqui" sem
+    // ter conferido é a promessa que ninguém pode fazer.
+    var truncada = cheia && (total === null || total > lidas.length);
+
+    var resposta = {
+      ok: true,
+      lidas: lidas.length,
+      truncada: truncada,
+      // O teto da ESCRITA, para a tela não oferecer um lote que estas três
+      // recusam — ver `AUDITORIO_LOTE_MAXIMO`.
+      lote_maximo: AUDITORIO_LOTE_MAXIMO,
+      inscricoes: itens.map(resumoParaAuditorio_)
+    };
+    // Só acompanha o corte: com `truncada: false` o total é `lidas`, e mandá-lo
+    // seria um segundo número dizendo a mesma coisa. Ausente, a tela trata (ela
+    // já tem o caso do servidor calado — ver `rodapeDeRecentes`, no painel).
+    if (truncada && total !== null) resposta.total = total;
+
+    return resposta;
   } catch (err) {
     return { ok: false, erro: err.message };
+  }
+}
+
+/**
+ * Quantas inscrições existem no banco — ou `null` quando a conta não veio.
+ *
+ * É UMA SEGUNDA IDA À REDE, e o `try` daqui existe por causa disso. Quando esta
+ * função é chamada, a janela JÁ FOI LIDA e está na memória — até mil linhas, que
+ * são a tela com que a coordenação reconhece o lixo e anula. Deixar a agregação
+ * dentro do `try` de `inscricoesRecentes` fazia o `catch` de lá responder
+ * `ok: false` e jogar as mil fora: a tela inteira do evento morria por causa do
+ * número do rodapé, que é a informação menos importante da resposta. E ela falha
+ * por conta própria — cota de leitura estourada, 503 do Firestore, a execução
+ * esbarrando nos 6 minutos —, sem nada de errado com a consulta que deu certo.
+ *
+ * Sem o total a resposta sai completa e mais modesta: as linhas vão, `total` não
+ * vai, e `truncada` continua dizendo a suspeita em vez de uma certeza que ninguém
+ * conferiu. O `console.error` fica porque uma falha silenciosa aqui é
+ * indistinguível de uma janela folgada quando alguém for ler o log depois.
+ */
+function totalDeInscricoes_() {
+  try {
+    return contar(INSCRICOES_COLECAO);
+  } catch (err) {
+    console.error('inscricoesRecentes: o total não veio — ' + err.message);
+    return null;
   }
 }
 
@@ -174,7 +326,17 @@ function filaDeEspera(payload) {
     var quantosPorProjeto = {};
     var saida = fila.map(function (i) {
       var pid = String(i.projeto_id || '');
-      quantosPorProjeto[pid] = (quantosPorProjeto[pid] || 0) + 1;
+      // `hasOwnProperty` e não `|| 0`: um `projeto_id` chamado 'constructor' ou
+      // 'toString' responde por HERANÇA, e a soma vira
+      // "function Object() { [native code] }1" — a posição na fila deixa de ser
+      // número sem erro nenhum. É a mesma cicatriz de `idsDoPayload_`, e o
+      // servidor é a fonte: o painel já se blindou, e blindar só o consumidor
+      // deixa a origem produzindo lixo.
+      //
+      // Id de produção é `uid('proj')` ou hash hexadecimal, então isto não
+      // acontece hoje — é o custo de uma linha para não depender disso.
+      quantosPorProjeto[pid] = (Object.prototype.hasOwnProperty.call(quantosPorProjeto, pid)
+        ? quantosPorProjeto[pid] : 0) + 1;
 
       return {
         id: i._id,
@@ -182,13 +344,17 @@ function filaDeEspera(payload) {
         matricula: i.matricula || '',
         projeto_id: pid,
         criado_em: i.criado_em || '',
-        posicao: quantosPorProjeto[pid]
+        posicao: contagemDe_(quantosPorProjeto, pid)
       };
     });
 
     return {
       ok: true,
       truncada: lidas.length >= AUDITORIO_FILA_MAXIMA,
+      // O mesmo teto de escrita que `inscricoesRecentes` devolve: as duas listas
+      // da aba têm barra de ação, e a da fila promove. Mandá-lo de um lado só
+      // deixaria metade da tela oferecendo lote que o servidor recusa.
+      lote_maximo: AUDITORIO_LOTE_MAXIMO,
       projetos: projetosDoAuditorio_(quantosPorProjeto, alvo),
       fila: saida
     };
@@ -225,14 +391,14 @@ function filaDeEspera(payload) {
 function projetosDoAuditorio_(quantosPorProjeto, alvo) {
   // Pedindo UM projeto, é dele que se fala — e aí nem se paga a contagem dos
   // outros, que `listarProjetos` faria por dentro para jogar fora.
-  if (alvo) return [resumoDoProjeto_(alvo, quantosPorProjeto[alvo] || 0)];
+  if (alvo) return [resumoDoProjeto_(alvo, contagemDe_(quantosPorProjeto, alvo))];
 
   var saida = [];
   var vistos = {};
 
   listarProjetos(true).forEach(function (p) {
     vistos[p.id] = true;
-    var emEspera = quantosPorProjeto[p.id] || 0;
+    var emEspera = contagemDe_(quantosPorProjeto, p.id);
     saida.push(p.inscritos === null
       ? resumoDoProjeto_(p.id, emEspera)
       : linhaDoProjeto_(p, emEspera));
@@ -240,7 +406,7 @@ function projetosDoAuditorio_(quantosPorProjeto, alvo) {
 
   Object.keys(quantosPorProjeto).forEach(function (id) {
     if (Object.prototype.hasOwnProperty.call(vistos, id)) return;
-    saida.push(resumoDoProjeto_(id, quantosPorProjeto[id]));
+    saida.push(resumoDoProjeto_(id, contagemDe_(quantosPorProjeto, id)));
   });
 
   return saida;
@@ -315,6 +481,9 @@ function anularInscricoes(payload) {
 
     var ids = idsDoPayload_(payload.ids);
     if (!ids.length) return { ok: false, erro: 'Nenhuma inscrição selecionada.' };
+    if (ids.length > AUDITORIO_LOTE_MAXIMO) {
+      return { ok: false, erro: erroDeLoteGrandeDemais_(ids.length) };
+    }
 
     var quem = quemMexeu_(payload.token);
     var carimbo = agora();
@@ -398,6 +567,9 @@ function restaurarInscricoes(payload) {
 
     var ids = idsDoPayload_(payload.ids);
     if (!ids.length) return { ok: false, erro: 'Nenhuma inscrição selecionada.' };
+    if (ids.length > AUDITORIO_LOTE_MAXIMO) {
+      return { ok: false, erro: erroDeLoteGrandeDemais_(ids.length) };
+    }
 
     var restauradas = 0;
     var emEspera = 0;
@@ -574,6 +746,9 @@ function promoverDaEspera(payload) {
 
     var ids = idsDoPayload_(payload.ids);
     if (!ids.length) return { ok: false, erro: 'Nenhuma inscrição selecionada.' };
+    if (ids.length > AUDITORIO_LOTE_MAXIMO) {
+      return { ok: false, erro: erroDeLoteGrandeDemais_(ids.length) };
+    }
 
     var recusadas = [];
     var jaConfirmadas = 0;
@@ -728,16 +903,27 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
 // ------------------------------------------------------------ Apoio
 
 /**
- * Os ids que o painel mandou: texto, sem repetição, no teto.
+ * Os ids que o painel mandou: texto, sem repetição — e TODOS eles.
  *
  * Ids explícitos, e nunca "faça em quantos couberem": quem apaga precisa ter
  * visto quem está apagando. Um filtro que o servidor resolve sozinho apagaria o
  * que a tela não mostrou.
  *
+ * O TETO NÃO É APLICADO AQUI. Devolver menos do que o chamador pediu, sem dizer,
+ * é a mesma classe de defeito de mostrar 200 de 275: os três que escrevem
+ * conferem `AUDITORIO_LOTE_MAXIMO` e RECUSAM o lote inteiro
+ * (`erroDeLoteGrandeDemais_`). Esta função responde uma pergunta só — quais ids
+ * vieram —, e quem tem dois contratos é quem produz o próximo defeito calado.
+ *
  * A barra é recusada porque id de documento não tem barra: `excluirEmLote` e
  * `escreverEmLote` colam o id no caminho do recurso, e uma barra ali mudaria a
  * coleção alvo em vez de errar.
  */
+/** Quanto o mapa tem para esta chave, sem cair na herança de Object.prototype. */
+function contagemDe_(mapa, chave) {
+  return Object.prototype.hasOwnProperty.call(mapa, chave) ? mapa[chave] : 0;
+}
+
 function idsDoPayload_(bruto) {
   if (!bruto) return [];
 
@@ -756,21 +942,42 @@ function idsDoPayload_(bruto) {
     ids.push(id);
   });
 
-  return ids.slice(0, AUDITORIO_LOTE_MAXIMO);
+  return ids;
 }
 
-/** Um número de 1 a AUDITORIO_LOTE_MAXIMO, com padrão para o que não é número. */
-function tetoDoLote_(bruto, padrao) {
+/**
+ * A recusa do lote grande demais — a mesma frase nas três que escrevem.
+ *
+ * Aqui era um `slice` silencioso: quem mandava 500 ids recebia 200 tratados e um
+ * relatório verde, e os 300 restantes ficavam na tela sem ninguém saber. Recusar
+ * devolve a decisão a quem clicou, com os dois números de que ela precisa — o
+ * que veio e o que cabe —, e devolve ANTES de ler ou gravar qualquer coisa, para
+ * o lote recusado não custar nem meia escrita.
+ */
+function erroDeLoteGrandeDemais_(quantos) {
+  return 'Vieram ' + quantos + ' inscrições de uma vez, e o lote é de no máximo ' +
+    AUDITORIO_LOTE_MAXIMO + ' — nada foi feito. Selecione até ' + AUDITORIO_LOTE_MAXIMO +
+    ' e repita.';
+}
+
+/**
+ * Um número de 1 a AUDITORIO_RECENTES_MAXIMO, com padrão para o que não é número.
+ *
+ * Chamava-se `tetoDoLote_` e fechava a leitura no teto da ESCRITA — um nome que
+ * mentia sobre os dois lados e mantinha a tela presa ao limite dos 6 minutos de
+ * execução, que a leitura não paga.
+ */
+function tetoDaLeitura_(bruto, padrao) {
   var n = Math.floor(Number(bruto));
   if (!n || n < 1) return padrao;
-  return Math.min(n, AUDITORIO_LOTE_MAXIMO);
+  return Math.min(n, AUDITORIO_RECENTES_MAXIMO);
 }
 
 /**
  * A inscrição como a tela do auditório precisa dela.
  *
  * `raw_json` fica de fora: é o payload inteiro do formulário repetido dentro do
- * documento, e mandá-lo em 200 linhas engordaria a resposta sem acrescentar nada
+ * documento, e mandá-lo em mil linhas engordaria a resposta sem acrescentar nada
  * que a conferência use.
  */
 function resumoParaAuditorio_(inscricao) {

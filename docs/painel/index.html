@@ -222,11 +222,58 @@
       enxerga: mesmo projeto, segundos entre uma linha e outra, nomes sem cara de
       gente.
     </p>
+    <!--
+      O TETO DO LOTE MORA AQUI, e não só na hora em que ele é estourado.
+
+      A faixa marca 200 em dois toques, e a lista chega a mil linhas: descobrir o
+      teto só depois de ter marcado 380 é descobrir tarde — o trabalho já foi
+      feito e a única saída é desmarcar 180 uma a uma. A frase é escrita por
+      `desenharTetoDoLote`, e não fixa na marcação, porque o número é do SERVIDOR
+      (`lote_maximo`, nas duas leituras): repeti-lo aqui à mão criaria uma tela
+      que continua dizendo 200 no dia em que o servidor passar a fazer 500.
+    -->
     <p class="pequeno" id="auditorio-regra">
       <strong>Toque</strong> numa linha para marcar. Toque em <strong>outra</strong> e
       tudo que estiver <strong>entre as duas</strong> é marcado junto. Toque numa
-      marcada para desmarcar só ela.
+      marcada para desmarcar só ela.<span id="auditorio-teto-lote"></span>
     </p>
+    <!--
+      Os filtros moram FORA de `#auditorio-recentes`, e o motivo é o mesmo que
+      `desenharInscritosProjeto` já escreveu: a lista se redesenha a cada tecla,
+      e reescrever o `innerHTML` que contém o próprio campo destruiria o texto e
+      o cursor de quem está digitando.
+
+      São os três recortes que o professor pediu depois do evento: achar UMA
+      pessoa pelo nome ou pela matrícula, olhar UM projeto de cada vez, e ver
+      quem se inscreveu em mais de um. Todos resolvidos NO NAVEGADOR, sobre a
+      lista que já veio — filtrar no servidor a cada tecla custaria uma leitura
+      por tecla, e o filtro por projeto ainda pediria índice composto (ver o
+      cabeçalho de `inscricoesRecentes`, em 13_Auditorio.gs).
+
+      E mexer neles NÃO desmarca ninguém: ver as três travas em `itensVisiveis`.
+    -->
+    <div class="filtros">
+      <div class="campo">
+        <label for="filtro-aud-busca">Buscar</label>
+        <input type="text" id="filtro-aud-busca" placeholder="Nome ou matrícula..."
+               oninput="filtrarRecentes()">
+      </div>
+      <div class="campo">
+        <label for="filtro-aud-projeto">Projeto</label>
+        <select id="filtro-aud-projeto" onchange="filtrarRecentes()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label for="filtro-aud-repetidas">Recorte</label>
+        <select id="filtro-aud-repetidas" onchange="filtrarRecentes()">
+          <option value="">Todas as inscrições</option>
+          <option value="SIM">Mesma matrícula em mais de um projeto</option>
+        </select>
+      </div>
+      <button class="btn" onclick="limparFiltroAuditorio()">Limpar filtros</button>
+    </div>
+
     <div id="auditorio-acoes-recentes"></div>
     <div id="auditorio-recentes" class="carregando">Carregando...</div>
 
@@ -1705,6 +1752,56 @@
    */
   var LIMITE_DE_LEITURA_MS = 10000;
 
+  /**
+   * As leituras que precisam de MAIS tempo que as outras — e por quê, medido.
+   *
+   * O 10s de cima foi calibrado em 12 e 13/08 sobre respostas de 200 linhas.
+   * `inscricoesRecentes` deixou de ser uma delas em 27/08: o teto subiu para mil
+   * (`AUDITORIO_TETO`, e a razão está lá) e a resposta passou a ser cinco vezes
+   * maior. O que foi medido, somando o JSON de `resumoParaAuditorio_`
+   * (13_Auditorio.gs) campo a campo:
+   *
+   *     200 linhas  ->   65 KiB crus,  ~10 KiB comprimidos  (334 B por linha)
+   *    1000 linhas  ->  326 KiB crus,  ~46 KiB comprimidos
+   *
+   * e, do lado do servidor, o `runQuery` que `listar` baixa e faz `JSON.parse`
+   * dentro do Apps Script cresce de 0,26 MiB para 1,28 MiB — o documento inteiro
+   * viaja, `raw_json` incluído, e só depois `resumoParaAuditorio_` o descarta.
+   *
+   * ENTÃO 10s AINDA CHEGA? Chega, e é essa a resposta honesta: os 36 KiB
+   * comprimidos a mais custam ~0,4s no wifi de 1 Mbit/s e ~0,8s a 0,5 Mbit/s, e
+   * não os 5x que o tamanho cru sugere. O que MUDOU foi a folga, e a folga é a
+   * conta inteira que escolheu o 10s: a leitura mais lenta que DEU CERTO nas
+   * medições levou 9,25s, com 200 linhas. Somada a mil linhas ela encosta em 10s.
+   * A margem que era de 0,75s virou coisa de 0,2s a 0,4s, e o preço de errar não
+   * é neutro: abortada, a tentativa seguinte relê as mesmas mil e o total vira
+   * ~21s para uma leitura que teria chegado em 9,5s. Isso num servidor saudável,
+   * com o professor olhando a tela.
+   *
+   * POR QUE 15s, E SÓ AQUI. As travadas medidas foram de 11,9s a 66,8s; 15s fica
+   * acima de qualquer leitura que possa chegar e continua cortando as travadas.
+   * A única que ele deixa de cortar cedo é a de 11,9s, e ela custa 1,9s a mais
+   * uma vez.
+   *
+   * E a escolha não depende da compressão dar certo: os números comprimidos
+   * acima supõem que o `/exec` responde com gzip, como o Google faz para quem
+   * manda `Accept-Encoding`. Se um dia não responder, os 261 KiB crus a mais
+   * custam ~2s no mesmo wifi, 10s passa a não chegar e o 15s vira necessário em
+   * vez de folgado. A conta anda na mesma direção pelos dois caminhos.
+   *
+   * O limite global fica em 10s porque nenhuma outra leitura desta tela
+   * mudou de tamanho — inclusive `filaDeEspera`, cujo teto é 500 desde antes e
+   * cujas linhas são mais estreitas. Mexer nele sem medida seria trocar o que se
+   * mediu por um palpite que vale para dezenove chamadas.
+   */
+  var LIMITE_DE_LEITURA_POR_FUNCAO_MS = { inscricoesRecentes: 15000 };
+
+  /** O tempo desta leitura: o dela, quando ela tem um; o de todas, quando não. */
+  function limiteDeLeitura_(funcao) {
+    return temProprio_(LIMITE_DE_LEITURA_POR_FUNCAO_MS, funcao)
+      ? LIMITE_DE_LEITURA_POR_FUNCAO_MS[funcao] : LIMITE_DE_LEITURA_MS;
+  }
+
   var TEXTO_NOVA_TENTATIVA = 'Não consegui falar com o servidor. Tentando de novo...';
 
   /**
@@ -2100,7 +2197,7 @@
       // repetição, que é o lado seguro do esquecimento.
       var controle = podeRepetir ? new AbortController() : null;
       var relogio = controle
-        ? setTimeout(function () { controle.abort(); }, LIMITE_DE_LEITURA_MS)
+        ? setTimeout(function () { controle.abort(); }, limiteDeLeitura_(funcao))
         : null;
       function desarmar() { if (relogio !== null) clearTimeout(relogio); }
 
@@ -2550,23 +2647,116 @@
     projetos: [],       // { id, nome, vagas, confirmados, emEspera, cabem }
     recentes: [],       // as últimas inscrições, da mais nova para a mais velha
     fila: [],           // a espera, em ORDEM DE CHEGADA
-    lidas: 0,           // quantas inscrições a última leitura varreu
-    truncada: false,    // a fila veio cortada pelo teto do servidor?
+    truncada: false,    // a FILA veio cortada pelo teto do servidor?
+    // A lista de recentes veio cortada? `null` é o TERCEIRO estado, e ele existe:
+    // é "o servidor não disse". Tratá-lo como `false` faria a tela afirmar que
+    // está mostrando tudo sem ninguém ter afirmado isso — e é justamente essa
+    // frase que faria o professor concluir que a inscrição que ele não achou não
+    // existe. Ver `rodapeDeRecentes`.
+    recentesTruncada: null,
+    recentesTotal: 0,   // quantas há no banco — só chega quando cortou
+    // O TETO DE ESCRITA, dito pelo SERVIDOR (`lote_maximo`, nas duas leituras).
+    // `null` é "o servidor não disse" — servidor velho, ou uma resposta encenada
+    // —, e é por isso que ninguém lê este campo direto: quem lê é `loteMaximo_`.
+    loteMaximo: null,
     okProjetos: false,  // as duas leituras responderam bem? (ver ABAS_PRONTAS)
     okRecentes: false
   };
 
   /**
-   * O TETO das inscrições recentes, pedido no talo (o servidor não aceita mais).
+   * O TETO das inscrições recentes, pedido no talo.
    *
-   * O padrão do servidor são 50, e 50 é pouco para o que esta lista existe para
-   * mostrar: numa noite de 400 alunos, 50 inscrições são poucos minutos, e a
-   * rajada que a coordenação vai conferir pode já ter saído da janela quando
-   * alguém abre a aba. Duzentas leituras por clique em Atualizar não são nada
-   * perto da cota, e a resposta ainda diz `lidas` — a tela conta em voz alta o
-   * tamanho da janela que está mostrando.
+   * ERA 200, e 200 virou defeito em 27/08: o Auditório é o ÚNICO lugar do sistema
+   * que remove inscrição, havia 275 no banco, e as 75 mais antigas simplesmente
+   * não tinham como ser alcançadas por ninguém. O professor precisava tirar
+   * alunos que se inscreveram em mais de um projeto, e os pares que ele
+   * procurava estavam metade dentro e metade fora da janela.
+   *
+   * Mil não é um número redondo escolhido por gosto: é o que cabe numa leitura
+   * só do Firestore sem paginação, e a resposta ainda diz `truncada` — no dia em
+   * que o evento passar de mil, a tela conta em voz alta que cortou, quantas
+   * faltam e que as que faltam são as mais ANTIGAS.
+   *
+   * E o filtro por projeto NÃO viaja mais junto: ele é resolvido no navegador,
+   * sobre esta lista. Pedir ao servidor um projeto de cada vez cortaria o teto
+   * DEPOIS do corte por data (ver `inscricoesRecentes`, em 13_Auditorio.gs) —
+   * "as 12 mais recentes dentro das últimas 200" —, e é exatamente a inscrição
+   * velha que o professor foi procurar que ficaria de fora.
    */
-  var AUDITORIO_TETO = 200;
+  var AUDITORIO_TETO = 1000;
+
+  /**
+   * O teto de ESCRITA que a tela supõe quando o servidor não diz qual é o dele.
+   *
+   * Ele NÃO é a fonte da verdade: a fonte é o `lote_maximo` que as duas leituras
+   * trazem, porque quem recusa o lote é o servidor (`AUDITORIO_LOTE_MAXIMO` e
+   * `erroDeLoteGrandeDemais_`, em 13_Auditorio.gs) e uma cópia do número aqui
+   * envelhece calada — a tela continuaria oferecendo 200 no dia em que ele
+   * passasse a fazer 500, e oferecendo 500 no dia em que ele baixasse para 100.
+   *
+   * Ele existe para o servidor CALADO, e a escolha entre os dois erros possíveis
+   * é assimétrica. Supor "sem teto" devolve exatamente o defeito que este
+   * trabalho veio consertar: a tela desenha "Promover 380", o clique manda 380, e
+   * um servidor que recusa lote grande não promove NINGUÉM — num botão que a
+   * própria tela ofereceu. Supor 200 faz, no pior caso, menos do que caberia, e
+   * o resto vai na rodada seguinte. Menos do que cabia é conserto de um clique;
+   * o lote recusado é a pessoa descobrindo depois do clique que nada aconteceu.
+   *
+   * 200 e não outro número: é o único teto que este sistema já teve.
+   */
+  var AUDITORIO_LOTE_SUPOSTO = 200;
+
+  /**
+   * O TETO QUE A TELA RESPEITA — e todo mundo daqui lê por esta função.
+   *
+   * Um lugar só porque são quatro leitores (a oferta, a barra das duas listas e a
+   * frase da regra) e eles têm de concordar: uma barra que avisa em 200 ao lado
+   * de um botão que manda 380 é pior do que não avisar nada.
+   */
+  function loteMaximo_() {
+    var dito = AUDITORIO.loteMaximo;
+    return (typeof dito === 'number' && isFinite(dito) && dito > 0)
+      ? Math.floor(dito) : AUDITORIO_LOTE_SUPOSTO;
+  }
+
+  /**
+   * O que o servidor disse sobre o teto NESTA resposta — ou nada.
+   *
+   * Aceita só número: um servidor que mandasse `"200"` (texto) faria
+   * `Math.min(cabem, '200')` responder por comparação de string, e "3" > "200" é
+   * verdadeiro. Recusar o que não é número devolve o caso ao suposto, que é o
+   * lado seguro.
+   */
+  function guardarLoteMaximo_(bruto) {
+    if (typeof bruto === 'number' && isFinite(bruto) && bruto > 0) {
+      AUDITORIO.loteMaximo = Math.floor(bruto);
+    }
+  }
+
+  /**
+   * A chave é PRÓPRIA do objeto? — a cicatriz de `idsDoPayload_` (13_Auditorio.gs).
+   *
+   * `MARCADAS[lista][id]`, `vaga[projeto_id]` e companhia são mapas montados com
+   * `{}`, e um id chamado `constructor`, `toString` ou `valueOf` responde
+   * VERDADEIRO por herança do protótipo. Nesta tela isso não é curiosidade de
+   * linguagem: uma linha com esse id nasceria desenhada como marcada sem ninguém
+   * ter tocado nela, o primeiro toque a DESMARCARIA (é o caminho do "tocar numa
+   * marcada"), e ela nunca entraria na conta do botão — marcada aos olhos, fora
+   * da ação. Ids do Firestore são gerados pelo banco e podem ser qualquer coisa.
+   */
+  function temProprio_(objeto, chave) {
+    return Object.prototype.hasOwnProperty.call(objeto, String(chave));
+  }
+
+  /**
+   * O nome de cada projeto que já apareceu na lista de recentes.
+   *
+   * Existe para um caso só: a leitura nova não trazer mais o projeto que está
+   * escolhido no filtro. Sem ele o seletor voltaria para "Todos" em silêncio, e
+   * a tela passaria a mostrar gente que o recorte escondia — para quem está
+   * conferindo um projeto, é a lista errada com a cara da certa.
+   */
+  var PROJETOS_DAS_RECENTES = {};
 
   /**
    * O que está marcado em cada lista, por id: `{ id: true }`.
@@ -2621,12 +2811,27 @@
    * E limpa a marcação. É a única forma honesta: a lista que chega é outra, e
    * uma marca que atravessasse a recarga estaria apontando para uma tela que a
    * pessoa não leu.
+   *
+   * O que ela NÃO limpa são os FILTROS. Marcação e filtro morrem de doenças
+   * diferentes: a marca aponta para linhas de uma leitura que acabou, e o filtro
+   * é a pergunta que a pessoa está fazendo. Zerar a pergunta a cada Atualizar
+   * jogaria fora o aluno que ela estava conferindo, no meio da conferência, sem
+   * ela ter pedido nada.
    */
   function carregarAuditorio() {
     MARCADAS = { recentes: {}, fila: {} };
     ANCORA = { recentes: '', fila: '' };
     AUDITORIO.okProjetos = false;
     AUDITORIO.okRecentes = false;
+
+    // O teto volta a ser "não sei" a cada carga, e as duas respostas o preenchem
+    // (guardarLoteMaximo_ só escreve quando vem número, então a leitura CALADA não
+    // apaga o que a outra disse). Sem esta linha, um painel que falasse com um
+    // servidor novo e depois com um velho continuaria usando o número do primeiro
+    // — e ele pode ter mudado justamente por causa da troca.
+    AUDITORIO.loteMaximo = null;
+    desenharTetoDoLote();
+
     desenharAcoes('recentes');
     desenharAcoes('fila');
 
@@ -2657,6 +2862,8 @@
       AUDITORIO.projetos = r.projetos || [];
       AUDITORIO.fila = r.fila || [];
       AUDITORIO.truncada = Boolean(r.truncada);
+      guardarLoteMaximo_(r.lote_maximo);
+      desenharTetoDoLote();
       AUDITORIO.okProjetos = true;
       marcarAuditorioPronto();
       desenharProjetosDoAuditorio();
@@ -2674,9 +2881,26 @@
       if (!r.ok) { recentes.textContent = r.erro || 'Erro ao carregar.'; return; }
       recentes.className = '';
       AUDITORIO.recentes = r.inscricoes || [];
-      AUDITORIO.lidas = Number(r.lidas || 0);
+
+      // `typeof`, e não `Boolean(r.truncada)`: um servidor que não manda o campo
+      // não está dizendo que a lista veio inteira — está calado. As duas coisas
+      // viram frases diferentes no rodapé, e transformar silêncio em "está tudo
+      // aqui" é a promessa que ninguém fez.
+      AUDITORIO.recentesTruncada = typeof r.truncada === 'boolean' ? r.truncada : null;
+      AUDITORIO.recentesTotal = Number(r.total) || 0;
+      guardarLoteMaximo_(r.lote_maximo);
+      desenharTetoDoLote();
+      // A OFERTA TAMBÉM, e não só a faixa de aviso: `desenharOferta` imprime o
+      // teto no próprio botão ("Promover 200 da fila"), e ela é desenhada pela
+      // OUTRA leitura, que pode ter chegado antes desta. Sem este redesenho, a
+      // tela mostra ao mesmo tempo o aviso com o teto novo e um botão montado
+      // com o teto velho — a contradição que o leitor único existe para evitar.
+      // Hoje as duas respostas carregam a mesma constante e o defeito fica
+      // latente; ele acorda no dia em que só uma das duas mudar.
+      desenharOferta();
       AUDITORIO.okRecentes = true;
       marcarAuditorioPronto();
+      desenharOpcoesDeProjetoDoAuditorio();
       desenharRecentes();
     });
   }
@@ -2751,14 +2975,25 @@
    */
   function desenharOferta() {
     var cabem = idsQueCabem().length;
+    var levam = loteDaOferta_().length;
     var naFila = AUDITORIO.fila.length;
     var html = '';
 
-    if (naFila && cabem) {
+    if (naFila && levam) {
+      // OS DOIS NÚMEROS, quando eles são diferentes — e a mesma conta do relato
+      // ("Promovi 12 de 38"): esconder que a oferta é uma PARTE faria o botão
+      // dizer 200 sobre 300 vagas livres, e as outras 100 continuariam vazias com
+      // gente esperando ao lado, sem ninguém saber que faltou uma rodada.
       html += '<div class="aviso aviso--atencao"><strong>Cabem ' + cabem + ' agora</strong>, e há ' +
-        naFila + ' na fila. Entram na ordem de chegada.<br>' +
-        '<button class="btn btn--primario mt" data-gravando="Promovendo..." ' +
-        'onclick="aoGravar(this, promoverQueCabem)">Promover ' + cabem + ' da fila</button></div>';
+        naFila + ' na fila. Entram na ordem de chegada.' +
+        (levam < cabem
+          ? '<br><span class="pequeno">Cada promoção vai até <strong>' + loteMaximo_() +
+            '</strong> por vez, então este botão leva os <strong>' + levam +
+            '</strong> primeiros QUE CABEM. Os outros ' + (cabem - levam) +
+            ' continuam cabendo — atualize e clique de novo.</span>'
+          : '') +
+        '<br><button class="btn btn--primario mt" data-gravando="Promovendo..." ' +
+        'onclick="aoGravar(this, promoverQueCabem)">Promover ' + levam + ' da fila</button></div>';
     } else if (naFila) {
       html += '<div class="aviso aviso--info">' + naFila + ' na fila e nenhuma vaga livre. ' +
         'Anular o que for inscrição inventada libera vaga — e aí a fila anda.</div>';
@@ -2806,11 +3041,243 @@
 
     var ids = [];
     AUDITORIO.fila.forEach(function (f) {
-      if (!vaga[f.projeto_id]) return;
+      // `temProprio_` e não `vaga[...]`: quem está na fila de um projeto que o
+      // cabeçalho NÃO trouxe cai no protótipo, e um projeto chamado
+      // `constructor` responderia com uma função — verdadeira, decrementada para
+      // NaN — e a pessoa entraria numa vaga que ninguém contou. Ver `temProprio_`.
+      if (!temProprio_(vaga, f.projeto_id) || !vaga[f.projeto_id]) return;
       vaga[f.projeto_id]--;
       ids.push(f.id);
     });
     return ids;
+  }
+
+  /**
+   * O QUE UM CLIQUE NA OFERTA LEVA — que é `idsQueCabem` cortado no teto de escrita.
+   *
+   * SÃO DUAS PERGUNTAS, e o corte não podia morar lá dentro. `idsQueCabem`
+   * responde "quem cabe por VAGA" e é ela que dá o número que a tela mostra
+   * ("Cabem 300 agora"); esta responde "o que este clique manda", que é outra
+   * coisa desde que o servidor passou a RECUSAR lote grande demais. Juntar as
+   * duas numa função só apagaria o 300 da tela — e é o 300 que diz que ainda há
+   * rodada pela frente. A cicatriz de `idsDoPayload_` (13_Auditorio.gs) é a mesma:
+   * quem tem dois contratos é quem produz o próximo defeito calado.
+   *
+   * O corte É PELA ORDEM DA FILA, e aqui isso não é a tela escolhendo por
+   * ninguém: `idsQueCabem` já vem em ordem de chegada, e "os 200 primeiros da
+   * fila" é exatamente o que primeiro-a-chegar-primeiro-a-entrar significa. É o
+   * que separa este corte do da barra de ações, onde quem escolheu o conjunto foi
+   * a PESSOA e cortar seria a tela decidindo quem fica de fora (ver
+   * `desenharAcoes`).
+   */
+  function loteDaOferta_() {
+    return idsQueCabem().slice(0, loteMaximo_());
+  }
+
+  /**
+   * A frase do teto na regra da faixa — o número 200 dito ANTES de ser estourado.
+   *
+   * A faixa marca 200 linhas em dois toques, e a lista chega a mil: sem esta
+   * frase, o teto só aparece depois que o trabalho já foi feito, e a saída de
+   * quem marcou 380 é desmarcar 180 uma a uma. Ela é curta e mora colada à regra
+   * da faixa porque é a mesma regra — o que um gesto faz, e até onde ele vai.
+   */
+  function desenharTetoDoLote() {
+    document.getElementById('auditorio-teto-lote').innerHTML =
+      ' Anular e promover fazem até <strong>' + loteMaximo_() + '</strong> por vez.';
+  }
+
+  // --------------------------------------------------- Os filtros de recentes
+
+  /**
+   * AS OPÇÕES DO FILTRO DE PROJETO SAEM DA LISTA, e nunca de `AUDITORIO.projetos`.
+   *
+   * Duas razões, e a primeira é a que faz esta tela existir: `filaDeEspera` só
+   * devolve projeto ATIVO, e projeto encerrado é exatamente onde mora a inscrição
+   * velha que o professor veio procurar. Montar o seletor de lá esconderia o
+   * recorte que motivou o pedido — e sem nada na tela dizendo isso.
+   *
+   * A segunda é de tempo: as duas leituras saem em PARALELO (ver
+   * `carregarAuditorio`), e a de projetos pode não ter chegado quando esta lista
+   * desenha. O seletor nasceria vazio numa recarga em que a rede foi mais lenta
+   * de um lado — sem erro nenhum, e diferente a cada abertura da aba.
+   */
+  function desenharOpcoesDeProjetoDoAuditorio() {
+    var el = document.getElementById('filtro-aud-projeto');
+    var escolhido = String(el.value || '');
+    var ids = [];
+
+    AUDITORIO.recentes.forEach(function (i) {
+      var id = String(i.projeto_id || '');
+      if (!id) return;
+      PROJETOS_DAS_RECENTES[id] = String(i.projeto_nome || '') || id;
+      if (ids.indexOf(id) === -1) ids.push(id);
+    });
+
+    // O escolhido continua no seletor mesmo que a leitura nova não o traga mais.
+    // Ver PROJETOS_DAS_RECENTES: cair para "Todos" em silêncio é trocar a lista
+    // debaixo de quem está conferindo um projeto.
+    if (escolhido && ids.indexOf(escolhido) === -1) ids.push(escolhido);
+
+    ids.sort(function (a, b) {
+      return rotuloDeProjeto_(a).localeCompare(rotuloDeProjeto_(b), 'pt-BR');
+    });
+
+    el.innerHTML = '<option value="">Todos</option>' + ids.map(function (id) {
+      return '<option value="' + escapar(id) + '">' + escapar(rotuloDeProjeto_(id)) + '</option>';
+    }).join('');
+    el.value = escolhido;
+  }
+
+  function rotuloDeProjeto_(id) {
+    // `temProprio_` pela mesma razão de sempre: um projeto chamado `constructor`
+    // devolveria a FUNÇÃO herdada, e o seletor mostraria o código-fonte dela no
+    // lugar do nome do projeto. Ver `temProprio_`.
+    return temProprio_(PROJETOS_DAS_RECENTES, id) ? PROJETOS_DAS_RECENTES[id] : String(id);
+  }
+
+  /**
+   * AS MATRÍCULAS QUE APARECEM EM MAIS DE UM PROJETO — o recorte do pedido de
+   * 27/08, e o único agrupamento que esta tela faz.
+   *
+   * Agrupa por MATRÍCULA porque a matrícula é a chave da pessoa e atravessa os
+   * projetos (é a mesma razão que existe em `painel-navegador.js`, na vizinhança
+   * da matrícula). O que conta é o número de projetos DISTINTOS: duas linhas da
+   * mesma pessoa no mesmo projeto não são o que o professor foi tirar.
+   *
+   * MATRÍCULA VAZIA NÃO AGRUPA, e é a linha mais importante daqui: sem ela, todo
+   * mundo que se inscreveu sem matrícula viraria "a mesma pessoa", e o recorte
+   * que existe para achar quem repetiu entregaria uma lista de estranhos — com o
+   * botão de anular ao lado.
+   */
+  function matriculasEmMaisDeUmProjeto_() {
+    var porMatricula = {};
+
+    AUDITORIO.recentes.forEach(function (i) {
+      var chave = String(i.matricula || '').trim();
+      if (!chave) return;
+
+      // `hasOwnProperty` e não `porMatricula[chave]`: 'constructor' e 'toString'
+      // respondem verdadeiro por herança. Mesmo cuidado de `idsDoPayload_`.
+      if (!Object.prototype.hasOwnProperty.call(porMatricula, chave)) porMatricula[chave] = [];
+
+      var projeto = String(i.projeto_id || '');
+      if (porMatricula[chave].indexOf(projeto) === -1) porMatricula[chave].push(projeto);
+    });
+
+    var repetidas = {};
+    Object.keys(porMatricula).forEach(function (chave) {
+      if (porMatricula[chave].length > 1) repetidas[chave] = true;
+    });
+    return repetidas;
+  }
+
+  /**
+   * O RECORTE É UMA AFIRMAÇÃO SOBRE O BANCO, CALCULADA SOBRE A JANELA — e é isso
+   * que esta frase existe para não deixar passar.
+   *
+   * `matriculasEmMaisDeUmProjeto_` agrupa o que a leitura trouxe, e mais nada. Um
+   * par cuja metade mais VELHA ficou fora do teto não é um par aqui: as duas
+   * inscrições existem no banco, uma está na janela e a outra não, e a que está
+   * aparece como quem se inscreveu uma vez só. O recorte responde "ninguém
+   * repetiu" para o caso em que alguém repetiu.
+   *
+   * E ele é exatamente o pedido do professor de 27/08 — a pergunta que fez o teto
+   * subir de 200 para mil. Foi por não achar os pares que ele veio; deixar o
+   * recorte responder com a cara de completo é reconstruir o mesmo engano com
+   * mais linhas na tela.
+   *
+   * TRÊS ESTADOS, os mesmos do rodapé: cortou (o par de fora é certo que existe
+   * como possibilidade), não cortou (nada a dizer — o recorte cobre o que a
+   * leitura alcançou) e o servidor CALADO, que não vira "não cortou". Ver
+   * `AUDITORIO.recentesTruncada`.
+   */
+  function avisoDoRecorte_() {
+    if (campoTexto_('filtro-aud-repetidas') !== 'SIM') return '';
+    if (AUDITORIO.recentesTruncada === false) return '';
+
+    var motivo = AUDITORIO.recentesTruncada === true
+      ? 'e a leitura <strong>veio cortada no teto</strong>'
+      : 'e o servidor não disse se a leitura veio inteira';
+
+    return '<div class="aviso aviso--atencao">Este recorte enxerga só as ' +
+      AUDITORIO.recentes.length + ' inscrições desta leitura, ' + motivo +
+      '. Quem repetiu com a outra inscrição mais <strong>antiga</strong> do que a ' +
+      'janela aparece aqui como quem se inscreveu uma vez só — e não aparece no ' +
+      'recorte. Confira em <em>Alunos</em> antes de anular pelo par.</div>';
+  }
+
+  /**
+   * O recorte de recentes, num lugar só — a lista, a faixa e os botões leem daqui.
+   *
+   * NÃO REORDENA E NÃO AGRUPA, nem no recorte de quem repetiu. É uma decisão de
+   * segurança e não de estética: pôr as duas linhas da mesma pessoa lado a lado
+   * faria a faixa marcar o par inteiro num gesto — tirar o aluno de TODOS os
+   * projetos, que é o oposto exato do que o professor pediu. Separadas, cada
+   * ponta do par é uma escolha.
+   */
+  function recentesFiltradas() {
+    var busca = normalizarBusca_(campoTexto_('filtro-aud-busca'));
+    var projeto = campoTexto_('filtro-aud-projeto');
+    var repetidas = campoTexto_('filtro-aud-repetidas') === 'SIM'
+      ? matriculasEmMaisDeUmProjeto_() : null;
+
+    return AUDITORIO.recentes.filter(function (i) {
+      if (projeto && String(i.projeto_id || '') !== projeto) return false;
+      if (repetidas && repetidas[String(i.matricula || '').trim()] !== true) return false;
+      if (!busca) return true;
+      return normalizarBusca_(i.nome + ' ' + i.matricula).indexOf(busca) !== -1;
+    });
+  }
+
+  /**
+   * O QUE A TELA ESTÁ MOSTRANDO em cada uma das duas listas — e o despacho por
+   * lista é obrigatório.
+   *
+   * `tocarLinha`, `marcadasDe` e `desenharAcoes` servem às DUAS listas, e liam
+   * `AUDITORIO[lista]`. Fazer a de recentes passar a ser a filtrada sem despachar
+   * aqui daria à FILA a lista de recentes: a faixa da fila marcaria o intervalo
+   * da outra lista e "Promover 3" promoveria gente que ninguém viu — com lock
+   * pego e escrita em lote, do outro lado.
+   *
+   * AS TRÊS TRAVAS DA SELEÇÃO SOB FILTRO, que valem juntas e são o coração deste
+   * trabalho:
+   *
+   *   a. mudar o filtro NUNCA apaga MARCADAS. Apagar o trabalho de alguém
+   *      debaixo do dedo, a cada tecla, é pior do que uma marca esquecida;
+   *   b. a ação NUNCA toca linha invisível. `marcadasDe` devolve o que está
+   *      visível E marcado, e é esse número que vai no botão;
+   *   c. a diferença é dita em voz alta SEMPRE — "3 marcada(s) · 2 fora do
+   *      filtro", com o botão que traz as 2 de volta sem perder marca nenhuma
+   *      (ver `desenharAcoes`).
+   *
+   * Sem (b), buscar um nome, ver três linhas e tocar duas marcaria dezenas de
+   * invisíveis, e a confirmação mostraria três nomes de N. Sem (c), as marcas
+   * escondidas somem da vista e da conta ao mesmo tempo.
+   */
+  function itensVisiveis(lista) {
+    return lista === 'recentes' ? recentesFiltradas() : AUDITORIO.fila;
+  }
+
+  /** O filtro mudou: a lista e a barra redesenham, a MARCAÇÃO fica. */
+  function filtrarRecentes() {
+    if (!AUDITORIO.okRecentes) return;      // ainda "Carregando..." — nada a filtrar
+    desenharRecentes();
+  }
+
+  /**
+   * Limpa os três controles — e só eles.
+   *
+   * É o mesmo caminho do "Mostrar as N" que a barra oferece quando há marca fora
+   * do filtro, e por isso ele não pode encostar em MARCADAS: um botão que promete
+   * mostrar as escondidas e as desmarca no caminho faria o trabalho sumir no
+   * gesto de ir buscá-lo.
+   */
+  function limparFiltroAuditorio() {
+    ['filtro-aud-busca', 'filtro-aud-projeto', 'filtro-aud-repetidas'].forEach(function (id) {
+      document.getElementById(id).value = '';
+    });
+    filtrarRecentes();
   }
 
   // ------------------------------------------------- As duas listas tocáveis
@@ -2825,22 +3292,85 @@
       return;
     }
 
-    var html = '<div class="tabela-wrap">';
-    AUDITORIO.recentes.forEach(function (i) {
+    var itens = itensVisiveis('recentes');
+
+    // Vazio por FILTRO e vazio por BANCO são duas notícias diferentes, e a de
+    // cima não pode parecer a de baixo: "ninguém se inscreveu" no meio de uma
+    // busca faria o professor concluir que o aluno não está no sistema.
+    // O aviso do recorte vem ANTES da lista, e vem também no vazio: "Ninguém
+    // neste recorte" sobre uma janela cortada é a resposta mais perigosa que esta
+    // tela sabe dar — ela se lê como "ninguém repetiu", e a pergunta era essa.
+    if (!itens.length) {
+      el.innerHTML = avisoDoRecorte_() +
+        '<div class="cartao centro texto-fraco">Ninguém neste recorte. ' +
+        'A busca olha o nome e a matrícula; os outros dois são o projeto e ' +
+        'quem repetiu matrícula.</div>' + rodapeDeRecentes(0);
+      desenharAcoes('recentes');
+      return;
+    }
+
+    var html = avisoDoRecorte_() + '<div class="tabela-wrap">';
+    itens.forEach(function (i) {
       html += linhaTocavel('recentes', i.id, i.nome,
         escapar(i.matricula || 'sem matrícula') + ' &middot; ' + escapar(i.projeto_nome || '—') +
         (i.em_espera ? ' &middot; <span class="selo selo--DIVERGENCIA">na espera</span>' : ''),
         horaDe(i.criado_em));
     });
 
-    // O TAMANHO DA JANELA, dito. Esta lista é um recorte com teto, e quem não
-    // sabe disso conclui que a inscrição que não está aqui não existe — de novo
-    // o modo de falha mudo. `lidas` vem do servidor justamente para isto.
-    el.innerHTML = html + '</div>' +
-      '<p class="pequeno texto-fraco">As ' + AUDITORIO.recentes.length +
-      ' mais recentes (de ' + AUDITORIO.lidas + ' lidas). Quem chegou antes disso está em ' +
-      '<em>Alunos</em>.</p>';
+    el.innerHTML = html + '</div>' + rodapeDeRecentes(itens.length);
     desenharAcoes('recentes');
+  }
+
+  /**
+   * O RODAPÉ: quanto o filtro está escondendo, e quanto o TETO está.
+   *
+   * São os dois jeitos de uma inscrição não estar na tela, e confundi-los é o
+   * modo de falha mudo desta lista — quem não acha alguém aqui conclui que a
+   * inscrição não existe. O filtro é reversível e a pessoa acabou de pedi-lo; o
+   * teto não é nenhum dos dois, e por isso a frase dele diz QUE LADO ficou de
+   * fora: as que faltam são as mais ANTIGAS, porque a leitura vem da mais nova
+   * para a mais velha.
+   *
+   * E são TRÊS estados, não dois. `null` é o servidor calado (ver `AUDITORIO`), e
+   * ele não vira "está tudo aqui": prometer completude que ninguém afirmou é
+   * fabricar a conclusão errada.
+   *
+   * O `lidas` da resposta não entra aqui, e por isso ele nem é guardado: ele
+   * existe para contar o que o filtro POR PROJETO do servidor cortou, e este
+   * painel não manda mais `projeto_id` — `lidas` e o tamanho da lista passaram a
+   * ser o mesmo número. Contar o que está desenhado é o que continua verdadeiro
+   * no dia em que só uma das duas coisas mudar.
+   */
+  function rodapeDeRecentes(naTela) {
+    var carregadas = AUDITORIO.recentes.length;
+    var recorte = naTela === carregadas
+      ? carregadas + ' inscrição(ões) carregada(s).'
+      : naTela + ' de ' + carregadas + ' carregada(s) — o filtro esconde o resto.';
+
+    var janela;
+    if (AUDITORIO.recentesTruncada === true) {
+      var faltam = AUDITORIO.recentesTotal - carregadas;
+      janela = ' <strong>A leitura veio cortada no teto</strong>: ' +
+        (faltam > 0 ? 'faltam ' + faltam + ' de ' + AUDITORIO.recentesTotal + ', e ' : '') +
+        'as que faltam são as mais <strong>antigas</strong> — elas estão em <em>Alunos</em>.';
+    } else if (AUDITORIO.recentesTruncada === false) {
+      // ERA "São todas as que existem: nada ficou de fora da leitura", e a frase
+      // prometia mais do que a consulta sustenta. `truncada: false` quer dizer uma
+      // coisa só: a janela NÃO ENCOSTOU NO TETO (`lidas.length >= limite` deu
+      // falso, ver `inscricoesRecentes`). Ele não fala do banco, e há pelo menos
+      // duas maneiras de faltar gente com o teto folgado: a inscrição gravada
+      // DEPOIS desta leitura — que numa noite de rajada é uma a cada poucos
+      // segundos —, e a que não tem `criado_em`, que a ordenação do Firestore não
+      // devolve de jeito nenhum. Quem lê "são todas as que existem" e não acha
+      // alguém conclui que a pessoa não se inscreveu; é o mesmo engano das 275 em
+      // 200, agora com o teto certo e a frase errada.
+      janela = ' O teto não cortou esta leitura. O que não estiver aqui chegou ' +
+        'depois dela — atualize, ou procure em <em>Alunos</em>.';
+    } else {
+      janela = ' Quem chegou antes disso está em <em>Alunos</em>.';
+    }
+
+    return '<p class="pequeno texto-fraco">' + recorte + janela + '</p>';
   }
 
   function desenharFila() {
@@ -2883,7 +3413,7 @@
    * O nome do parâmetro é o aviso.
    */
   function linhaTocavel(lista, id, nome, detalheHtml, direita) {
-    var marcada = Boolean(MARCADAS[lista][id]);
+    var marcada = temProprio_(MARCADAS[lista], id);
 
     return '<button type="button" class="btn' + (marcada ? ' btn--primario' : '') + '" ' +
       'id="linha-' + lista + '-' + escapar(id) + '" aria-pressed="' + (marcada ? 'true' : 'false') + '" ' +
@@ -2898,18 +3428,29 @@
       '</span></button>';
   }
 
-  /** A regra da faixa, inteira. A conta de por que ela é assim está em ANCORA. */
+  /**
+   * A regra da faixa, inteira. A conta de por que ela é assim está em ANCORA.
+   *
+   * A ordem sai de `itensVisiveis`, e NUNCA de `AUDITORIO[lista]`: com filtro
+   * ligado, a lista inteira tem linhas que a pessoa não está vendo, e a faixa
+   * entre duas linhas visíveis passaria por cima de todas elas. Buscar um nome,
+   * ver três linhas e tocar duas marcaria dezenas de invisíveis — e a
+   * confirmação mostraria três nomes de N.
+   */
   function tocarLinha(lista, id) {
     var marcadas = MARCADAS[lista];
 
-    if (marcadas[id]) {
+    // `temProprio_` e não `marcadas[id]`: ver a cicatriz. Um id herdado do
+    // protótipo cairia neste `if` no PRIMEIRO toque, e a linha que a pessoa
+    // acabou de tocar seria a única que nunca marca.
+    if (temProprio_(marcadas, id)) {
       delete marcadas[id];
       ANCORA[lista] = '';
       redesenharLista(lista);
       return;
     }
 
-    var ordem = AUDITORIO[lista].map(function (i) { return String(i.id); });
+    var ordem = itensVisiveis(lista).map(function (i) { return String(i.id); });
     var de = ordem.indexOf(String(ANCORA[lista]));
     var ate = ordem.indexOf(String(id));
 
@@ -2941,27 +3482,78 @@
    * escolhido nada; um que nasce com a primeira marcação é a resposta ao que a
    * pessoa acabou de fazer. O número vai no rótulo do botão (`Anular 12`) porque
    * é a última chance de ver o tamanho do estrago antes da pergunta.
+   *
+   * DOIS NÚMEROS DESDE QUE O FILTRO EXISTE, e eles não são o mesmo: `marcadas` é
+   * tudo que a pessoa marcou, `visiveis` é o que a ação vai tocar de verdade. A
+   * diferença é dita SEMPRE, porque uma marca escondida que também some da conta
+   * é trabalho perdido sem aviso — e "Anular 12" sobre três linhas na tela seria
+   * o defeito que este trabalho veio consertar, com outra roupa.
+   *
+   * Sem nenhuma visível não nasce botão de ação: um "Anular 0" é uma armadilha, e
+   * a barra continua na tela para dizer que as marcas existem e como voltar a
+   * elas.
+   *
+   * E O TETO DE ESCRITA É DITO AQUI, ANTES DO CLIQUE. A faixa marca mais de 200
+   * em dois toques, e o servidor RECUSA o lote inteiro acima do teto
+   * (`erroDeLoteGrandeDemais_`, 13_Auditorio.gs): sem este aviso, "Anular 380" é
+   * um botão que a tela oferece sabendo que nada vai acontecer, e a pessoa só
+   * descobre depois de apertar — no meio do evento, tendo já feito a seleção.
+   *
+   * E AQUI O EXCESSO NÃO É CORTADO, ao contrário da oferta da fila, que manda os
+   * 200 primeiros (ver `loteDaOferta_`). Lá quem escolheu o conjunto foi a ORDEM
+   * DE CHEGADA, e "os 200 primeiros" é o que ela significa; aqui quem escolheu
+   * as 380 foi a PESSOA, uma a uma e por faixa, e mandar 200 delas seria a tela
+   * decidindo em silêncio quais 180 ficam de fora — de uma lista cuja ação
+   * apaga aluno. Recusar devolve a escolha a quem a fez, que é a mesma decisão
+   * que o servidor tomou quando parou de fatiar o lote calado.
    */
   function desenharAcoes(lista) {
     var el = document.getElementById('auditorio-acoes-' + lista);
-    var quantas = Object.keys(MARCADAS[lista]).length;
+    var marcadas = Object.keys(MARCADAS[lista]).length;
 
-    if (!quantas) { el.innerHTML = ''; return; }
+    if (!marcadas) { el.innerHTML = ''; return; }
 
-    var acao = lista === 'recentes'
-      ? '<button class="btn btn--perigo" data-gravando="Anulando..." ' +
-        'onclick="aoGravar(this, anularMarcadas)">Anular ' + quantas + '</button>'
-      : '<button class="btn btn--primario" data-gravando="Promovendo..." ' +
-        'onclick="aoGravar(this, promoverMarcadas)">Promover ' + quantas + '</button>';
+    var visiveis = marcadasDe(lista).length;
+    var fora = marcadas - visiveis;
+    var teto = loteMaximo_();
+    var demais = visiveis > teto;
+
+    var acao = '';
+    if (visiveis && !demais) {
+      acao = lista === 'recentes'
+        ? '<button class="btn btn--perigo" data-gravando="Anulando..." ' +
+          'onclick="aoGravar(this, anularMarcadas)">Anular ' + visiveis + '</button>'
+        : '<button class="btn btn--primario" data-gravando="Promovendo..." ' +
+          'onclick="aoGravar(this, promoverMarcadas)">Promover ' + visiveis + '</button>';
+    }
 
     el.innerHTML = '<div class="barra-acoes">' +
-      '<strong style="align-self:center">' + quantas + ' marcada(s)</strong>' + acao +
-      '<button class="btn" onclick="limparMarcas(\'' + lista + '\')">Limpar</button></div>';
+      '<strong style="align-self:center">' + marcadas + ' marcada(s)' +
+      (fora ? ' &middot; ' + fora + ' fora do filtro' : '') + '</strong>' + acao +
+      (fora ? '<button class="btn" onclick="limparFiltroAuditorio()">Mostrar as ' +
+        fora + '</button>' : '') +
+      '<button class="btn" onclick="limparMarcas(\'' + lista + '\')">Limpar</button></div>' +
+      (demais
+        ? '<div class="aviso aviso--atencao">São <strong>' + visiveis +
+          '</strong> na tela, e ' + (lista === 'recentes' ? 'anular' : 'promover') +
+          ' vai até <strong>' + teto + '</strong> por vez. Mandar as ' + visiveis +
+          ' seria recusado e <strong>nada</strong> aconteceria — desmarque ' +
+          (visiveis - teto) + ' e repita, ou faça em duas rodadas.</div>'
+        : '');
   }
 
-  /** Os itens marcados, na ordem em que a tela os mostra. */
+  /**
+   * Os itens marcados E VISÍVEIS, na ordem em que a tela os mostra.
+   *
+   * É a trava (b) de `itensVisiveis`: as três ações leem daqui, e nenhuma delas
+   * pode alcançar uma linha que o filtro está escondendo. O que ficou de fora não
+   * é esquecido — `desenharAcoes` conta e oferece o caminho de volta.
+   */
   function marcadasDe(lista) {
-    return AUDITORIO[lista].filter(function (i) { return Boolean(MARCADAS[lista][i.id]); });
+    // `temProprio_` e não `MARCADAS[lista][i.id]`: sem ele, uma linha com id
+    // herdado do protótipo entraria em TODA ação sem nunca ter sido tocada — e a
+    // ação daqui é a que apaga aluno. Ver `temProprio_`.
+    return itensVisiveis(lista).filter(function (i) { return temProprio_(MARCADAS[lista], i.id); });
   }
 
   /** 'yyyy-MM-dd HH:mm:ss' vira 'HH:mm:ss' — os segundos são o que denuncia rajada. */
@@ -3025,7 +3617,10 @@
   }
 
   function promoverQueCabem() {
-    promover(idsQueCabem());
+    // `loteDaOferta_`, e não `idsQueCabem`: é o mesmo conjunto que o rótulo do
+    // botão contou. Mandar mais do que o botão disse é a forma de o lote voltar
+    // recusado inteiro — e recusado por um pedido que a tela montou sozinha.
+    promover(loteDaOferta_());
   }
 
   function promover(ids) {

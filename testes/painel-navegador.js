@@ -2652,9 +2652,18 @@ function abrirAuditorio(semear) {
   return cena;
 }
 
-/** A inscrição, direto do banco falso — quem está lá e quem está na fila. */
+/**
+ * A inscrição, direto do banco falso — quem está lá e quem está na fila.
+ *
+ * `hasOwnProperty` e não `documentos[id] || null`, e a razão é a mesma cicatriz
+ * que o painel carrega (`temProprio_`, e `idsDoPayload_` em 13_Auditorio.gs): o
+ * mapa é um `{}`, e um id chamado `constructor` responde com a função herdada.
+ * O AJUDANTE DO TESTE tinha o defeito que o teste veio procurar — ele diria
+ * "a inscrição continua de pé" para uma inscrição que foi anulada.
+ */
 function inscricaoNoBanco(cena, id) {
-  return cena.documentos('inscricoes')[id] || null;
+  const todos = cena.documentos('inscricoes');
+  return Object.prototype.hasOwnProperty.call(todos, id) ? todos[id] : null;
 }
 
 teste('o ciclo inteiro: anular libera a vaga, e promover preenche com quem esperava', () => {
@@ -2899,12 +2908,36 @@ teste('o horário vem com SEGUNDOS — é o que denuncia a rajada', () => {
     'a data inteira em toda linha rouba a largura da tela do celular sem dizer nada novo');
 });
 
-teste('a leitura conta o tamanho da janela que está mostrando', () => {
+teste('a leitura conta o tamanho da janela — sem prometer o BANCO inteiro', () => {
   // A lista tem teto. Sem dizer o tamanho da janela, quem não acha uma inscrição
   // aqui conclui que ela não existe — o modo de falha mudo, de novo.
+  //
+  // E a frase da janela folgada é sobre o TETO, não sobre o mundo. Ela dizia "São
+  // todas as que existem: nada ficou de fora da leitura", e isso é mais do que
+  // `truncada: false` sustenta: ele afirma uma coisa só — a janela não encostou
+  // no teto (`lidas.length >= limite` deu falso, em `inscricoesRecentes`). Não
+  // fala do que foi gravado DEPOIS da leitura, que numa noite de rajada é uma
+  // inscrição a cada poucos segundos, nem da que não tem `criado_em`, que a
+  // ordenação do Firestore não devolve. Quem lê a promessa absoluta e não acha
+  // alguém conclui que a pessoa não se inscreveu — o engano das 275 em 200 outra
+  // vez, agora com o teto certo e a frase errada.
   const cena = abrirAuditorio();
-  verdadeiro(cena.texto('auditorio-recentes').indexOf('de 5 lidas') !== -1,
-    cena.texto('auditorio-recentes'));
+  const rodape = cena.texto('auditorio-recentes');
+
+  verdadeiro(rodape.indexOf('5 inscrição(ões) carregada(s)') !== -1, rodape);
+  verdadeiro(rodape.indexOf('O teto não cortou') !== -1,
+    'a tela não disse que a janela coube inteira: ' + rodape);
+
+  // A MUTAÇÃO QUE ESTE TESTE PEGA: voltar a prometer completude.
+  igual(rodape.indexOf('São todas as que existem'), -1,
+    'a tela voltou a prometer o banco inteiro a partir de `truncada: false`: ' + rodape);
+  igual(rodape.indexOf('nada ficou de fora'), -1,
+    'a promessa absoluta voltou com outras palavras: ' + rodape);
+
+  // E ela continua dizendo onde procurar o que não está aqui — sem isso, a
+  // suavização vira só uma frase mais fraca, sem saída para quem procura.
+  verdadeiro(rodape.indexOf('Alunos') !== -1,
+    'a frase suavizada não diz onde está o que falta: ' + rodape);
 });
 
 teste('sem fila nenhuma, o cabeçalho mostra a LOTAÇÃO em vez de ficar vazio', () => {
@@ -2932,6 +2965,870 @@ teste('sem fila nenhuma, o cabeçalho mostra a LOTAÇÃO em vez de ficar vazio',
   verdadeiro(cena.texto('auditorio-fila').indexOf('Ninguém na fila') !== -1,
     cena.texto('auditorio-fila'));
   igual(cena.texto('auditorio-alerta'), '', 'sem fila não há o que oferecer');
+});
+
+// ============================ Os filtros do Auditório, e as três travas
+//
+// O QUE ESTE BLOCO PROTEGE, e por que ele nasceu em 27/08.
+//
+// O Auditório é o ÚNICO lugar do sistema que remove inscrição, e ele mostrava as
+// 200 mais recentes de 275. O professor precisava tirar alunos que se
+// inscreveram em mais de um projeto, e os pares que ele procurava estavam metade
+// dentro e metade fora da janela. O teto subiu para mil e a lista ganhou filtros.
+//
+// O FILTRO É QUE É PERIGOSO, e não o teto. Marcar é uma coisa que atravessa
+// telas: a pessoa marca, filtra, marca mais, muda o filtro. A partir daí três
+// coisas precisam valer JUNTAS, e cada uma delas tem teste aqui:
+//
+//   a. mudar o filtro nunca apaga marcação — apagar o trabalho de alguém a cada
+//      tecla é pior do que uma marca esquecida;
+//   b. a ação nunca toca linha invisível — sem isso, buscar um nome, ver três
+//      linhas e tocar duas anularia dezenas de pessoas que ninguém viu;
+//   c. a diferença é dita em voz alta e tem caminho de volta — marca que some da
+//      vista E da conta é trabalho perdido sem aviso.
+//
+// E o despacho por lista: `tocarLinha`, `marcadasDe` e `desenharAcoes` servem às
+// DUAS listas. Sem ele, o filtro de recentes passa a valer para a FILA, e
+// "Promover 3" promove gente de outra lista — com lock pego e escrita em lote.
+
+grupo('o Auditório com filtro — mostrar todas sem passar a anular às cegas');
+
+/**
+ * A cena do pedido do professor: a mesma pessoa em dois projetos, um projeto já
+ * ENCERRADO e duas inscrições SEM matrícula.
+ *
+ * As duas inscrições da Ana ficam nas PONTAS do relógio, com três linhas entre
+ * elas, e isso é o que faz o teste da faixa valer: com as duas adjacentes na
+ * lista inteira, marcar "da primeira à segunda visível" dá o mesmo resultado com
+ * filtro e sem ele, e o defeito passaria despercebido.
+ *
+ * Cada peça está aqui por um teste:
+ *
+ *   - a Ana com a mesma matrícula em dois projetos é o recorte que ele pediu;
+ *   - a Fotografia é `ativo: 'NAO'` — ela NÃO chega em `AUDITORIO.projetos`
+ *     (`listarProjetos(true)` corta), e é justamente onde mora a inscrição velha
+ *     que ninguém acha. Se o seletor de projeto sair da lista errada, ela some;
+ *   - as duas sem matrícula são o par que NÃO pode ser tratado como a mesma
+ *     pessoa. É o defeito que transformaria o recorte de quem repetiu numa lista
+ *     de estranhos, com o botão de anular ao lado.
+ */
+function auditorioComRepetidas(api) {
+  api.semearConfigPadrao_();
+  api.inserir('projetos', {
+    nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
+  }, 'p1');
+  api.inserir('projetos', {
+    nome: 'Xadrez', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2'
+  }, 'p2');
+  api.inserir('projetos', {
+    nome: 'Fotografia', vagas: '10', ativo: 'NAO', inscricoes_abertas: 'NAO', ordem: '3'
+  }, 'p9');
+
+  inscreverEm(api, 'i1', 'Ana Silva', '110001', '2026-08-14 21:00:01', 'p1', 'Robótica');
+  inscreverEm(api, 'i2', 'Bruno Souza', '110002', '2026-08-14 21:00:02', 'p1', 'Robótica');
+  inscreverEm(api, 'i3', 'Sem Um', '', '2026-08-14 21:00:03', 'p1', 'Robótica');
+  inscreverEm(api, 'i4', 'Sem Dois', '', '2026-08-14 21:00:04', 'p2', 'Xadrez');
+  inscreverEm(api, 'i5', 'Ana Silva', '110001', '2026-08-14 21:00:05', 'p2', 'Xadrez');
+  inscreverEm(api, 'i6', 'Carla Dias', '110003', '2026-08-14 21:00:06', 'p9', 'Fotografia');
+}
+
+/**
+ * Uma inscrição em QUALQUER projeto — a variação que os filtros pedem.
+ *
+ * `inscrever` grava sempre no p1, e é o que mantém os testes do ciclo curtos.
+ * Aqui é o contrário: o que importa é a mesma matrícula em projetos diferentes.
+ */
+function inscreverEm(api, id, nome, matricula, quando, projetoId, projetoNome) {
+  api.inserir('inscricoes', {
+    criado_em: quando, origem: 'SITE', projeto_id: projetoId, projeto_nome: projetoNome,
+    matricula: matricula, nome: nome, email: id + '@exemplo.com',
+    matricula_conferida: 'NAO', declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
+  }, id);
+}
+
+/**
+ * Mexe num filtro e deixa a tela reagir.
+ *
+ * O falso digita e dispara `input`, mas não compila os `oninput=`/`onchange=` da
+ * marcação — só os `onclick`. Quem guarda que os três controles estão LIGADOS às
+ * funções certas, e fora do elemento que se redesenha, é `painel-site.js`; daqui
+ * para baixo o que se prova é o efeito.
+ */
+function filtrar(cena, id, valor) {
+  cena.digitar(id, valor);
+  cena.js.filtrarRecentes();
+}
+
+teste('COM FILTRO, a faixa marca só o que está na tela — e não a lista inteira', () => {
+  // O TESTE MAIS IMPORTANTE DESTE BLOCO. Antes do filtro, `tocarLinha` percorria
+  // `AUDITORIO[lista]` — a lista INTEIRA. Com filtro ligado isso vira o pior
+  // defeito que esta tela pode ter: buscar um nome, ver duas linhas, tocar as
+  // duas pontas e marcar tudo que está ESCONDIDO entre elas. A confirmação
+  // mostraria três nomes de N, e o N seria gente que ninguém leu.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  // Sem filtro são seis, da mais nova para a mais velha.
+  igual(idsDaLista(cena, 'recentes'), ['i6', 'i5', 'i4', 'i3', 'i2', 'i1']);
+
+  // Com a busca, sobram as DUAS da Ana — e elas são as pontas de um intervalo
+  // que, na lista inteira, tem quatro linhas no meio.
+  filtrar(cena, 'filtro-aud-busca', 'ana');
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1'], 'a busca não peneirou a lista');
+
+  // As duas pontas do que está NA TELA — e entre elas, na lista inteira, existem
+  // três linhas que a busca escondeu.
+  tocar(cena, 'recentes', 1);
+  tocar(cena, 'recentes', 2);
+
+  igual(marcadas(cena, 'recentes'), 2,
+    'a faixa passou por cima de linhas invisíveis — é o defeito que este trabalho veio consertar');
+
+  // E a prova pelo outro lado: as escondidas continuam desmarcadas quando o
+  // filtro sai. Contar só as visíveis esconderia o estrago.
+  filtrar(cena, 'filtro-aud-busca', '');
+  igual(idsDaLista(cena, 'recentes'), ['i6', 'i5', 'i4', 'i3', 'i2', 'i1']);
+  igual(marcadas(cena, 'recentes'), 2,
+    'a faixa marcou quem estava escondido entre as duas pontas');
+});
+
+teste('o botão conta as VISÍVEIS e marcadas, e não tudo que está marcado', () => {
+  // "Anular 3" com uma linha na tela é a mesma tela do defeito de cima, com
+  // outra roupa: o número que a pessoa lê antes de confirmar tem de ser o número
+  // de gente que a ação vai apagar.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  tocar(cena, 'recentes', 1);               // i6 — Carla
+  tocar(cena, 'recentes', 3);               // faixa até i4: i6, i5, i4
+  verdadeiro(cena.texto('auditorio-acoes-recentes').indexOf('Anular 3') !== -1,
+    cena.texto('auditorio-acoes-recentes'));
+
+  filtrar(cena, 'filtro-aud-busca', 'carla');
+
+  const barra = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(barra.indexOf('Anular 1') !== -1,
+    'o botão contou as invisíveis: ' + barra);
+  igual(barra.indexOf('Anular 3'), -1, 'o número do botão é o da lista inteira: ' + barra);
+});
+
+teste('a marcação SOBREVIVE ao filtro, a diferença é dita, e "Mostrar" traz de volta', () => {
+  // As três travas na mesma cena, porque é assim que elas aparecem no dedo de
+  // quem usa: marcar, filtrar, olhar a barra, voltar.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  tocar(cena, 'recentes', 1);
+  tocar(cena, 'recentes', 3);
+  filtrar(cena, 'filtro-aud-busca', 'carla');
+
+  const barra = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(barra.indexOf('3 marcada(s)') !== -1,
+    'a barra esqueceu as marcas que o filtro escondeu: ' + barra);
+  verdadeiro(barra.indexOf('2 fora do filtro') !== -1,
+    'a diferença entre o marcado e o alcançável não foi dita: ' + barra);
+  verdadeiro(barra.indexOf('Mostrar as 2') !== -1,
+    'dizer que há marca escondida sem oferecer o caminho de volta é meia notícia: ' + barra);
+
+  // O caminho de volta, CLICADO. Ele limpa o filtro e não encosta na marcação —
+  // um botão que promete mostrar as escondidas e as desmarca no caminho faria o
+  // trabalho sumir no gesto de ir buscá-lo.
+  cena.botaoQueChama(/limparFiltroAuditorio\(\)/).click();
+
+  igual(cena.elemento('filtro-aud-busca').value, '', 'o "Mostrar as N" não limpou o filtro');
+  igual(marcadas(cena, 'recentes'), 3, 'voltar do filtro perdeu marcação');
+
+  const depois = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(depois.indexOf('Anular 3') !== -1, depois);
+  igual(depois.indexOf('fora do filtro'), -1,
+    'sem filtro não há nada fora dele, e a frase continuou na tela: ' + depois);
+});
+
+teste('anular sob filtro apaga SÓ o que está na tela — as escondidas ficam de pé', () => {
+  // O mesmo que os dois de cima, mas até o fim: pelo `doPost` de verdade, contra
+  // o banco. É a diferença entre "a tela conta certo" e "a tela apaga certo".
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  tocar(cena, 'recentes', 1);               // i6
+  tocar(cena, 'recentes', 3);               // i6, i5, i4
+  filtrar(cena, 'filtro-aud-busca', 'carla');
+
+  cena.botaoQueChama(/aoGravar\(this, anularMarcadas\)/).click();
+
+  const pergunta = cena.confirmacoes[0];
+  verdadeiro(pergunta.indexOf('Anular 1 inscrição(ões)?') !== -1, pergunta);
+  verdadeiro(pergunta.indexOf('Carla Dias') !== -1, pergunta);
+  igual(pergunta.indexOf('Sem Dois'), -1,
+    'a pergunta levou junto quem estava fora do filtro: ' + pergunta);
+
+  igual(inscricaoNoBanco(cena, 'i6'), null, 'a marcada e visível não foi anulada');
+  verdadeiro(inscricaoNoBanco(cena, 'i5') !== null,
+    'ANULOU QUEM O FILTRO ESCONDIA — o aluno não é avisado e só descobre em setembro');
+  verdadeiro(inscricaoNoBanco(cena, 'i4') !== null, 'anulou quem o filtro escondia');
+});
+
+teste('a FILA não é tocada pelo filtro da lista de cima', () => {
+  // O despacho por lista, provado pelo lado que ele protege. `tocarLinha`,
+  // `marcadasDe` e `desenharAcoes` são as MESMAS funções para as duas listas:
+  // sem o despacho, a fila passa a ler a lista de recentes filtrada — a faixa
+  // não pega intervalo nenhum e "Promover" some ou promove outra gente.
+  const cena = abrirAuditorio();            // três na fila, no p1
+
+  filtrar(cena, 'filtro-aud-busca', 'ana'); // sobra UMA linha em recentes
+  igual(idsDaLista(cena, 'recentes'), ['i1']);
+
+  igual(idsDaLista(cena, 'fila'), ['i3', 'i4', 'i5'], 'o filtro de recentes peneirou a FILA');
+
+  tocar(cena, 'fila', 1);
+  tocar(cena, 'fila', 3);
+  igual(marcadas(cena, 'fila'), 3, 'a faixa da fila passou a percorrer a lista de recentes');
+  verdadeiro(cena.texto('auditorio-acoes-fila').indexOf('Promover 3') !== -1,
+    'o botão da fila contou pela lista errada: ' + cena.texto('auditorio-acoes-fila'));
+
+  // E promover leva os TRÊS da fila — nenhum id da outra lista atravessou.
+  cena.botaoQueChama(/aoGravar\(this, promoverMarcadas\)/).click();
+  const pedido = cena.chamadas.filter((c) => c.funcao === 'promoverDaEspera').pop();
+  igual(pedido.args[0].ids, ['i3', 'i4', 'i5'],
+    'a promoção mandou ids da lista errada: ' + JSON.stringify(pedido.args[0].ids));
+});
+
+teste('a busca e o filtro de projeto COMBINAM', () => {
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  // A busca sozinha atravessa os projetos: a Ana está em dois.
+  filtrar(cena, 'filtro-aud-busca', 'ana');
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1']);
+
+  // O projeto sozinho traz o projeto inteiro.
+  filtrar(cena, 'filtro-aud-busca', '');
+  filtrar(cena, 'filtro-aud-projeto', 'p1');
+  igual(idsDaLista(cena, 'recentes'), ['i3', 'i2', 'i1'], 'o filtro de projeto não peneirou');
+
+  // Os dois juntos: a Ana DENTRO da Robótica, e só ela.
+  filtrar(cena, 'filtro-aud-busca', 'ana');
+  igual(idsDaLista(cena, 'recentes'), ['i1'], 'um filtro anulou o outro');
+
+  // A contagem no rodapé segue os dois, e diz que o resto está escondido pelo
+  // filtro — e não pelo teto do servidor, que é a outra razão de faltar gente.
+  const rodape = cena.texto('auditorio-recentes');
+  verdadeiro(rodape.indexOf('1 de 6 carregada(s)') !== -1, rodape);
+  verdadeiro(rodape.indexOf('o filtro esconde o resto') !== -1, rodape);
+});
+
+teste('a busca acha pela MATRÍCULA, e não só pelo nome', () => {
+  // É metade do pedido: o professor tem a matrícula na mão, vinda da planilha da
+  // secretaria, e é por ela que ele procura os pares.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  filtrar(cena, 'filtro-aud-busca', '110001');
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1'], 'a busca ignorou a matrícula');
+});
+
+teste('o recorte agrupa por matrícula — e matrícula VAZIA não agrupa', () => {
+  // Duas inscrições sem matrícula, em projetos diferentes, são duas pessoas
+  // diferentes. Tratá-las como uma faria o recorte de "quem repetiu" entregar
+  // uma lista de estranhos, e o botão de anular está ao lado dela.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1'],
+    'o recorte de mesma matrícula levou junto quem não tem matrícula nenhuma');
+
+  const texto = cena.texto('auditorio-recentes');
+  igual(texto.indexOf('Sem Um'), -1, 'os sem matrícula viraram "a mesma pessoa": ' + texto);
+  igual(texto.indexOf('Bruno'), -1, 'entrou no recorte quem se inscreveu uma vez só: ' + texto);
+});
+
+teste('o recorte NÃO reordena nem junta as linhas da mesma pessoa', () => {
+  // Deixar as duas linhas do mesmo aluno adjacentes é o convite para a faixa
+  // marcar o par inteiro num gesto — e anular o par é tirar o aluno de TODOS os
+  // projetos, o oposto exato do que o professor pediu. A ordem continua sendo a
+  // do relógio, da mais nova para a mais velha.
+  const cena = abrirAuditorio((api) => {
+    auditorioComRepetidas(api);
+    // Uma segunda pessoa repetida, gravada NO MEIO das duas da Ana pelo relógio:
+    // agrupar por pessoa mudaria esta ordem, e é isso que se afirma.
+    inscreverEm(api, 'i7', 'Duda Reis', '110007', '2026-08-14 21:00:07', 'p1', 'Robótica');
+    inscreverEm(api, 'i8', 'Duda Reis', '110007', '2026-08-14 21:00:08', 'p2', 'Xadrez');
+  });
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  igual(idsDaLista(cena, 'recentes'), ['i8', 'i7', 'i5', 'i1'],
+    'o recorte reordenou ou agrupou as linhas');
+});
+
+teste('o projeto ENCERRADO aparece no seletor — é onde mora a inscrição velha', () => {
+  // O seletor sai de `AUDITORIO.recentes`, e nunca de `AUDITORIO.projetos`:
+  // `filaDeEspera` só devolve projeto ATIVO, e a inscrição que o professor foi
+  // procurar é justamente a de um projeto que já fechou. Montar o filtro da
+  // lista de projetos a esconderia — sem nada na tela dizendo isso.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  igual(cena.texto('auditorio-projetos').indexOf('Fotografia'), -1,
+    'a cena parou de valer: o projeto encerrado voltou a `AUDITORIO.projetos`');
+
+  const opcoes = cena.html('filtro-aud-projeto');
+  verdadeiro(opcoes.indexOf('Fotografia') !== -1,
+    'o seletor foi montado da lista de projetos ativos, e o encerrado sumiu: ' + opcoes);
+  verdadeiro(opcoes.indexOf('Robótica') !== -1 && opcoes.indexOf('Xadrez') !== -1, opcoes);
+
+  // E ele FILTRA de verdade.
+  filtrar(cena, 'filtro-aud-projeto', 'p9');
+  igual(idsDaLista(cena, 'recentes'), ['i6'], 'o filtro do projeto encerrado não peneirou');
+});
+
+teste('Atualizar limpa a marcação e NÃO limpa o filtro', () => {
+  // Marcação e filtro morrem de doenças diferentes: a marca aponta para linhas de
+  // uma leitura que acabou, e o filtro é a pergunta que a pessoa está fazendo.
+  // Zerar a pergunta a cada Atualizar jogaria fora o aluno que ela estava
+  // conferindo, no meio da conferência.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  filtrar(cena, 'filtro-aud-projeto', 'p1');
+  filtrar(cena, 'filtro-aud-busca', 'ana');
+  tocar(cena, 'recentes', 1);
+  igual(marcadas(cena, 'recentes'), 1);
+
+  cena.elemento('auditorio-atualizar').click();
+
+  igual(cena.elemento('filtro-aud-busca').value, 'ana', 'Atualizar jogou fora a busca');
+  igual(cena.elemento('filtro-aud-projeto').value, 'p1',
+    'Atualizar devolveu o seletor de projeto para "Todos" — a tela passa a mostrar outra lista');
+  igual(idsDaLista(cena, 'recentes'), ['i1'], 'a lista voltou sem o recorte');
+  igual(marcadas(cena, 'recentes'), 0, 'a marcação sobreviveu à recarga');
+});
+
+teste('o painel pede a JANELA INTEIRA e peneira no navegador', () => {
+  // Duas afirmações sobre o mesmo pedido, e as duas são o conserto de 27/08:
+  // mil em vez de duzentas (275 no banco não cabiam em 200), e nenhum
+  // `projeto_id` — filtrar no servidor cortaria o teto DEPOIS do corte por data,
+  // e a inscrição velha que ele foi procurar é a primeira a cair.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+  const pedido = cena.chamadas.filter((c) => c.funcao === 'inscricoesRecentes').pop().args[0];
+
+  igual(pedido.limite, 1000, 'o teto da leitura mudou — 200 escondia 75 das 275');
+  igual(pedido.projeto_id, undefined,
+    'o painel voltou a mandar projeto_id: o filtro do servidor corta o que o teto já cortou');
+
+  // E peneirar não vai ao servidor: cada volta releria a coleção inteira.
+  const antes = cena.chamadas.length;
+  filtrar(cena, 'filtro-aud-busca', 'ana');
+  filtrar(cena, 'filtro-aud-projeto', 'p1');
+  igual(cena.chamadas.length, antes, 'o filtro foi ao servidor a cada tecla');
+});
+
+teste('a janela CORTADA diz quantas faltam — e que as que faltam são as ANTIGAS', () => {
+  // O corte é a outra razão de alguém não estar na tela, e a mais perigosa: o
+  // filtro a pessoa acabou de pedir, o teto ninguém pediu. Sem esta frase, "não
+  // achei" é indistinguível de "não existe" — foi assim que 275 inscrições
+  // couberam numa tela de 200 sem ninguém perceber.
+  //
+  // O teto é baixado NA TELA, e não encenado na resposta: assim quem responde é
+  // `inscricoesRecentes` de verdade, e o teste falha se o contrato dos dois lados
+  // (`truncada` contra o limite PEDIDO, mais o `total`) deixar de valer.
+  const cena = abrirPainel({ semear: auditorioComRepetidas });
+  cena.js.AUDITORIO_TETO = 3;
+  cena.js.trocarAba('auditorio');
+
+  igual(idsDaLista(cena, 'recentes'), ['i6', 'i5', 'i4'], 'a janela não veio cortada em 3');
+
+  const rodape = cena.texto('auditorio-recentes');
+  verdadeiro(rodape.indexOf('cortada no teto') !== -1, 'a tela não disse que cortou: ' + rodape);
+  verdadeiro(rodape.indexOf('faltam 3 de 6') !== -1,
+    'a tela não disse quantas ficaram de fora: ' + rodape);
+  verdadeiro(/antigas/.test(rodape),
+    'a tela não disse QUE LADO ficou de fora — quem falta são as mais antigas: ' + rodape);
+});
+
+teste('o servidor CALADO sobre o corte não vira "está tudo aqui"', () => {
+  // Três estados, e não dois: cortou, não cortou, e não disse. Prometer
+  // completude que ninguém afirmou é fabricar a conclusão errada — e é o único
+  // caso em que a tela volta a mandar quem procura para a aba Alunos.
+  const cena = abrirPainel({
+    semear: auditorioComRepetidas,
+    respostas: {
+      inscricoesRecentes: (corpo, c) => ({
+        ok: true, lidas: 1, inscricoes: [{
+          id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:01',
+          projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false
+        }]
+      })
+    }
+  });
+  cena.js.trocarAba('auditorio');
+
+  const rodape = cena.texto('auditorio-recentes');
+
+  // A FRASE PRÓPRIA DO ESTADO CALADO, e a AUSÊNCIA da frase do "não cortou".
+  //
+  // As duas afirmações antigas — não conter "São todas as que existem" e conter
+  // "Alunos" — pararam de discriminar quando o texto do `false` foi suavizado na
+  // mesma mudança: ele deixou de ter a primeira frase e passou a ter "Alunos".
+  // Colapsar o ramo `null` no texto do `false` mantinha a suíte inteira verde, e
+  // a tela passava a AFIRMAR que o teto não cortou a partir do SILÊNCIO do
+  // servidor — exatamente a promessa que o código diz existir para não fazer.
+  //
+  // Um teste que sobrevive à mutação que ele nomeia é pior que teste nenhum:
+  // ele dá a sensação de cobertura sobre o comportamento que ninguém guarda.
+  verdadeiro(rodape.indexOf('Quem chegou antes disso está em') !== -1,
+    'o estado CALADO perdeu a frase que só ele tem: ' + rodape);
+  igual(rodape.indexOf('O teto não cortou'), -1,
+    'o silêncio do servidor virou a afirmação de que o teto não cortou: ' + rodape);
+  igual(rodape.indexOf('São todas as que existem'), -1,
+    'o silêncio do servidor virou promessa de completude: ' + rodape);
+});
+
+teste('truncada SEM total não imprime "faltam -3": a agregação pode ter falhado', () => {
+  // O servidor devolve `truncada: true` e OMITE `total` quando a agregação falha
+  // (é o isolamento que impede um número de rodapé de derrubar mil linhas já
+  // lidas). Aí `recentesTotal` vira 0, e a subtração daria negativo. A guarda
+  // existe; sem este teste, removê-la passava a suíte inteira.
+  const cena = abrirPainel({
+    semear: auditorioComRepetidas,
+    respostas: {
+      inscricoesRecentes: () => ({
+        ok: true, lidas: 3, truncada: true, inscricoes: [
+          { id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:03',
+            projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false },
+          { id: 'i2', nome: 'Bruno Souza', matricula: '110002', criado_em: '2026-08-14 21:00:02',
+            projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false },
+          { id: 'i3', nome: 'Carla Dias', matricula: '110003', criado_em: '2026-08-14 21:00:01',
+            projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false }
+        ]
+      })
+    }
+  });
+  cena.js.trocarAba('auditorio');
+
+  const rodape = cena.texto('auditorio-recentes');
+  verdadeiro(rodape.indexOf('cortada no teto') !== -1,
+    'o corte tem de continuar sendo dito mesmo sem o total: ' + rodape);
+  igual(rodape.indexOf('faltam -'), -1, 'imprimiu um número negativo: ' + rodape);
+  igual(rodape.indexOf('de 0'), -1, 'imprimiu "de 0" como se o banco estivesse vazio: ' + rodape);
+});
+
+teste('vazio por FILTRO não é dito como vazio por BANCO', () => {
+  // "Nenhuma inscrição registrada ainda" no meio de uma busca faria o professor
+  // concluir que o aluno não está no sistema — e a resposta certa é que ele não
+  // está NESTE recorte.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  filtrar(cena, 'filtro-aud-busca', 'ninguem com este nome');
+  const texto = cena.texto('auditorio-recentes');
+
+  verdadeiro(texto.indexOf('Ninguém neste recorte') !== -1, texto);
+  igual(texto.indexOf('Nenhuma inscrição registrada'), -1,
+    'a tela disse que o banco está vazio quando quem esvaziou foi o filtro: ' + texto);
+  verdadeiro(texto.indexOf('0 de 6 carregada(s)') !== -1,
+    'a tela não disse quantas existem fora do recorte: ' + texto);
+});
+
+teste('sem nenhuma visível não nasce botão de ação — e a marca continua contada', () => {
+  // Um "Anular 0" é uma armadilha: o botão está lá, a pessoa aperta, e nada
+  // acontece (ou pior). A barra fica, porque as marcas existem e precisam de
+  // caminho de volta.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  tocar(cena, 'recentes', 1);
+  filtrar(cena, 'filtro-aud-busca', 'bruno');
+
+  const barra = cena.texto('auditorio-acoes-recentes');
+  igual(barra.indexOf('Anular'), -1, 'nasceu um botão de anular sem nada marcado na tela: ' + barra);
+  verdadeiro(barra.indexOf('1 marcada(s)') !== -1, barra);
+  verdadeiro(barra.indexOf('1 fora do filtro') !== -1, barra);
+  verdadeiro(barra.indexOf('Mostrar as 1') !== -1,
+    'a marca escondida ficou sem caminho de volta: ' + barra);
+});
+
+// ======================= O TETO DE ESCRITA, na tela que oferece o clique
+//
+// O QUE ESTE BLOCO PROTEGE, e por que ele nasceu junto com a recusa.
+//
+// Em 27/08 o corte silencioso de lote virou RECUSA: `AUDITORIO_LOTE_MAXIMO` é
+// 200, e anular, restaurar e promover recusam o lote inteiro acima disso, sem
+// escrever nada (`erroDeLoteGrandeDemais_`, 13_Auditorio.gs). O ganho é enorme —
+// quem mandava 500 recebia 200 tratados e um relatório verde — e ele criou um
+// defeito NOVO, todo nosso, do lado de cá:
+//
+//   a tela desenhava "Promover 380 da fila", o clique mandava 380, e o servidor
+//   recusava o lote inteiro. Antes promovia 200 em silêncio; depois não promove
+//   NINGUÉM — num botão que a própria tela ofereceu.
+//
+// A regra que os testes daqui guardam é uma só: A TELA NUNCA OFERECE UM LOTE QUE
+// SERÁ RECUSADO. E ela se cumpre de dois jeitos diferentes, de propósito:
+//
+//   - na OFERTA da fila, o lote é cortado no teto e a tela DIZ que é uma parte.
+//     Quem escolheu o conjunto foi a ordem de chegada, e "os 200 primeiros da
+//     fila" é o que ela significa;
+//   - na BARRA das duas listas, o excesso NÃO é cortado: o botão não nasce e a
+//     tela pede para desmarcar. Ali quem escolheu foi a PESSOA, uma a uma, e
+//     cortar seria a tela decidindo quais 180 ficam de fora — de uma lista cuja
+//     ação apaga aluno.
+//
+// E o número é do SERVIDOR (`lote_maximo`), com um suposto para quando ele não
+// disser: um 200 fixo aqui envelheceria calado no dia em que o servidor mudasse.
+
+grupo('o teto de escrita — a tela não oferece o que vai ser recusado');
+
+/**
+ * A aba inteira encenada, com AS DUAS respostas — e o teto dito nas duas.
+ *
+ * As duas juntas, e nunca uma só: `lote_maximo` viaja em `inscricoesRecentes` E
+ * em `filaDeEspera` (13_Auditorio.gs), e a tela guarda o último que chegar.
+ * Encenar uma metade e deixar a outra ir ao servidor de verdade produziria um
+ * par que a produção nunca produz — o teto encenado sendo apagado pelo teto real
+ * na resposta seguinte —, e o teste mediria a tela sobre um mundo impossível.
+ *
+ * `teto: null` é o SERVIDOR VELHO: o campo não vai em nenhuma das duas.
+ */
+function auditorioEncenado(cfg) {
+  const teto = cfg.teto === undefined ? 200 : cfg.teto;
+  const naFila = cfg.fila || 0;
+  const vagas = cfg.cabem || 0;
+  const recentes = cfg.recentes || 0;
+
+  const fila = [];
+  for (let n = 1; n <= naFila; n++) {
+    fila.push({
+      id: 'f' + n, nome: 'Pessoa ' + n, matricula: String(300000 + n),
+      projeto_id: 'p1', posicao: n, criado_em: '2026-08-14 21:00:00'
+    });
+  }
+  const inscricoes = [];
+  for (let n = 1; n <= recentes; n++) {
+    inscricoes.push({
+      id: 'r' + n, nome: 'Pessoa ' + n, matricula: String(400000 + n),
+      criado_em: '2026-08-14 21:00:0' + (n % 10),
+      projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false
+    });
+  }
+
+  const daFila = {
+    ok: true, truncada: false,
+    projetos: [{ id: 'p1', nome: 'Robótica', vagas: vagas + 1, confirmados: 1,
+      emEspera: naFila, cabem: vagas }],
+    fila: fila
+  };
+  const dasRecentes = { ok: true, lidas: recentes, truncada: false, inscricoes: inscricoes };
+  if (teto !== null) { daFila.lote_maximo = teto; dasRecentes.lote_maximo = teto; }
+
+  const cena = abrirPainel({
+    semear: cfg.semear || auditorioBase,
+    respostas: { filaDeEspera: daFila, inscricoesRecentes: dasRecentes }
+  });
+  cena.js.trocarAba('auditorio');
+  return cena;
+}
+
+teste('a oferta NUNCA passa do teto do servidor, e diz que é uma parte', () => {
+  // O DEFEITO QUE ESTE TESTE PEGA, inteiro: 5 cabem, o servidor faz 2 por vez, e
+  // a tela desenhava "Promover 5" — um clique que o servidor recusaria inteiro.
+  //
+  // A MUTAÇÃO: tirar o corte (`promover(idsQueCabem())` de volta, ou o
+  // `Math.min` fora da oferta) faz o rótulo virar "Promover 5" e o pedido levar
+  // os 5 ids. As duas afirmações abaixo pegam cada metade.
+  const cena = auditorioEncenado({ fila: 5, cabem: 5, teto: 2 });
+
+  const oferta = cena.texto('auditorio-alerta');
+  verdadeiro(oferta.indexOf('Promover 2 da fila') !== -1,
+    'a tela ofereceu um lote que o servidor recusaria: ' + oferta);
+  igual(oferta.indexOf('Promover 5 da fila'), -1,
+    'o botão continua oferecendo tudo que cabe, e o servidor recusa o lote inteiro: ' + oferta);
+
+  // OS DOIS NÚMEROS. Cortar sem dizer é a outra metade do defeito: quem lê
+  // "Promover 2" com 5 vagas livres vai embora achando que promoveu todo mundo,
+  // e três vagas ficam vazias com gente esperando ao lado.
+  verdadeiro(oferta.indexOf('Cabem 5 agora') !== -1,
+    'a tela escondeu quantos ainda cabem: ' + oferta);
+  verdadeiro(oferta.indexOf('até 2 por vez') !== -1,
+    'a tela não disse POR QUE está oferecendo menos: ' + oferta);
+  verdadeiro(/outros 3/.test(oferta),
+    'a tela não disse quantos ficam para a próxima rodada: ' + oferta);
+
+  // E o CLIQUE manda exatamente o que o rótulo contou — os 2 primeiros da fila,
+  // em ordem de chegada.
+  cena.botaoQueChama(/aoGravar\(this, promoverQueCabem\)/).click();
+  const pedido = cena.chamadas.filter((c) => c.funcao === 'promoverDaEspera').pop();
+  igual(pedido.args[0].ids, ['f1', 'f2'],
+    'o pedido não é o que o botão prometeu: ' + JSON.stringify(pedido.args[0].ids));
+});
+
+teste('sem `lote_maximo` (servidor velho) a tela supõe 200 em vez de quebrar', () => {
+  // O campo é novo. Um painel publicado antes da implantação nova — ou depois de
+  // um rollback — fala com um servidor que não o manda, e a tela não pode nem
+  // travar nem voltar a oferecer o que será recusado.
+  //
+  // A MUTAÇÃO: assumir que ele vem (`Math.min(cabem, AUDITORIO.loteMaximo)` sem o
+  // suposto) faz `Math.min(250, null)` valer 0 — a oferta some da tela inteira —
+  // ou, com `undefined`, vira NaN e o botão diz "Promover NaN da fila".
+  const cena = auditorioEncenado({ fila: 250, cabem: 250, teto: null });
+
+  const oferta = cena.texto('auditorio-alerta');
+  verdadeiro(oferta.indexOf('Promover 200 da fila') !== -1,
+    'o servidor calado deixou a tela sem teto nenhum (ou com um teto inválido): ' + oferta);
+  igual(oferta.indexOf('NaN'), -1, 'a tela desenhou NaN: ' + oferta);
+  verdadeiro(oferta.indexOf('Cabem 250 agora') !== -1, oferta);
+
+  cena.botaoQueChama(/aoGravar\(this, promoverQueCabem\)/).click();
+  const pedido = cena.chamadas.filter((c) => c.funcao === 'promoverDaEspera').pop();
+  igual(pedido.args[0].ids.length, 200,
+    'o pedido do servidor calado saiu com ' + pedido.args[0].ids.length + ' ids');
+});
+
+teste('o teto do servidor MANDA no suposto — 200 não é uma cópia fixa na tela', () => {
+  // O suposto existe para o silêncio, e não para substituir o que o servidor
+  // disser. Um 200 fixo na tela continuaria oferecendo 200 no dia em que o
+  // servidor passasse a fazer 500 — e oferecendo 500 no dia em que ele baixasse.
+  const cena = auditorioEncenado({ fila: 400, cabem: 400, teto: 300 });
+
+  const oferta = cena.texto('auditorio-alerta');
+  verdadeiro(oferta.indexOf('Promover 300 da fila') !== -1,
+    'a tela ignorou o teto que o servidor mandou e usou o suposto: ' + oferta);
+  verdadeiro(cena.texto('auditorio-teto-lote').indexOf('300') !== -1,
+    'a frase da regra ficou com o número velho: ' + cena.texto('auditorio-teto-lote'));
+});
+
+teste('o teto aparece na REGRA da faixa, antes de qualquer marcação', () => {
+  // A faixa marca 200 em dois toques, e a lista chega a mil linhas. Descobrir o
+  // teto só depois de marcar 380 é descobrir tarde: o trabalho já foi feito, e a
+  // única saída é desmarcar 180 uma a uma.
+  //
+  // A MUTAÇÃO: tirar a frase da regra deixa o número 200 sem aparecer em lugar
+  // nenhum da aba até o estrago estar pronto.
+  const cena = abrirAuditorio();
+
+  const regra = cena.texto('auditorio-teto-lote');
+  verdadeiro(regra.indexOf('200') !== -1, 'o teto não é dito na regra da faixa: ' + regra);
+  verdadeiro(/anular/i.test(regra) && /promover/i.test(regra),
+    'a frase não diz a que ações o teto se aplica: ' + regra);
+
+  // E ela está lá SEM ninguém ter marcado nada — é o ponto.
+  igual(marcadas(cena, 'recentes'), 0);
+  igual(cena.texto('auditorio-acoes-recentes'), '');
+});
+
+teste('marcar acima do teto AVISA antes do clique, e não nasce botão de ação', () => {
+  // O DEFEITO QUE ESTE TESTE PEGA: a faixa marca 4, o servidor faz 3 por vez, e a
+  // barra desenhava "Anular 4". O clique sairia, o servidor recusaria o lote
+  // inteiro, e a pessoa descobriria depois de apertar — com a seleção feita, no
+  // meio do evento.
+  //
+  // A MUTAÇÃO: tirar o aviso (ou deixar o botão nascer assim mesmo) devolve o
+  // "Anular 4" e a descoberta pelo clique.
+  const cena = auditorioEncenado({ recentes: 6, teto: 3, semear: auditorioComRepetidas });
+
+  tocar(cena, 'recentes', 1);
+  tocar(cena, 'recentes', 4);                 // a faixa marca 4 em dois toques
+  igual(marcadas(cena, 'recentes'), 4);
+
+  const barra = cena.texto('auditorio-acoes-recentes');
+  igual(barra.indexOf('Anular 4'), -1,
+    'o botão ofereceu um lote que o servidor recusaria inteiro: ' + barra);
+  verdadeiro(barra.indexOf('4 marcada(s)') !== -1,
+    'a barra sumiu com a contagem junto com o botão: ' + barra);
+  verdadeiro(barra.indexOf('até 3 por vez') !== -1,
+    'a barra não disse qual é o teto: ' + barra);
+  verdadeiro(barra.indexOf('nada') !== -1,
+    'a barra não disse que o lote recusado não faz NADA: ' + barra);
+  verdadeiro(barra.indexOf('desmarque 1') !== -1 || barra.indexOf('Desmarque 1') !== -1,
+    'a barra não disse quantas desmarcar para caber: ' + barra);
+
+  // Nenhum caminho da tela leva o lote grande ao servidor.
+  igual(cena.chamadas.filter((c) => c.funcao === 'anularInscricoes').length, 0,
+    'a tela mandou o lote grande assim mesmo');
+
+  // E desmarcar UMA devolve o botão, com o número certo — o aviso é um freio, e
+  // não uma parede.
+  tocar(cena, 'recentes', 4);
+  verdadeiro(cena.texto('auditorio-acoes-recentes').indexOf('Anular 3') !== -1,
+    'o botão não voltou quando a seleção coube: ' + cena.texto('auditorio-acoes-recentes'));
+});
+
+teste('a barra da FILA avisa do mesmo jeito — o teto vale para as três ações', () => {
+  // `promoverDaEspera` recusa lote grande igual a `anularInscricoes`, e a barra
+  // da fila é a mesma função. Sem esta afirmação, o conserto valeria para uma
+  // lista só e a outra continuaria oferecendo o clique perdido.
+  const cena = auditorioEncenado({ fila: 4, cabem: 4, teto: 2 });
+
+  tocar(cena, 'fila', 1);
+  tocar(cena, 'fila', 3);
+  igual(marcadas(cena, 'fila'), 3);
+
+  const barra = cena.texto('auditorio-acoes-fila');
+  igual(barra.indexOf('Promover 3'), -1, 'a fila ofereceu o lote que será recusado: ' + barra);
+  verdadeiro(barra.indexOf('até 2 por vez') !== -1, barra);
+  verdadeiro(/promover/i.test(barra), 'o aviso da fila fala da ação errada: ' + barra);
+});
+
+teste('com a leitura CORTADA, o recorte de repetidas diz que só vê a janela', () => {
+  // O PEDIDO DO PROFESSOR, e a armadilha dele. O recorte é uma afirmação sobre o
+  // BANCO — "quem se inscreveu em mais de um projeto" — calculada sobre a
+  // JANELA. Com a leitura cortada no teto, um par cuja metade mais VELHA ficou de
+  // fora não é um par aqui: a metade que sobrou aparece como quem se inscreveu
+  // uma vez só, e o recorte responde "ninguém repetiu" para o caso em que alguém
+  // repetiu. Foi por não achar esses pares que ele veio.
+  //
+  // A cena é a mais cruel possível, e é de propósito: as duas inscrições da Ana
+  // estão nas PONTAS do relógio, e o teto de 3 corta exatamente entre elas.
+  //
+  // A MUTAÇÃO: calar (não desenhar o aviso) devolve um "Ninguém neste recorte"
+  // com cara de resposta completa.
+  const cena = abrirPainel({ semear: auditorioComRepetidas });
+  cena.js.AUDITORIO_TETO = 3;
+  cena.js.trocarAba('auditorio');
+
+  igual(idsDaLista(cena, 'recentes'), ['i6', 'i5', 'i4'], 'a janela não veio cortada em 3');
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  const texto = cena.texto('auditorio-recentes');
+
+  // A i5 é uma das duas da Ana; a i1 ficou fora da janela. Dentro da janela,
+  // ninguém repetiu — e é justamente aqui que a tela não pode se calar.
+  verdadeiro(texto.indexOf('Ninguém neste recorte') !== -1, texto);
+  verdadeiro(/enxerga só as 3/.test(texto),
+    'o recorte não disse sobre quantas ele está falando: ' + texto);
+  verdadeiro(texto.indexOf('cortada no teto') !== -1,
+    'o recorte não disse que a leitura veio cortada: ' + texto);
+  verdadeiro(/antiga/.test(texto),
+    'o recorte não disse QUE LADO do par pode estar faltando: ' + texto);
+  verdadeiro(texto.indexOf('Alunos') !== -1,
+    'o recorte não disse onde conferir antes de anular pelo par: ' + texto);
+});
+
+teste('o recorte avisa também quando ACHA alguém — a lista curta engana igual', () => {
+  // Com resultado na tela o risco é o mesmo, e talvez maior: uma lista de dois
+  // pares tem cara de resposta completa, e o botão de anular está do lado dela.
+  const cena = abrirPainel({ semear: auditorioComRepetidas });
+  cena.js.AUDITORIO_TETO = 5;              // corta só a i1 — a Ana mais velha
+  cena.js.trocarAba('auditorio');
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  const texto = cena.texto('auditorio-recentes');
+
+  verdadeiro(texto.indexOf('cortada no teto') !== -1,
+    'com linhas na tela, o aviso do recorte sumiu: ' + texto);
+});
+
+teste('com a janela INTEIRA o recorte não inventa ressalva nenhuma', () => {
+  // O outro lado da mesma honestidade: quando o servidor afirma que não cortou, a
+  // ressalva vira ruído — e ruído que aparece sempre é ruído que ninguém lê no
+  // dia em que ele importa.
+  const cena = abrirAuditorio(auditorioComRepetidas);
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  const texto = cena.texto('auditorio-recentes');
+
+  igual(texto.indexOf('enxerga só'), -1, 'a ressalva apareceu com a janela folgada: ' + texto);
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1'], 'o recorte parou de funcionar');
+});
+
+teste('o servidor CALADO sobre o corte também não deixa o recorte prometer', () => {
+  // Três estados, aqui também: cortou, não cortou, e não disse. O silêncio não
+  // vira "a janela veio inteira" no rodapé, e não pode virar no recorte.
+  const cena = abrirPainel({
+    semear: auditorioComRepetidas,
+    respostas: {
+      inscricoesRecentes: {
+        ok: true, lidas: 1, inscricoes: [{
+          id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:01',
+          projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false
+        }]
+      }
+    }
+  });
+  cena.js.trocarAba('auditorio');
+
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  const texto = cena.texto('auditorio-recentes');
+
+  verdadeiro(texto.indexOf('não disse se a leitura veio inteira') !== -1,
+    'o silêncio do servidor virou um recorte com cara de completo: ' + texto);
+});
+
+teste('um id chamado `constructor` não nasce marcado — e a ação não o alcança', () => {
+  // A CICATRIZ DE `idsDoPayload_` (13_Auditorio.gs), do lado da tela. `MARCADAS`
+  // é um `{}`, e `MARCADAS.recentes['constructor']` responde VERDADEIRO por
+  // herança do protótipo — sem ninguém ter tocado em nada.
+  //
+  // O que isso faz nesta tela, e é por isso que ela é a pior casa possível para o
+  // defeito: a linha nasce desenhada como marcada (`✓`, `aria-pressed="true"`),
+  // o primeiro toque cai no caminho do "tocar numa marcada" e a DESMARCA em vez
+  // de marcar, e `marcadasDe` a inclui em toda ação — a ação que apaga aluno.
+  //
+  // A MUTAÇÃO: tirar o `hasOwnProperty` de `linhaTocavel` põe o ✓ de volta; tirar
+  // o de `marcadasDe` põe a pessoa dentro do "Anular" sem ninguém a ter tocado.
+  const cena = abrirAuditorio((api) => {
+    auditorioBase(api);
+    inscrever(api, 'constructor', 'Zeca Prototipo', '110009', '2026-08-14 21:00:09', false);
+  });
+
+  verdadeiro(idsDaLista(cena, 'recentes').indexOf('constructor') !== -1,
+    'a cena parou de valer: a linha do id herdado não chegou à lista');
+
+  igual(marcadas(cena, 'recentes'), 0,
+    'a linha com id `constructor` nasceu MARCADA, por herança do protótipo');
+  igual(cena.texto('auditorio-acoes-recentes'), '',
+    'nasceu uma barra de ações sem ninguém ter tocado em nada');
+
+  // A LINHA DE BAIXO É A QUE PEGA `marcadasDe` SOZINHA. Com a barra JÁ na tela —
+  // alguém marcou outra pessoa —, `marcadasDe` sem a guarda devolve as DUAS: a
+  // tocada e a herdada. O botão diria "Anular 2", e a confirmação mostraria dois
+  // nomes, um deles de quem ninguém escolheu.
+  tocar(cena, 'recentes', 2);                 // a Ana, logo abaixo da herdada
+  igual(marcadas(cena, 'recentes'), 1, 'o toque numa linha marcou duas');
+  verdadeiro(cena.texto('auditorio-acoes-recentes').indexOf('Anular 1') !== -1,
+    'a linha de id herdado entrou na conta do botão sem ter sido tocada: ' +
+    cena.texto('auditorio-acoes-recentes'));
+
+  cena.respostaConfirm = false;
+  cena.botaoQueChama(/aoGravar\(this, anularMarcadas\)/).click();
+  igual(cena.confirmacoes[0].indexOf('Zeca Prototipo'), -1,
+    'a pergunta levou junto a linha de id herdado: ' + cena.confirmacoes[0]);
+
+  // E a herdada funciona como qualquer outra quando é TOCADA: um toque marca (e
+  // não desmarca — este é o caminho do "tocar numa marcada"), e a ação a alcança.
+  cena.js.limparMarcas('recentes');
+  tocar(cena, 'recentes', 1);
+  igual(marcadas(cena, 'recentes'), 1,
+    'o primeiro toque DESMARCOU a linha — é o caminho do "tocar numa marcada"');
+
+  cena.respostaConfirm = true;
+  cena.botaoQueChama(/aoGravar\(this, anularMarcadas\)/).click();
+  igual(inscricaoNoBanco(cena, 'constructor'), null, 'a marcada e visível não foi anulada');
+  verdadeiro(inscricaoNoBanco(cena, 'i5') !== null,
+    'a anulação levou junto quem ninguém tocou');
+});
+
+teste('quem está na fila de um projeto que o cabeçalho não trouxe não é oferecido', () => {
+  // A mesma herança, no mapa de vagas de `idsQueCabem`: `vaga[f.projeto_id]` cai
+  // no protótipo quando o projeto não veio no cabeçalho, e um projeto chamado
+  // `constructor` responde com uma FUNÇÃO — verdadeira, decrementada para NaN.
+  // A pessoa entraria numa vaga que ninguém contou, num projeto que a tela não
+  // sabe nomear.
+  const cena = abrirPainel({
+    semear: auditorioBase,
+    respostas: {
+      filaDeEspera: {
+        ok: true, lote_maximo: 200, truncada: false,
+        projetos: [{ id: 'p1', nome: 'Robótica', vagas: 3, confirmados: 2, emEspera: 2, cabem: 1 }],
+        fila: [
+          { id: 'f1', nome: 'Um', matricula: '300001', projeto_id: 'constructor',
+            posicao: 1, criado_em: '2026-08-14 21:00:01' },
+          { id: 'f2', nome: 'Dois', matricula: '300002', projeto_id: 'p1',
+            posicao: 1, criado_em: '2026-08-14 21:00:02' }
+        ]
+      }
+    }
+  });
+  cena.js.trocarAba('auditorio');
+
+  const oferta = cena.texto('auditorio-alerta');
+  verdadeiro(oferta.indexOf('Promover 1 da fila') !== -1,
+    'a vaga herdada do protótipo entrou na conta: ' + oferta);
+
+  cena.botaoQueChama(/aoGravar\(this, promoverQueCabem\)/).click();
+  const pedido = cena.chamadas.filter((c) => c.funcao === 'promoverDaEspera').pop();
+  igual(pedido.args[0].ids, ['f2'],
+    'a promoção levou quem está num projeto sem vaga contada: ' +
+    JSON.stringify(pedido.args[0].ids));
 });
 
 // ================================================ A vizinhança da matrícula
