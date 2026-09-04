@@ -16,7 +16,15 @@
  *   4. nenhuma das cinco é alcançável sem token;
  *   5. nenhuma consulta pede índice composto — ordenação OU filtro, nunca os
  *      dois, porque o `400 The query requires an index` aparece no primeiro
- *      clique do dia do evento e não tem conserto de tela.
+ *      clique do dia do evento e não tem conserto de tela;
+ *   6. NADA É CORTADO EM SILÊNCIO, dos dois lados — e nada é ANUNCIADO como corte
+ *      sem ter sido. A janela de leitura que volta cheia confere o `total` do
+ *      banco antes de se declarar `truncada`, e sai com as linhas mesmo quando
+ *      essa conferência falha; o lote de escrita grande demais é RECUSADO, e não
+ *      fatiado, com o teto viajando em `lote_maximo` para a tela nem chegar a
+ *      oferecer o que o servidor nega. São as metades do mesmo defeito: 275
+ *      inscrições numa tela que mostrava 200, e 500 ids marcados na faixa com
+ *      200 tratados no servidor e relatório verde na tela.
  *
  * O `LockService` daqui é o mesmo desenho de `testes/projetos.js`: carimba
  * quantas requisições já tinham ido ao Firestore a cada entrada e saída, e conta
@@ -72,6 +80,42 @@ function comLock(api, falso, opcoes) {
 
 function quantosDoTipo(eventos, tipo) {
   return eventos.filter((e) => e.tipo === tipo).length;
+}
+
+/**
+ * Quebra a AGREGAÇÃO, e só ela: a consulta que traz as linhas continua de pé.
+ *
+ * É o desenho da falha que interessa. `:runQuery` e `:runAggregationQuery` são
+ * duas idas à rede independentes, e a segunda cai sozinha — cota de leitura
+ * estourada, 503 do Firestore, a execução esbarrando nos 6 minutos — depois de a
+ * primeira já ter dado certo e as linhas estarem na memória. Derrubar as duas
+ * provaria outra coisa: que a função sabe responder `ok: false`, que ela já
+ * sabia.
+ *
+ * Lança em vez de devolver 500: assim não há retentativa para contar, e o que se
+ * mede é o caminho do erro, não o do recuo.
+ *
+ * Devolve quantas vezes a agregação foi tentada — sem esse número, o teste
+ * passaria também no dia em que ninguém chamasse agregação nenhuma.
+ */
+function comAgregacaoQuebrada(api) {
+  const real = api.UrlFetchApp;
+  const tentativas = [];
+
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':runAggregationQuery') !== -1) {
+        tentativas.push(url);
+        throw new Error('Address unavailable: firestore.googleapis.com');
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll(lote) {
+      return real.fetchAll(lote);
+    }
+  };
+
+  return tentativas;
 }
 
 function marco(eventos, tipo) {
@@ -297,17 +341,116 @@ teste('não ordena por __name__, que é a outra forma da mesma armadilha', () =>
   });
 });
 
-teste('o teto é 200, e um limite absurdo não passa por cima dele', () => {
+// O teto da LEITURA é outro número, e não o dos 200 ids de escrita: ler não
+// corre contra os 6 minutos de execução nem contra as 20 mil escritas do dia.
+// Enquanto os dois foram o mesmo, a tela mostrava 200 de 275.
+teste('o teto da leitura é 1000, e um limite absurdo não passa por cima dele', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
   api.inscricoesRecentes({ token: tokenAdmin(api), limite: 5000 });
-  igual(consultas(falso)[0].limit, 200);
+  igual(consultas(falso)[0].limit, 1000, 'o teto de escrita não manda no tamanho da janela');
 
   falso.requisicoes.length = 0;
   api.inscricoesRecentes({ token: tokenAdmin(api), limite: 'trinta' });
   igual(consultas(falso)[0].limit, 50, 'sem número, o padrão da tela');
+});
+
+// `truncada` é contra o limite PEDIDO, e não contra o teto de 1000: quem pede 50
+// e recebe 50 está olhando uma janela cheia, e o que não coube nela some da tela
+// sem deixar rastro — que é o defeito inteiro, em escala menor.
+teste('truncada é true quando a janela corta de verdade, e false quando sobra espaço', () => {
+  const { api } = ambiente();
+  auditorioLotado(api);   // cinco inscrições
+  const token = tokenAdmin(api);
+
+  igual(api.inscricoesRecentes({ token: token, limite: 3 }).truncada, true,
+    'três pedidas, três vindas, cinco no banco: há duas que a tela não viu');
+  igual(api.inscricoesRecentes({ token: token, limite: 6 }).truncada, false,
+    'sobrou espaço na janela: o que veio é tudo o que existe');
+  igual(api.inscricoesRecentes({ token: token }).truncada, false,
+    'e o padrão de 50 sobra do mesmo jeito');
+});
+
+// A JANELA CHEIA NA MEDIDA — cinco no banco, cinco pedidas. É o único caso em
+// que a suspeita de corte é FALSA, e a mentira dela é cara: o rodapé anuncia "a
+// leitura veio cortada no teto, as que faltam são as mais antigas" e manda o
+// professor procurar na aba Alunos alguém que estava na tela o tempo todo. Ele
+// procura, não acha (porque não falta ninguém), e conclui que o sistema perdeu a
+// inscrição.
+//
+// A agregação do total já foi paga pela janela cheia, então conferir não custa
+// leitura nenhuma — só usar o número que já veio.
+teste('janela do tamanho EXATO da coleção não é corte: truncada false, e sem total', () => {
+  const { api, falso } = ambiente();
+  auditorioLotado(api);   // cinco inscrições, e nem uma a mais
+  const token = tokenAdmin(api);
+  falso.requisicoes.length = 0;
+
+  const r = api.inscricoesRecentes({ token: token, limite: 5 });
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.lidas, 5);
+  igual(r.truncada, false,
+    'a janela encheu na medida e o banco acabou junto: não ficou ninguém de fora');
+  igual(r.total, undefined,
+    'sem corte, o total É `lidas` — dois números para a mesma coisa é o começo de eles discordarem');
+  igual(falso.requisicoes.filter((q) => q.url.indexOf(':runAggregationQuery') !== -1).length, 1,
+    'a agregação continua sendo UMA: é ela que desmente a suspeita, e ela já estava paga');
+
+  // E uma a mais no banco devolve o corte, pela MESMA agregação: o teste acima
+  // não pode estar provando "truncada nunca é true".
+  inscrever(api, 'i6', { nome: 'Elis Prado', matricula: '110005', criado_em: '2026-08-14 21:00:06' });
+  const cortou = api.inscricoesRecentes({ token: token, limite: 5 });
+  igual(cortou.truncada, true, 'seis no banco, cinco na tela: uma ficou de fora');
+  igual(cortou.total, 6);
+});
+
+teste('a janela cheia traz o total do banco por UMA agregação; a folgada não paga nenhuma', () => {
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  const token = tokenAdmin(api);
+  const agregacoes = () =>
+    falso.requisicoes.filter((q) => q.url.indexOf(':runAggregationQuery') !== -1).length;
+
+  falso.requisicoes.length = 0;
+  const cortada = api.inscricoesRecentes({ token: token, limite: 2 });
+  igual(cortada.total, 5, 'sem o total, "2 de quantas?" não tem resposta na tela');
+  igual(agregacoes(), 1, 'o total do banco é uma agregação, não uma releitura da coleção');
+
+  falso.requisicoes.length = 0;
+  const inteira = api.inscricoesRecentes({ token: token, limite: 50 });
+  igual(inteira.total, undefined, 'com a janela folgada, `lidas` já É o total');
+  igual(agregacoes(), 0, 'contar de novo seria leitura paga para repetir um número que a tela tem');
+});
+
+// O NÚMERO DO RODAPÉ NÃO DERRUBA A TELA. A agregação é uma SEGUNDA ida à rede,
+// depois de as linhas já estarem lidas e na memória; um `catch` que abraçasse as
+// duas responderia `ok: false` e jogaria a janela inteira fora por causa do
+// número menos importante da resposta — no meio do evento, com a coordenação
+// olhando para "Erro ao carregar" em vez da lista que ela precisa anular.
+teste('a agregação que FALHA leva embora o total, e mais nada', () => {
+  const { api, falso, registros } = ambiente();
+  auditorioLotado(api);
+  const token = tokenAdmin(api);
+  const tentativas = comAgregacaoQuebrada(api);
+
+  const r = api.inscricoesRecentes({ token: token, limite: 2 });
+
+  igual(r.ok, true, 'a falha do rodapé derrubou a resposta inteira: ' + r.erro);
+  igual(r.inscricoes.map((i) => i.id), ['i5', 'i4'], 'as linhas já lidas foram jogadas fora');
+  igual(r.lidas, 2);
+  igual(r.total, undefined, 'total sem agregação seria um número inventado');
+  igual(r.truncada, true,
+    'sem poder conferir, a suspeita de corte FICA: dizer "está tudo aqui" é a promessa que ninguém pode fazer');
+  igual(tentativas.length, 1, 'a agregação nem foi tentada — o teste passaria por acaso');
+  verdadeiro(registros.erros.join(' ').indexOf('o total não veio') !== -1,
+    'a falha ficou muda no log, e uma janela sem total é indistinguível de uma janela folgada');
+
+  // A tela do painel já sabe ler esta resposta: `recentesTotal` vira 0 e o
+  // rodapé omite o "faltam N de M" em vez de imprimir "faltam -2". Ver
+  // `rodapeDeRecentes`, em docs/painel/index.html.
 });
 
 teste('o payload do aluno não vaza inteiro para a tela', () => {
@@ -649,17 +792,12 @@ teste('sem id nenhum é recusado antes de qualquer leitura', () => {
   igual(commits(falso), []);
 });
 
-teste('id repetido no payload não vira duas cópias, e o teto é 200', () => {
+teste('id repetido no payload não vira duas cópias', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
 
   igual(api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i1', 'i1'] }).anuladas, 1);
   igual(commits(falso).filter((c) => c.tipo === 'apaga')[0].quantas, 1);
-
-  const muitos = [];
-  for (let i = 0; i < 500; i++) muitos.push('inexistente_' + i);
-  igual(api.anularInscricoes({ token: tokenAdmin(api), ids: muitos }).nao_encontradas, 200,
-    'o lote sem teto morre no meio dos 6 minutos, e é aí que a quarentena fica pela metade');
 });
 
 teste('a trilha registra uma linha por lote, com quem mandou', () => {
@@ -997,6 +1135,83 @@ teste('a trilha registra quem promoveu e quantos', () => {
   api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
 
   igual(acoesDoLog(falso), ['PROMOCAO_ESPERA']);
+});
+
+grupo('O teto de escrita: 200 é recusa, e não fatia calada');
+
+// A fila desenha até 500 linhas e a faixa marca as 500 em dois toques. Enquanto
+// `idsDoPayload_` fatiava, promover 500 promovia 200 e a tela relatava verde: a
+// coordenação só descobriria os 300 que ficaram contando à mão.
+teste('lote acima de 200 é recusado nas TRÊS que escrevem, antes de ler ou gravar', () => {
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  comLock(api, falso);
+  const token = tokenAdmin(api);
+
+  // O id de verdade vem PRIMEIRO, dentro dos 200 que a fatia teria pegado: sem a
+  // recusa, o estrago aparece no banco em vez de na contagem.
+  const muitos = ['i3'];
+  for (let i = 0; i < 499; i++) muitos.push('inexistente_' + i);
+
+  ['anularInscricoes', 'restaurarInscricoes', 'promoverDaEspera'].forEach((nome) => {
+    falso.requisicoes.length = 0;
+    const r = api[nome]({ token: token, ids: muitos });
+
+    igual(r.ok, false, nome + ' aceitou 500 ids');
+    verdadeiro(r.erro.indexOf('500') !== -1 && r.erro.indexOf('200') !== -1,
+      nome + ' precisa dizer quantos vieram e quantos cabem — disse: ' + r.erro);
+    igual(falso.requisicoes.length, 0, nome + ' foi ao banco antes de recusar');
+  });
+
+  igual(idsDe(falso, 'inscricoes'), ['i1', 'i2', 'i3', 'i4', 'i5'], 'o lote recusado mexeu no cadastro');
+  igual(idsDe(falso, 'inscricoes_anuladas'), [], 'nem meia cópia foi para a quarentena');
+  igual(campos(falso, 'inscricoes', 'i3').em_espera.stringValue, 'SIM', 'o lote recusado promoveu alguém');
+});
+
+// A tela não tem como adivinhar onde a recusa começa. Sem este campo ela oferece
+// "Anular as 300 marcadas", a pessoa clica, e a resposta é um erro que nada na
+// tela permitia prever — a recusa em lugar do corte calado é melhor, mas
+// descobrir o teto no clique ainda é descobrir tarde.
+teste('as DUAS leituras devolvem o teto de escrita, e é o teto que as três aplicam', () => {
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  comLock(api, falso);
+  const token = tokenAdmin(api);
+
+  const recentes = api.inscricoesRecentes({ token: token });
+  const fila = api.filaDeEspera({ token: token });
+
+  igual(recentes.lote_maximo, api.AUDITORIO_LOTE_MAXIMO,
+    'sem lote_maximo em inscricoesRecentes, a barra de ações oferece lote que o servidor recusa');
+  igual(fila.lote_maximo, api.AUDITORIO_LOTE_MAXIMO,
+    'a fila também tem barra de ações, e a dela PROMOVE');
+
+  // E o número que viajou é o número de verdade — o que a tela recebe tem de ser
+  // exatamente onde a recusa começa, e não um segundo teto combinado de cabeça.
+  const cabe = [];
+  for (let i = 0; i < recentes.lote_maximo; i++) cabe.push('inexistente_' + i);
+  igual(api.anularInscricoes({ token: token, ids: cabe }).ok, true,
+    'o lote do tamanho anunciado foi recusado: o número que a tela recebeu mente para menos');
+  igual(api.anularInscricoes({ token: token, ids: cabe.concat(['inexistente_a_mais']) }).ok, false,
+    'um a mais que o anunciado passou: o número que a tela recebeu mente para mais');
+});
+
+// A recusa é acima de 200, e não a partir de 200: o mutirão de exatamente um
+// lote cheio é o caso normal desta aba, e não pode esbarrar na guarda.
+teste('exatamente 200 passa, e o payload chega inteiro', () => {
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  comLock(api, falso);
+
+  const duzentos = ['i2'];
+  for (let i = 0; i < 199; i++) duzentos.push('inexistente_' + i);
+
+  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: duzentos });
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.pedidas, 200, 'os ids chegam todos: fatiar em silêncio é que era o defeito');
+  igual(r.anuladas, 1);
+  igual(idsDe(falso, 'inscricoes_anuladas'), ['i2']);
 });
 
 grupo('O ciclo inteiro: anular, promover, e a conta fecha');

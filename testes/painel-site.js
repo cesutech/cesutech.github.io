@@ -748,6 +748,56 @@ teste('o tempo-limite é de 10s e anda colado em quem pode ser repetido', () => 
     'tudo, a próxima gravação abortada é uma gravação com desfecho desconhecido');
 });
 
+teste('a leitura do Auditório tem tempo próprio — e é a ÚNICA que tem', () => {
+  // POR QUE UMA EXCEÇÃO EXISTE. O 10s foi calibrado em 12 e 13/08 sobre respostas
+  // de 200 linhas. Em 27/08 `inscricoesRecentes` passou a pedir mil
+  // (`AUDITORIO_TETO`), e o JSON de `resumoParaAuditorio_` foi somado campo a
+  // campo: 334 B por linha, ou seja 65 KiB crus (~10 KiB comprimidos) em 200
+  // linhas contra 326 KiB crus (~46 KiB comprimidos) em mil. Do lado do servidor
+  // o `runQuery` que `listar` baixa vai de 0,26 MiB para 1,28 MiB.
+  //
+  // Os 36 KiB comprimidos a mais custam menos de 1s até no wifi ruim — 10s ainda
+  // CHEGA. O que encolheu foi a folga, e a folga era a conta toda: a leitura mais
+  // lenta que deu certo levou 9,25s com 200 linhas, e com mil ela encosta em 10s.
+  // Abortada, a tentativa seguinte relê as mesmas mil, e uma leitura que teria
+  // chegado em 9,5s passa a custar ~21s. As travadas medidas iam de 11,9s a
+  // 66,8s: 15s fica acima de tudo que chega e continua cortando o que trava.
+  const tabela = /var LIMITE_DE_LEITURA_POR_FUNCAO_MS = \{([^}]*)\};/.exec(PAGINA);
+  verdadeiro(tabela !== null, 'a tabela de tempo por função sumiu do painel');
+  verdadeiro(/inscricoesRecentes:\s*15000/.test(tabela[1]),
+    'a leitura de mil linhas voltou a ter o tempo de uma de 200: ' + tabela[1]);
+
+  // SÓ ELA. O limite global vale para dezenove chamadas, e nenhuma outra mudou de
+  // tamanho — `filaDeEspera` inclusive, cujo teto é 500 desde antes e cujas
+  // linhas são mais estreitas. Uma tabela que crescesse sem medida seria o limite
+  // global afrouxado por dentro, sem ninguém ter medido nada.
+  const nomes = (tabela[1].match(/[A-Za-z_$][\w$]*(?=\s*:)/g) || []);
+  igual(nomes, ['inscricoesRecentes'],
+    'entrou função na tabela do tempo-limite sem medida que justifique: ' + nomes.join(', '));
+
+  // E o relógio LÊ a tabela — sem isto ela seria decoração, e a página passaria
+  // neste teste com o limite de 10s valendo para tudo.
+  verdadeiro(/setTimeout\(function \(\) \{ controle\.abort\(\); \}, limiteDeLeitura_\(funcao\)\)/
+    .test(PAGINA), 'o tempo-limite parou de perguntar qual é o desta função');
+});
+
+teste('a leitura de mil linhas espera 15s antes de desistir, e as outras 10s', () => {
+  // O mesmo par, medido no relógio em vez de lido no arquivo: é o que pega a
+  // tabela certa ligada ao `setTimeout` errado.
+  const cena = painelAberto('coord@exemplo.com');
+
+  cena.respostas.inscricoesRecentes = travada();
+  cena.js.chamar('inscricoesRecentes', { limite: 1000 }, () => {});
+  igual(cena.tarefas.map((t) => t.ms), [15000],
+    'a leitura do Auditório não ganhou o tempo dela: ' + JSON.stringify(cena.tarefas.map((t) => t.ms)));
+
+  cena.zerarTarefas();
+  cena.respostas.filaDeEspera = travada();
+  cena.js.chamar('filaDeEspera', {}, () => {});
+  igual(cena.tarefas.map((t) => t.ms), [10000],
+    'a exceção do Auditório vazou para a outra leitura da mesma aba');
+});
+
 // ================================== 2c. Gravar em voz alta, fechar sem perder
 
 /**
@@ -979,6 +1029,198 @@ teste('a aba e as duas listas existem, e a seção nasce escondida como as outra
   verdadeiro(/'painel', 'auditorio',/.test(PAGINA), 'trocarAba não esconde a seção do auditório');
   verdadeiro(/if \(nome === 'auditorio'\) carregarAuditorio\(\);/.test(PAGINA),
     'trocarAba não carrega a aba do auditório');
+});
+
+teste('os filtros existem, moram FORA da lista, e estão ligados', () => {
+  // Os três controles do pedido de 27/08 — achar uma pessoa, olhar um projeto,
+  // ver quem repetiu — mais o Limpar. O clique prova o EFEITO deles
+  // (`painel-navegador.js`); o que ele não prova é que a marcação está ligada às
+  // funções certas, e é isso que morre em silêncio: um `oninput` com nome errado
+  // deixa o campo aceitar texto e a lista nunca peneirar.
+  [['filtro-aud-busca', 'oninput'],
+    ['filtro-aud-projeto', 'onchange'],
+    ['filtro-aud-repetidas', 'onchange']].forEach(([id, evento]) => {
+    verdadeiro(PAGINA.indexOf('id="' + id + '"') !== -1, 'sumiu o filtro ' + id);
+    verdadeiro(new RegExp('id="' + id + '"[^>]*' + evento + '="filtrarRecentes\\(\\)"')
+      .test(PAGINA.replace(/\n\s*/g, ' ')),
+      id + ' não chama filtrarRecentes() no ' + evento);
+  });
+  verdadeiro(/onclick="limparFiltroAuditorio\(\)"/.test(PAGINA),
+    'sumiu o botão que limpa os filtros');
+
+  // FORA de `#auditorio-recentes`, que é o elemento que se redesenha a cada
+  // tecla: um campo dentro dele seria destruído junto com o texto e o cursor de
+  // quem está digitando. Estar na MARCAÇÃO estática já garante isso — o que este
+  // teste guarda é o dia em que alguém mover os campos para dentro do desenho.
+  const desenho = PAGINA.slice(PAGINA.indexOf('function desenharRecentes()'),
+    PAGINA.indexOf('function rodapeDeRecentes('));
+  verdadeiro(desenho.length > 0, 'desenharRecentes sumiu do painel');
+  igual(desenho.indexOf('filtro-aud-'), -1,
+    'os campos de filtro foram para dentro do que se redesenha — eles somem a cada tecla');
+});
+
+teste('a faixa e as ações leem a lista VISÍVEL, e nunca AUDITORIO[lista]', () => {
+  // As três funções servem às DUAS listas. Voltar a ler `AUDITORIO[lista]` faz a
+  // faixa marcar linhas escondidas pelo filtro e o botão contá-las — e é o
+  // defeito que o trabalho de 27/08 veio consertar. Ler o oposto (a filtrada
+  // para as duas) daria à FILA a lista de recentes: "Promover 3" promoveria
+  // gente de outra lista, com lock pego e escrita em lote.
+  const faixa = PAGINA.slice(PAGINA.indexOf('function tocarLinha(lista, id)'),
+    PAGINA.indexOf('function limparMarcas(lista)'));
+  const acoes = PAGINA.slice(PAGINA.indexOf('function marcadasDe(lista)'),
+    PAGINA.indexOf('function horaDe(carimbo)'));
+
+  verdadeiro(faixa.length > 0 && acoes.length > 0, 'as funções da seleção sumiram do painel');
+  [['tocarLinha', faixa], ['marcadasDe', acoes]].forEach(([nome, corpo]) => {
+    verdadeiro(/itensVisiveis\(lista\)/.test(corpo),
+      nome + ' deixou de ler a lista visível');
+    igual(corpo.indexOf('AUDITORIO[lista]'), -1,
+      nome + ' voltou a percorrer a lista INTEIRA — com filtro, ela alcança quem ninguém viu');
+  });
+
+  // E o despacho é por lista, com a fila fora do filtro.
+  verdadeiro(/return lista === 'recentes' \? recentesFiltradas\(\) : AUDITORIO\.fila;/.test(PAGINA),
+    'sumiu o despacho por lista de itensVisiveis');
+});
+
+teste('o TETO DE ESCRITA é do servidor, e a tela só o supõe quando ele se cala', () => {
+  // O número 200 mora em 13_Auditorio.gs (`AUDITORIO_LOTE_MAXIMO`), e é ele que
+  // RECUSA o lote. Uma segunda cópia dele aqui, tratada como verdade, é o defeito
+  // com um passo a mais: no dia em que o teto mudar, só um dos lados muda junto —
+  // e o lado que não mudou é o que desenha o botão.
+  //
+  // O clique prova o efeito (`painel-navegador.js`); o que ele não prova é que a
+  // tela CONTINUA lendo o número da resposta. Alguém que troque `loteMaximo_()`
+  // por `200` deixa todos aqueles testes verdes, porque o servidor de hoje manda
+  // exatamente 200.
+  ['filaDeEspera', 'inscricoesRecentes'].forEach((leitura) => {
+    const corpo = PAGINA.slice(PAGINA.indexOf("chamar('" + leitura + "'"),
+      PAGINA.indexOf("chamar('" + leitura + "'") + 1400);
+    verdadeiro(/guardarLoteMaximo_\(r\.lote_maximo\)/.test(corpo),
+      'a resposta de ' + leitura + ' deixou de ser lida em busca do teto de escrita');
+  });
+
+  const suposto = /var AUDITORIO_LOTE_SUPOSTO = (\d+);/.exec(PAGINA);
+  verdadeiro(suposto !== null, 'sumiu o suposto para o servidor calado');
+  igual(suposto[1], '200', 'o suposto deixou de ser o único teto que este sistema já teve');
+
+  // E ele é lido POR UM CAMINHO SÓ. Quatro leitores (a oferta, as duas barras e a
+  // frase da regra) que resolvessem o teto cada um do seu jeito acabariam
+  // discordando — e uma barra que avisa em 200 ao lado de um botão que manda 380
+  // é pior do que não avisar nada.
+  const usos = (PAGINA.match(/AUDITORIO_LOTE_SUPOSTO/g) || []).length;
+  igual(usos, 2, 'o suposto é lido fora de `loteMaximo_` — são ' + usos + ' aparições');
+});
+
+teste('a oferta é cortada no teto, e `idsQueCabem` continua respondendo UMA pergunta', () => {
+  // O DEFEITO QUE ESTE TESTE GUARDA: a tela desenhar "Promover 380 da fila" e o
+  // servidor recusar o lote inteiro — um clique perdido que a própria tela
+  // ofereceu. E a forma do conserto importa tanto quanto ele: `idsQueCabem`
+  // responde "quem cabe por VAGA", que é o número que a tela MOSTRA ("Cabem 380
+  // agora"), e `loteDaOferta_` responde "o que este clique manda". Fundir as duas
+  // apagaria o 380 da tela, e é ele que diz que ainda há rodada pela frente.
+  const cabem = PAGINA.slice(PAGINA.indexOf('function idsQueCabem()'),
+    PAGINA.indexOf('function loteDaOferta_()'));
+  verdadeiro(cabem.length > 0, 'idsQueCabem sumiu do painel');
+  igual(cabem.indexOf('loteMaximo_'), -1,
+    'o teto entrou em `idsQueCabem` — ela passou a ter dois contratos, e a tela ' +
+    'perdeu o número de quantos ainda cabem');
+
+  verdadeiro(/function loteDaOferta_\(\) \{\s*return idsQueCabem\(\)\.slice\(0, loteMaximo_\(\)\);/
+    .test(PAGINA), 'o corte da oferta deixou de ser `idsQueCabem` cortado no teto');
+
+  // E o botão manda o que o rótulo contou.
+  const promover = PAGINA.slice(PAGINA.indexOf('function promoverQueCabem()'),
+    PAGINA.indexOf('function promover(ids)'));
+  verdadeiro(/promover\(loteDaOferta_\(\)\)/.test(promover),
+    'promoverQueCabem voltou a mandar tudo que cabe: ' + promover);
+});
+
+teste('a barra de ações NÃO fatia a seleção da pessoa — ela recusa e diz', () => {
+  // As duas metades do mesmo trabalho, e elas são deliberadamente diferentes. Na
+  // oferta da fila o corte é legítimo: quem escolheu o conjunto foi a ordem de
+  // chegada, e "os 200 primeiros" é o que ela significa. Na barra, quem escolheu
+  // as 380 foi a PESSOA, uma a uma e por faixa — mandar 200 delas seria a tela
+  // decidindo em silêncio quais 180 ficam de fora, de uma lista cuja ação apaga
+  // aluno. É o `slice` silencioso que o servidor acabou de deixar de fazer,
+  // renascendo do lado de cá.
+  const barra = PAGINA.slice(PAGINA.indexOf('function desenharAcoes(lista)'),
+    PAGINA.indexOf('function marcadasDe(lista)'));
+  verdadeiro(barra.length > 0, 'desenharAcoes sumiu do painel');
+
+  igual(barra.indexOf('.slice('), -1,
+    'a barra passou a fatiar a seleção da pessoa em silêncio: ' + barra);
+  verdadeiro(/var demais = visiveis > teto;/.test(barra),
+    'a barra deixou de comparar a seleção com o teto');
+  verdadeiro(/if \(visiveis && !demais\)/.test(barra),
+    'o botão de ação voltou a nascer com a seleção acima do teto — a recusa só ' +
+    'apareceria depois do clique');
+});
+
+teste('nenhum mapa desta aba é lido pela herança do protótipo', () => {
+  // A cicatriz de `idsDoPayload_` (13_Auditorio.gs), do lado da tela. `MARCADAS`,
+  // o mapa de vagas e o de nomes de projeto são `{}`, e `constructor`,
+  // `toString` e `valueOf` respondem verdadeiro neles sem ninguém ter escrito
+  // nada. Numa lista cujo botão apaga aluno, isso é uma linha que nasce marcada e
+  // entra na ação sem ter sido tocada.
+  verdadeiro(/function temProprio_\(objeto, chave\) \{\s*return Object\.prototype\.hasOwnProperty\.call\(objeto, String\(chave\)\);/
+    .test(PAGINA), 'a guarda contra a herança sumiu ou deixou de usar hasOwnProperty');
+
+  // A FORMA é a regra: ler o mapa direto é o defeito, e ele volta calado. Os
+  // comentários ficam de fora da varredura porque o painel CITA a forma errada
+  // para explicar por que ela é errada — proibir a citação apagaria a explicação.
+  const emCodigo = PAGINA.split('\n').filter((l) => {
+    const t = l.trim();
+    return t !== '' && t[0] !== '*' && t.slice(0, 2) !== '//' && t.slice(0, 2) !== '/*';
+  }).join('\n');
+  igual(emCodigo.indexOf('MARCADAS[lista]['), -1,
+    'a marcação voltou a ser lida direto do mapa — um id chamado `constructor` ' +
+    'responde verdadeiro por herança');
+
+  ['linhaTocavel', 'tocarLinha', 'marcadasDe', 'idsQueCabem', 'rotuloDeProjeto_']
+    .forEach((fn) => {
+      const inicio = PAGINA.indexOf('function ' + fn + '(');
+      verdadeiro(inicio !== -1, 'sumiu a função ' + fn);
+      verdadeiro(PAGINA.slice(inicio, inicio + 1200).indexOf('temProprio_') !== -1,
+        fn + ' voltou a ler o mapa pela herança do protótipo');
+    });
+});
+
+teste('o recorte de repetidas não afirma sobre o BANCO com a janela cortada', () => {
+  // O recorte é a pergunta do professor — "quem se inscreveu em mais de um
+  // projeto" —, e ela é sobre o banco. A conta é feita sobre a JANELA. Com a
+  // leitura cortada, o par cuja metade velha ficou de fora não é um par aqui, e a
+  // resposta "ninguém repetiu" sai com cara de completa. O clique prova as
+  // frases; o que ele não prova é que o aviso continua LIGADO nas duas saídas da
+  // lista — a que tem linhas e a que está vazia, que é a mais enganosa das duas.
+  const desenho = PAGINA.slice(PAGINA.indexOf('function desenharRecentes()'),
+    PAGINA.indexOf('function rodapeDeRecentes('));
+  igual((desenho.match(/avisoDoRecorte_\(\)/g) || []).length, 2,
+    'o aviso do recorte não está nas DUAS saídas da lista (com linhas e vazia)');
+
+  // E ele só fala quando tem o que dizer: com `truncada: false` a ressalva vira
+  // ruído, e ruído que aparece sempre é ruído que ninguém lê no dia que importa.
+  const aviso = PAGINA.slice(PAGINA.indexOf('function avisoDoRecorte_()'),
+    PAGINA.indexOf('function recentesFiltradas()'));
+  verdadeiro(/if \(AUDITORIO\.recentesTruncada === false\) return '';/.test(aviso),
+    'o aviso do recorte passou a aparecer também com a janela folgada');
+  verdadeiro(/campoTexto_\('filtro-aud-repetidas'\) !== 'SIM'/.test(aviso),
+    'o aviso do recorte deixou de depender do recorte estar ligado');
+});
+
+teste('o rodapé não promete o banco a partir de `truncada: false`', () => {
+  // `truncada: false` afirma UMA coisa: a janela não encostou no teto. Não fala
+  // do que foi gravado depois da leitura — numa noite de rajada, uma inscrição a
+  // cada poucos segundos — nem da que não tem `criado_em`, que a ordenação do
+  // Firestore não devolve. "São todas as que existem" é o engano das 275 em 200
+  // com o teto certo e a frase errada.
+  const rodape = PAGINA.slice(PAGINA.indexOf('function rodapeDeRecentes(naTela)'),
+    PAGINA.indexOf('function desenharFila()'));
+  verdadeiro(rodape.length > 0, 'rodapeDeRecentes sumiu do painel');
+  igual(rodape.indexOf("' São todas as que existem"), -1,
+    'a promessa absoluta voltou ao rodapé');
+  verdadeiro(/janela = ' O teto não cortou esta leitura\./.test(rodape),
+    'a frase da janela folgada deixou de falar do TETO: ' + rodape);
 });
 
 teste('as DUAS leituras do Auditório repetem na falha de rede', () => {
