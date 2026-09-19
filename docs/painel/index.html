@@ -218,9 +218,9 @@
 
     <h2>Chegando agora</h2>
     <p class="texto-fraco pequeno">
-      Da mais nova para a mais velha, com o horário. É aqui que uma rajada se
-      enxerga: mesmo projeto, segundos entre uma linha e outra, nomes sem cara de
-      gente.
+      Da mais nova para a mais velha, com a data e o horário — toque no cabeçalho
+      da lista para ordenar por outra coluna. É aqui que uma rajada se enxerga:
+      mesmo projeto, segundos entre uma linha e outra, nomes sem cara de gente.
     </p>
     <!--
       O TETO DO LOTE MORA AQUI, e não só na hora em que ele é estourado.
@@ -250,6 +250,11 @@
       por tecla, e o filtro por projeto ainda pediria índice composto (ver o
       cabeçalho de `inscricoesRecentes`, em 13_Auditorio.gs).
 
+      O PERÍODO entrou em 19/09, pelo mesmo caminho: "precisei saber quem se
+      inscreveu naquela semana". Os dois campos são DIAS, inclusivos, e cada um
+      vale sozinho (só o início é "a partir de", só o fim é "até") — a conta está
+      em `dentroDoPeriodo_`.
+
       E mexer neles NÃO desmarca ninguém: ver as três travas em `itensVisiveis`.
     -->
     <div class="filtros">
@@ -270,6 +275,14 @@
           <option value="">Todas as inscrições</option>
           <option value="SIM">Mesma matrícula em mais de um projeto</option>
         </select>
+      </div>
+      <div class="campo">
+        <label for="filtro-aud-de">Recebida de</label>
+        <input type="date" id="filtro-aud-de" onchange="filtrarRecentes()">
+      </div>
+      <div class="campo">
+        <label for="filtro-aud-ate">Recebida até</label>
+        <input type="date" id="filtro-aud-ate" onchange="filtrarRecentes()">
       </div>
       <button class="btn" onclick="limparFiltroAuditorio()">Limpar filtros</button>
     </div>
@@ -3087,6 +3100,123 @@
       ' Anular e promover fazem até <strong>' + loteMaximo_() + '</strong> por vez.';
   }
 
+  // ------------------------------------------ Período e ordenação das listas
+  //
+  // O pedido de 19/09: "não consegui saber a data da inscrição — se o aluno se
+  // inscreveu ontem, semana passada. Precisei saber quem se inscreveu naquela
+  // semana". As DUAS listas de inscritos (o Auditório e a janela Projetos →
+  // Inscritos) ganharam o mesmo par — recorte por período e ordenação por
+  // coluna —, resolvido no navegador sobre a lista que já veio, como os filtros
+  // que já existiam. O que está aqui é o que as duas dividem; o que cada uma
+  // faz com isso mora na peneira dela (`recentesFiltradas` e
+  // `inscritosDoProjetoFiltrados`), que continua sendo o ÚNICO lugar por onde a
+  // lista passa antes de virar tela ou arquivo.
+
+  /**
+   * A inscrição está dentro do período? — comparando SÓ O DIA.
+   *
+   * `criado_em` é 'yyyy-MM-dd HH:mm:ss' no fuso de `APP.timezone`
+   * (America/Sao_Paulo — é `agora()`, em 01_Utils.gs, e NÃO UTC), e o
+   * `<input type="date">` entrega 'yyyy-MM-dd' no fuso de quem digita, que é o
+   * mesmo. Os dois lados têm largura fixa e zero à esquerda, e por isso comparar
+   * texto é comparar data — sem `new Date()`, que leria o carimbo como UTC e
+   * empurraria quem se inscreveu às 22h para o dia seguinte.
+   *
+   * SÓ OS DEZ PRIMEIROS CARACTERES, e é decisão e não atalho: "quem se inscreveu
+   * na semana passada" é uma pergunta sobre dias. Comparar o carimbo inteiro com
+   * o fim do período ('2026-09-10 23:59:59' > '2026-09-10') deixaria de fora
+   * quem se inscreveu no último dia — o dia que a pessoa acabou de pedir.
+   *
+   * Vazio de um lado é "sem limite daquele lado"; vazio dos dois é "sem recorte".
+   * Inscrição SEM carimbo não entra em período nenhum: afirmar que ela é da
+   * semana seria inventar a data que o banco não tem.
+   */
+  function dentroDoPeriodo_(carimbo, de, ate) {
+    if (!de && !ate) return true;
+    var dia = String(carimbo || '').slice(0, 10);
+    if (!dia) return false;
+    if (de && dia < de) return false;
+    if (ate && dia > ate) return false;
+    return true;
+  }
+
+  /** A frase do período para o cabeçalho das exportações — vazia sem recorte. */
+  function periodoEmTexto_(de, ate) {
+    if (de && ate) return 'Período: de ' + diaDe(de) + ' a ' + diaDe(ate);
+    if (de) return 'Período: a partir de ' + diaDe(de);
+    if (ate) return 'Período: até ' + diaDe(ate);
+    return '';
+  }
+
+  /**
+   * A ordem que a pessoa escolheu em cada lista, por clique no cabeçalho.
+   *
+   * `chave` vazia é "como a lista veio", e `desc` inverte. Uma por lista, porque
+   * as telas são independentes: ordenar o Auditório por nome não pode reordenar
+   * a janela de Inscritos que vai abrir depois.
+   *
+   * Os padrões são os de sempre: o Auditório da mais nova para a mais velha —
+   * é assim que `inscricoesRecentes` responde, e a seta no cabeçalho DIZ isso —
+   * e a janela do projeto como o servidor manda (por nome, `inscritosDoProjeto`).
+   */
+  var ORDEM = {
+    recentes: { chave: 'criado_em', desc: true },
+    projeto: { chave: '', desc: false }
+  };
+
+  /** O clique no cabeçalho: coluna nova ordena crescente; a mesma coluna inverte. */
+  function alternarOrdem_(ordem, chave) {
+    if (ordem.chave === chave) { ordem.desc = !ordem.desc; return; }
+    ordem.chave = chave;
+    ordem.desc = false;
+  }
+
+  /**
+   * Ordena uma CÓPIA — e devolve a própria lista quando não há chave: a ordem
+   * que veio do servidor é uma resposta, e não tem de ser refeita aqui.
+   *
+   * Texto compara por `localeCompare` em pt-BR ignorando caixa e acento: "Éder"
+   * fica entre "Duda" e "Fabiana", e não depois de "Zélia" como a comparação por
+   * código faria. `numeric` é pela matrícula, que é dígito e nem sempre tem a
+   * mesma largura.
+   *
+   * `criado_em` NÃO passa pelo `localeCompare`: é 'yyyy-MM-dd HH:mm:ss', largura
+   * fixa, e a comparação crua de texto já é a cronológica — INTEIRA, com hora,
+   * minuto e segundo. Ordenar só pelo dia empataria a rajada inteira de uma
+   * noite, e os segundos são o que denuncia rajada.
+   *
+   * Empate mantém a ordem em que a lista veio (`sort` é estável), e é isso que
+   * faz duas inscrições do mesmo nome continuarem da mais nova para a mais velha.
+   */
+  function ordenados_(itens, ordem) {
+    if (!ordem.chave) return itens;
+    var chave = ordem.chave;
+    var sinal = ordem.desc ? -1 : 1;
+    return itens.slice().sort(function (a, b) {
+      var x = String(a[chave] || '');
+      var y = String(b[chave] || '');
+      var r = chave === 'criado_em'
+        ? (x < y ? -1 : (x > y ? 1 : 0))
+        : x.localeCompare(y, 'pt-BR', { sensitivity: 'base', numeric: true });
+      return r * sinal;
+    });
+  }
+
+  /**
+   * O botão de um cabeçalho que ordena, com a seta na coluna ativa.
+   *
+   * É um `<button>` dentro do `<th>` (ou da linha de cabeçalho do Auditório), e
+   * não um `onclick` no próprio `<th>`: célula não recebe foco, e quem navega
+   * pelo teclado não teria como chegar nela. A seta vai no TEXTO, e não em
+   * pseudo-elemento, para o leitor de tela ouvir o mesmo que a tela mostra.
+   */
+  function botaoDeOrdem_(ordem, chave, rotulo, funcao) {
+    var ativo = ordem.chave === chave;
+    return '<button type="button" class="ordenar' + (ativo ? ' ordenar--ativo' : '') +
+      '" onclick="' + funcao + '(\'' + chave + '\')">' + rotulo +
+      (ativo ? ' ' + (ordem.desc ? '▼' : '▲') : '') + '</button>';
+  }
+
   // --------------------------------------------------- Os filtros de recentes
 
   /**
@@ -3210,24 +3340,39 @@
   /**
    * O recorte de recentes, num lugar só — a lista, a faixa e os botões leem daqui.
    *
-   * NÃO REORDENA E NÃO AGRUPA, nem no recorte de quem repetiu. É uma decisão de
+   * O RECORTE NÃO REORDENA E NÃO AGRUPA, nem o de quem repetiu. É uma decisão de
    * segurança e não de estética: pôr as duas linhas da mesma pessoa lado a lado
    * faria a faixa marcar o par inteiro num gesto — tirar o aluno de TODOS os
    * projetos, que é o oposto exato do que o professor pediu. Separadas, cada
    * ponta do par é uma escolha.
+   *
+   * A ORDEM É OUTRA COISA: ela é a escolha explícita da pessoa, feita no
+   * cabeçalho e dita pela seta (ver `ORDEM`). Quem ordena por nome está pedindo
+   * para ver as duas linhas da Ana juntas, e sabe disso — o que este recorte
+   * recusa é fazer isso em silêncio, por baixo de um filtro que prometeu outra
+   * coisa. O padrão continua sendo o relógio, da mais nova para a mais velha.
+   *
+   * O período entra aqui e em nenhum outro lugar: a faixa (`tocarLinha`), a
+   * conta do botão (`marcadasDe`) e o "fora do filtro" (`desenharAcoes`) leem
+   * `itensVisiveis`, e por isso as três travas valem para ele sem uma linha a
+   * mais. O par de repetidas é calculado sobre a JANELA inteira, e não sobre o
+   * período: a outra inscrição da Ana existe mesmo quando o período a esconde.
    */
   function recentesFiltradas() {
     var busca = normalizarBusca_(campoTexto_('filtro-aud-busca'));
     var projeto = campoTexto_('filtro-aud-projeto');
+    var de = campoTexto_('filtro-aud-de');
+    var ate = campoTexto_('filtro-aud-ate');
     var repetidas = campoTexto_('filtro-aud-repetidas') === 'SIM'
       ? matriculasEmMaisDeUmProjeto_() : null;
 
-    return AUDITORIO.recentes.filter(function (i) {
+    return ordenados_(AUDITORIO.recentes.filter(function (i) {
       if (projeto && String(i.projeto_id || '') !== projeto) return false;
+      if (!dentroDoPeriodo_(i.criado_em, de, ate)) return false;
       if (repetidas && repetidas[String(i.matricula || '').trim()] !== true) return false;
       if (!busca) return true;
       return normalizarBusca_(i.nome + ' ' + i.matricula).indexOf(busca) !== -1;
-    });
+    }), ORDEM.recentes);
   }
 
   /**
@@ -3266,21 +3411,58 @@
   }
 
   /**
-   * Limpa os três controles — e só eles.
+   * O clique no cabeçalho da lista: reordena, e NÃO desmarca ninguém.
+   *
+   * Passa por `filtrarRecentes` de propósito, porque a ordem mora na mesma
+   * peneira que o filtro e as travas de `itensVisiveis` valem para ela: a faixa
+   * passa a percorrer a ordem que está NA TELA, e a marca continua por id.
+   */
+  function ordenarRecentes(chave) {
+    alternarOrdem_(ORDEM.recentes, chave);
+    filtrarRecentes();
+  }
+
+  /**
+   * Limpa os cinco controles de filtro — e só eles. A ORDEM fica: ela não
+   * esconde ninguém, e trocá-la no gesto de "Mostrar as N" moveria as linhas
+   * debaixo do dedo de quem foi buscá-las.
    *
    * É o mesmo caminho do "Mostrar as N" que a barra oferece quando há marca fora
    * do filtro, e por isso ele não pode encostar em MARCADAS: um botão que promete
    * mostrar as escondidas e as desmarca no caminho faria o trabalho sumir no
-   * gesto de ir buscá-lo.
+   * gesto de ir buscá-lo. O período está na lista pela mesma razão: uma marca
+   * escondida pelo período é "fora do filtro" como qualquer outra, e o botão que
+   * promete trazê-la de volta tem de limpar o que a esconde.
    */
   function limparFiltroAuditorio() {
-    ['filtro-aud-busca', 'filtro-aud-projeto', 'filtro-aud-repetidas'].forEach(function (id) {
+    ['filtro-aud-busca', 'filtro-aud-projeto', 'filtro-aud-repetidas',
+      'filtro-aud-de', 'filtro-aud-ate'].forEach(function (id) {
       document.getElementById(id).value = '';
     });
     filtrarRecentes();
   }
 
   // ------------------------------------------------- As duas listas tocáveis
+
+  /**
+   * O cabeçalho da lista de recentes — a linha de botões que ordena.
+   *
+   * A lista não é uma `<table>` (cada linha é um botão de largura inteira, ver
+   * `linhaTocavel`), então o "cabeçalho" é montado com o arranjo das linhas: o
+   * que nelas fica à esquerda (nome, matrícula, projeto) fica à esquerda aqui, e
+   * a data à direita. É redesenhado junto com a lista porque a seta muda a cada
+   * clique — e pode ser, ao contrário dos filtros: ele não guarda texto nem
+   * cursor de ninguém.
+   */
+  function cabecalhoDeRecentes_() {
+    var o = ORDEM.recentes;
+    return '<div class="lista-cabecalho">' +
+      '<span>' + botaoDeOrdem_(o, 'nome', 'Nome', 'ordenarRecentes') +
+      botaoDeOrdem_(o, 'matricula', 'Matrícula', 'ordenarRecentes') +
+      botaoDeOrdem_(o, 'projeto_nome', 'Projeto', 'ordenarRecentes') + '</span>' +
+      '<span>' + botaoDeOrdem_(o, 'criado_em', 'Recebida em', 'ordenarRecentes') + '</span>' +
+      '</div>';
+  }
 
   function desenharRecentes() {
     var el = document.getElementById('auditorio-recentes');
@@ -3303,18 +3485,18 @@
     if (!itens.length) {
       el.innerHTML = avisoDoRecorte_() +
         '<div class="cartao centro texto-fraco">Ninguém neste recorte. ' +
-        'A busca olha o nome e a matrícula; os outros dois são o projeto e ' +
-        'quem repetiu matrícula.</div>' + rodapeDeRecentes(0);
+        'A busca olha o nome e a matrícula; os outros são o projeto, o período ' +
+        'em que a inscrição foi recebida e quem repetiu matrícula.</div>' + rodapeDeRecentes(0);
       desenharAcoes('recentes');
       return;
     }
 
-    var html = avisoDoRecorte_() + '<div class="tabela-wrap">';
+    var html = avisoDoRecorte_() + '<div class="tabela-wrap">' + cabecalhoDeRecentes_();
     itens.forEach(function (i) {
       html += linhaTocavel('recentes', i.id, i.nome,
         escapar(i.matricula || 'sem matrícula') + ' &middot; ' + escapar(i.projeto_nome || '—') +
         (i.em_espera ? ' &middot; <span class="selo selo--DIVERGENCIA">na espera</span>' : ''),
-        horaDe(i.criado_em));
+        [diaDe(i.criado_em), horaDe(i.criado_em)]);
     });
 
     el.innerHTML = html + '</div>' + rodapeDeRecentes(itens.length);
@@ -3391,7 +3573,7 @@
       html += linhaTocavel('fila', f.id, f.nome,
         escapar(f.matricula || 'sem matrícula') + ' &middot; ' +
         escapar(nomeDoProjeto(f.projeto_id)) + ' <strong>#' + escapar(f.posicao) + '</strong>',
-        horaDe(f.criado_em));
+        [diaDe(f.criado_em), horaDe(f.criado_em)]);
     });
 
     el.innerHTML = html + '</div>' + (AUDITORIO.truncada
@@ -3411,6 +3593,12 @@
    *
    * `detalheHtml` já vem ESCAPADO por quem chama — ele carrega selo e separador.
    * O nome do parâmetro é o aviso.
+   *
+   * `direita` é uma LISTA de textos, um por linha: a data em cima e a hora
+   * embaixo. Era só a hora, e foi assim que o professor ficou sem saber se a
+   * inscrição era de ontem ou da semana passada (19/09). Em duas linhas, e não
+   * numa, porque a tela é usada no celular: 'dd/mm/aaaa HH:mm:ss' numa linha só
+   * empurraria o nome para o canto.
    */
   function linhaTocavel(lista, id, nome, detalheHtml, direita) {
     var marcada = temProprio_(MARCADAS[lista], id);
@@ -3424,7 +3612,8 @@
       // `opacity` no lugar de `.texto-fraco`: a classe fixa um cinza escuro, que
       // some no fundo vinho da linha marcada. Opacidade funciona nos dois fundos.
       '<br><span class="pequeno" style="opacity:.78">' + detalheHtml + '</span></span>' +
-      '<span class="pequeno" style="white-space:nowrap;opacity:.78">' + escapar(direita) + '</span>' +
+      '<span class="pequeno" style="white-space:nowrap;opacity:.78;text-align:right">' +
+      direita.map(escapar).join('<br>') + '</span>' +
       '</span></button>';
   }
 
@@ -3560,6 +3749,19 @@
   function horaDe(carimbo) {
     var achado = /(\d{2}:\d{2}:\d{2})/.exec(String(carimbo || ''));
     return achado ? achado[1] : String(carimbo || '');
+  }
+
+  /**
+   * 'yyyy-MM-dd...' vira 'dd/mm/aaaa' — a data que faltava ao lado da hora.
+   *
+   * Serve ao carimbo E ao valor do `<input type="date">`, que começa igual: é
+   * por isso que `periodoEmTexto_` também lê daqui. Sem data reconhecível
+   * devolve vazio, e não o carimbo cru — a linha de cima da hora fica em branco
+   * em vez de mostrar um texto que não é data.
+   */
+  function diaDe(carimbo) {
+    var achado = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(carimbo || ''));
+    return achado ? achado[3] + '/' + achado[2] + '/' + achado[1] : '';
   }
 
   function nomeDoProjeto(id) {
@@ -4198,6 +4400,9 @@
 
     INSCRITOS_PROJETO = null;
     PROJETO_DA_JANELA = p;
+    // A ordem nasce com a janela, como os filtros dela nascem vazios: a escolha
+    // feita na lista de um projeto não tem por que valer na do próximo.
+    ORDEM.projeto = { chave: '', desc: false };
     document.getElementById('modal-fundo').classList.remove('oculto');
     janelaLarga(true);
     document.getElementById('modal-titulo').textContent = 'Inscritos em ' + p.nome;
@@ -4229,11 +4434,12 @@
         (r.emEspera ? ' · <strong>' + r.emEspera + '</strong> em espera' : '') +
         ' · ' + r.lidas + ' documento(s) lido(s)</p>';
 
-      // A busca, o filtro de curso e fase e os dois botões de exportar ficam
-      // FORA de `#insc-proj-tabela` — ver o cabeçalho de `desenharInscritosProjeto`.
-      // Os botões estão aqui pelo mesmo motivo dos campos e por mais um: com o
-      // filtro sem resultado, a tabela vira uma frase, e um botão que morasse
-      // dentro dela sumiria justamente quando alguém fosse conferir o recorte.
+      // A busca, o filtro de curso e fase, o período e os dois botões de exportar
+      // ficam FORA de `#insc-proj-tabela` — ver o cabeçalho de
+      // `desenharInscritosProjeto`. Os botões estão aqui pelo mesmo motivo dos
+      // campos e por mais um: com o filtro sem resultado, a tabela vira uma
+      // frase, e um botão que morasse dentro dela sumiria justamente quando
+      // alguém fosse conferir o recorte.
       html += '<div class="filtros">' +
         '<div class="campo"><label for="insc-proj-busca">Buscar</label>' +
         '<input type="text" id="insc-proj-busca" placeholder="Nome ou matrícula..." ' +
@@ -4241,6 +4447,10 @@
         '<div class="campo"><label for="insc-proj-curso">Curso e fase</label>' +
         '<select id="insc-proj-curso" onchange="desenharInscritosProjeto()">' +
         opcoesDeCursoEFase(r.itens) + '</select></div>' +
+        '<div class="campo"><label for="insc-proj-de">Recebida de</label>' +
+        '<input type="date" id="insc-proj-de" onchange="desenharInscritosProjeto()"></div>' +
+        '<div class="campo"><label for="insc-proj-ate">Recebida até</label>' +
+        '<input type="date" id="insc-proj-ate" onchange="desenharInscritosProjeto()"></div>' +
         '</div>' +
         botoesDeExportacao('projeto') +
         '<div id="insc-proj-tabela"></div>';
@@ -4287,26 +4497,39 @@
    * dia em que um filtro novo nascesse a coordenação receberia um arquivo com
    * gente que a tela não estava mostrando. É o pior defeito possível numa
    * exportação, porque o arquivo não tem como parecer errado.
+   *
+   * O período (19/09) e a ordem entraram AQUI, e não no desenho, pela mesma
+   * razão: o arquivo sai na ordem e no recorte que a tela mostra.
    */
   function inscritosDoProjetoFiltrados() {
     if (!INSCRITOS_PROJETO) return [];
     var busca = normalizarBusca_(campoTexto_('insc-proj-busca'));
     var curso = campoTexto_('insc-proj-curso');
+    var de = campoTexto_('insc-proj-de');
+    var ate = campoTexto_('insc-proj-ate');
 
-    return INSCRITOS_PROJETO.itens.filter(function (i) {
+    return ordenados_(INSCRITOS_PROJETO.itens.filter(function (i) {
       if (curso && String(i.curso_fase || '').trim() !== curso) return false;
+      if (!dentroDoPeriodo_(i.criado_em, de, ate)) return false;
       if (!busca) return true;
       return normalizarBusca_(i.nome + ' ' + i.matricula).indexOf(busca) !== -1;
-    });
+    }), ORDEM.projeto);
+  }
+
+  /** O clique num cabeçalho da tabela: reordena e redesenha só a tabela. */
+  function ordenarInscritosProjeto(chave) {
+    alternarOrdem_(ORDEM.projeto, chave);
+    desenharInscritosProjeto();
   }
 
   /**
    * Redesenha SÓ a tabela, e não a janela inteira.
    *
-   * O campo de busca e o filtro de curso e fase moram fora de
-   * `#insc-proj-tabela` de propósito: reescrever o `innerHTML` que contém o
+   * O campo de busca, o filtro de curso e fase e os dois de período moram fora
+   * de `#insc-proj-tabela` de propósito: reescrever o `innerHTML` que contém o
    * próprio campo o destruiria a cada tecla, levando junto o texto e o cursor de
-   * quem está digitando.
+   * quem está digitando. O cabeçalho que ordena mora DENTRO, e pode: a seta muda
+   * a cada clique, e um botão não tem texto nem cursor para perder.
    */
   function desenharInscritosProjeto() {
     var alvo = document.getElementById('insc-proj-tabela');
@@ -4324,15 +4547,24 @@
     if (!itens.length) {
       alvo.innerHTML = '<p class="texto-fraco">Ninguém neste recorte. ' +
         'A busca olha o nome e a matrícula; o filtro ao lado é o curso e fase ' +
-        'que a pessoa escolheu no formulário.</p>';
+        'que a pessoa escolheu no formulário, e o período é o dia em que a ' +
+        'inscrição foi recebida.</p>';
       return;
+    }
+
+    // `aria-sort` na célula ativa, que é como uma tabela diz ao leitor de tela
+    // por onde está ordenada; a seta no botão diz o mesmo a quem enxerga.
+    function th(chave, rotulo) {
+      var ativo = ORDEM.projeto.chave === chave;
+      return '<th' + (ativo ? ' aria-sort="' + (ORDEM.projeto.desc ? 'descending' : 'ascending') + '"' : '') +
+        '>' + botaoDeOrdem_(ORDEM.projeto, chave, rotulo, 'ordenarInscritosProjeto') + '</th>';
     }
 
     var html = '<p class="texto-fraco pequeno">' + itens.length + ' de ' +
       INSCRITOS_PROJETO.itens.length + ' na lista.</p>' +
       '<div class="tabela-wrap"><table><thead><tr>' +
-      '<th>Matrícula</th><th>Nome</th><th>E-mail</th><th>WhatsApp</th>' +
-      '<th>Curso e fase</th><th>Recebida em</th>' +
+      th('matricula', 'Matrícula') + th('nome', 'Nome') + '<th>E-mail</th><th>WhatsApp</th>' +
+      th('curso_fase', 'Curso e fase') + th('criado_em', 'Recebida em') +
       '</tr></thead><tbody>';
 
     itens.forEach(function (i) {
@@ -5405,9 +5637,13 @@
       };
     });
 
+    // O período entra na MESMA frase dos outros filtros: o arquivo que sai com
+    // "quem se inscreveu naquela semana" precisa dizer qual semana, ou chega do
+    // outro lado como se fosse a lista inteira.
     var recorte = recorteEmTexto_([
       campoTexto_('insc-proj-curso') ? 'Curso e fase: ' + campoTexto_('insc-proj-curso') : '',
-      campoTexto_('insc-proj-busca') ? 'Busca: "' + campoTexto_('insc-proj-busca') + '"' : ''
+      campoTexto_('insc-proj-busca') ? 'Busca: "' + campoTexto_('insc-proj-busca') + '"' : '',
+      periodoEmTexto_(campoTexto_('insc-proj-de'), campoTexto_('insc-proj-ate'))
     ]);
 
     var ocupacao = r.vagas > 0

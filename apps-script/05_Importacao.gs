@@ -537,9 +537,14 @@ function montarRegistro_(linha, mapeamento, contexto) {
 /**
  * A matrícula normalizada, ou '' quando ela não serve de chave.
  *
- * A faixa é a mesma que `validarInscricao` exige do aluno: matrícula de três
- * dígitos na lista oficial nunca seria consultada, porque o formulário recusa o
- * aluno antes de perguntar ao banco.
+ * A faixa (4..20) é DE PROPÓSITO mais larga que a do formulário do aluno, que
+ * desde 19/09 exige exatamente `matricula_digitos` (ver `erroFormatoMatricula_`,
+ * 04_Inscricoes.gs). A lista oficial é o que a secretaria mandou, e ela pode
+ * trazer matrícula de outro tamanho — de curso antigo, de convênio, de erro
+ * dela. Recusar na importação apagaria o aluno da lista por causa de um número
+ * que ninguém aqui controla; aceitar não custa nada, porque uma matrícula que o
+ * formulário recusa nunca chega a consultar a lista. A régua estreita é para
+ * quem DIGITA; a larga é para quem IMPORTA o que veio.
  */
 function matriculaUtilizavel_(bruta) {
   var m = normalizarMatricula(bruta);

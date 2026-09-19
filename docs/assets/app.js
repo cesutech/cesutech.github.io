@@ -33,6 +33,11 @@
     textoImagem: '',
     textoEsgotado: 'Inscrições esgotadas. Escolha outro projeto de extensão disponível.',
     exigirMatricula: true,
+    // Quantos dígitos a matrícula tem, quando o servidor já disse (`?api=config`,
+    // chave `matricula_digitos`). `null` enquanto não disse — e aí o campo fica
+    // sem `maxlength` e sem conta de tamanho local: quem decide é o servidor, na
+    // conferência e no envio. Nunca se barra o aluno por falta de configuração.
+    matriculaDigitos: null,
     timerEspera: null,
     avisarAoSair: null,
     matricula: { estado: 'vazio', valor: '', bloqueia: false },
@@ -55,15 +60,27 @@
     carregarTudo();
 
     document.getElementById('formulario').addEventListener('submit', enviar);
-    document.getElementById('whatsapp').addEventListener('input', function (e) {
+
+    var campoWhatsapp = document.getElementById('whatsapp');
+    campoWhatsapp.addEventListener('input', function (e) {
       e.target.value = mascaraTelefone(e.target.value);
     });
+    campoWhatsapp.addEventListener('blur', function () { conferirWhatsapp(); });
+
+    document.getElementById('email').addEventListener('blur', function () { conferirEmail(); });
 
     var campoMatricula = document.getElementById('matricula');
     // Conferir ao SAIR do campo, não a cada tecla: durante a digitação toda
     // matrícula parcial é inválida, e pintar de vermelho aí seria só ruído.
     campoMatricula.addEventListener('blur', function () { conferirMatricula(); });
-    campoMatricula.addEventListener('input', function () {
+    campoMatricula.addEventListener('input', function (e) {
+      // Só dígito entra. A matrícula do CESUTECH é numérica (medido nas listas
+      // da secretaria), e o que o aluno mais erra é o formato: letra, espaço,
+      // ponto do "portal" copiado. Tirar na hora é o que "força a digitar certo"
+      // (pedido do Prof. Mário, 19/09) sem esperar ele sair do campo para
+      // descobrir. O `inputmode="numeric"` do HTML já abre o teclado de números
+      // no celular; isto cobre o teclado físico e o colar.
+      e.target.value = e.target.value.replace(/\D/g, '');
       if (ESTADO.matricula.estado !== 'vazio') marcarMatricula('digitando');
     });
 
@@ -145,6 +162,11 @@
     ESTADO.textoImagem = d.textoImagem || '';
     ESTADO.textoEsgotado = d.textoEsgotado || ESTADO.textoEsgotado;
     ESTADO.exigirMatricula = d.exigirMatricula !== false;
+    // Servidor de versão anterior não manda o campo; lixo (zero, texto) não
+    // vira régua. Nos dois casos fica o que já se sabia — que na primeira carga
+    // é `null`, e `null` é "o servidor decide".
+    var digitos = Number(d.matriculaDigitos);
+    if (digitos > 0 && digitos === Math.floor(digitos)) ESTADO.matriculaDigitos = digitos;
     return true;
   }
 
@@ -786,7 +808,15 @@
     document.getElementById('rotulo-imagem').textContent = ESTADO.textoImagem;
     document.getElementById('rotulo-lgpd').textContent = ESTADO.textoLgpd;
 
-    document.getElementById('matricula').required = ESTADO.exigirMatricula;
+    var matricula = document.getElementById('matricula');
+    matricula.required = ESTADO.exigirMatricula;
+    // Um a mais que a matrícula tem, e não o tamanho exato: a secretaria escreve
+    // com zero à esquerda (09110001) e é assim que ela aparece em documento —
+    // o aluno que copia dali não pode ser cortado no último dígito. O servidor
+    // tira o zero (`normalizarMatricula`, 04_Inscricoes.gs). Sem o número, nada é
+    // posto: o HTML não declara `maxlength`, e é isso que "sem configuração" quer
+    // dizer — ver `ESTADO.matriculaDigitos`.
+    if (ESTADO.matriculaDigitos) matricula.setAttribute('maxlength', String(ESTADO.matriculaDigitos + 1));
   }
 
   var TEXTO_ESCOLHA_CURSO = 'Selecione seu curso e fase...';
@@ -903,7 +933,7 @@
       marcarMatricula(ESTADO.exigirMatricula ? 'faltando' : 'vazio');
       return Promise.resolve(false);
     }
-    if (valor.length < 4 || valor.length > 20) {
+    if (!formatoDaMatriculaServe(valor)) {
       marcarMatricula('formato');
       return Promise.resolve(false);
     }
@@ -981,14 +1011,50 @@
     };
   }
 
+  /**
+   * O que o formulário sabe dizer sobre o FORMATO antes de perguntar ao servidor.
+   *
+   * Espelha `erroFormatoMatricula_` (04_Inscricoes.gs), medida por medida: só
+   * dígitos; N ou N+1 na tela; e N tirado o zero à esquerda — as duas medidas
+   * juntas são o que deixa passar o zero da secretaria e barra o zero que
+   * esconde matrícula curta, sem uma terceira condição. É espelho, não regra: o
+   * servidor reconfere na rota `?api=matricula` e de novo no envio.
+   *
+   * Sem o número (`ESTADO.matriculaDigitos` em `null`), responde SIM e deixa a
+   * pergunta ir ao servidor, que sabe o tamanho. Uma faixa de "chute" aqui —
+   * como a de 4 a 20 que existia — seria uma segunda régua, livre para divergir
+   * da que vale.
+   */
+  function formatoDaMatriculaServe(valor) {
+    var n = ESTADO.matriculaDigitos;
+    if (!n) return true;
+    if (!/^\d+$/.test(valor)) return false;
+    if (valor.length !== n && valor.length !== n + 1) return false;
+    return valor.replace(/^0+(?=\d)/, '').length === n;
+  }
+
   var MENSAGEM_MATRICULA = {
     faltando: 'Informe sua matrícula.',
-    formato: 'Matrícula inválida. Confira o número no seu portal do aluno.',
     'nao-encontrada': 'Matrícula não encontrada na lista de alunos matriculados. ' +
       'Confira o número digitado — se estiver certo, procure a coordenação do CESUTECH.',
     'nao-encontrada-aviso': 'Não localizamos esta matrícula na lista oficial. ' +
       'Você pode seguir, mas a coordenação vai conferir depois.'
   };
+
+  /**
+   * A mensagem de formato diz o NÚMERO quando ele é conhecido — "inválida" não
+   * ensina a corrigir, "tem 7 dígitos" ensina. Sem o número, fica a frase de
+   * antes: é o caso em que foi o servidor que reprovou (`motivo: 'FORMATO'`) e
+   * este lado não tem como dizer quantos são.
+   */
+  function mensagemDaMatricula(estado) {
+    if (estado === 'formato') {
+      return ESTADO.matriculaDigitos
+        ? 'A matrícula tem ' + ESTADO.matriculaDigitos + ' dígitos. Confira o número no seu portal do aluno.'
+        : 'Matrícula inválida. Confira o número no seu portal do aluno.';
+    }
+    return MENSAGEM_MATRICULA[estado] || '';
+  }
 
   function marcarMatricula(estado) {
     ESTADO.matricula.estado = estado;
@@ -1001,8 +1067,9 @@
     campo.setAttribute('aria-invalid', ruim ? 'true' : 'false');
     campo.classList.toggle('campo--ok', estado === 'ok');
 
-    erro.textContent = MENSAGEM_MATRICULA[estado] || '';
-    erro.classList.toggle('visivel', !!MENSAGEM_MATRICULA[estado]);
+    var mensagem = mensagemDaMatricula(estado);
+    erro.textContent = mensagem;
+    erro.classList.toggle('visivel', !!mensagem);
     erro.classList.toggle('erro-campo--aviso', estado === 'nao-encontrada-aviso');
 
     // Dizer O QUE está acontecendo, e não só que algo está: a espera é do
@@ -1025,16 +1092,40 @@
   // Espelha 04_Inscricoes.gs. O servidor revalida tudo — isto é conveniência
   // para o aluno, não segurança.
 
+  /** algo@algo.algo — a mesma régua mínima de `emailValido` (01_Utils.gs). */
+  function emailServe(v) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+  }
+
+  /** DDD + número: 10 ou 11 dígitos, como `validarInscricao` exige. */
+  function whatsappServe(soDigitos) {
+    return soDigitos.length >= 10 && soDigitos.length <= 11;
+  }
+
+  /**
+   * Ao SAIR do campo, e não a cada tecla — a mesma razão da matrícula: enquanto
+   * se digita, todo e-mail está incompleto. Campo em branco não é apontado aqui:
+   * quem tabula por cima ainda vai preencher, e o envio (`validar`) cobra o que
+   * faltou. O que se aponta é o que foi digitado e não serve.
+   */
+  function conferirEmail() {
+    var v = valor('email');
+    marcarErro('email', !!v && !emailServe(v));
+  }
+
+  function conferirWhatsapp() {
+    var tel = digitos('whatsapp');
+    marcarErro('whatsapp', !!tel && !whatsappServe(tel));
+  }
+
   function validar() {
     var ok = true;
 
 
     ok = marcarErro('nome', valor('nome').split(/\s+/).filter(Boolean).length < 2) && ok;
     ok = marcarErro('curso_fase', !valor('curso_fase')) && ok;
-    ok = marcarErro('email', !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor('email'))) && ok;
-
-    var tel = digitos('whatsapp');
-    ok = marcarErro('whatsapp', tel.length < 10 || tel.length > 11) && ok;
+    ok = marcarErro('email', !emailServe(valor('email'))) && ok;
+    ok = marcarErro('whatsapp', !whatsappServe(digitos('whatsapp'))) && ok;
 
     var ciencia = document.getElementById('declara_ciencia').checked;
     document.getElementById('erro-declaracao').classList.toggle('visivel', !ciencia);

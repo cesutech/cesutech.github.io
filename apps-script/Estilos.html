@@ -218,6 +218,23 @@
   .filtros .campo { margin-bottom: 0; }
   .filtros input, .filtros select { min-width: 160px; }
 
+  /* Cabeçalho que ordena (painel, 19/09). É um <button> dentro do <th> — célula
+     não recebe foco, e quem navega pelo teclado não chegaria nela — e por isso
+     ele HERDA a cara do <th> em vez de ter a sua: `font: inherit` e
+     `color: inherit` fazem o cabeçalho ordenável parecer igual ao que não
+     ordena, e a seta no texto é o único sinal. A lista do Auditório não é uma
+     tabela (cada linha é um botão), então `.lista-cabecalho` repete a cara do
+     <th> para o mesmo botão caber nela. */
+  .ordenar { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; white-space: nowrap; }
+  .ordenar:hover { color: var(--texto); }
+  .ordenar--ativo { color: var(--vinho); }
+  .lista-cabecalho {
+    display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 9px 12px; background: var(--fundo); border-bottom: 1px solid var(--borda);
+    font-size: .8rem; font-weight: 600; color: var(--texto-fraco);
+  }
+  .lista-cabecalho span { display: flex; gap: 14px; flex-wrap: wrap; }
+
   .barra-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 
   .paginacao { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-size: .875rem; color: var(--texto-fraco); }

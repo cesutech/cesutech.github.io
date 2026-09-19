@@ -632,18 +632,17 @@ function funcoesDoPainel_() {
 function conferirMatricula_(bruta, projetoId) {
   var matricula = normalizarMatricula(bruta);
 
-  // O TAMANHO É CONFERIDO NO QUE O ALUNO DIGITOU, não na chave.
+  // A MESMA RÉGUA DO ENVIO, e não uma conta própria. Até 19/09 esta rota
+  // media `4..20` por conta própria enquanto `validarInscricao` media outra
+  // coisa — e é a régua daqui que o site consulta ao vivo, no `blur` do campo.
+  // Duas réguas fazem o site dizer "válida" e o envio responder "inválida" para
+  // a mesma matrícula: o aluno não tem como saber em qual acreditar.
+  // `erroFormatoMatricula_` (04_Inscricoes.gs) é o único lugar que sabe quantos
+  // dígitos a matrícula tem, e o número vem de `matricula_digitos`.
   //
-  // `normalizarMatricula` tira o zero à esquerda, então `0000000` — sete
-  // dígitos, formato plausível — vira `0`, com um caractere, e seria reprovado
-  // por tamanho. O mesmo aconteceria com `0001`, que é matrícula de quatro
-  // dígitos legítima. A pergunta "tem cara de matrícula?" é sobre o que foi
-  // digitado; a pergunta "está na lista?" é sobre a chave.
-  var digitada = String(bruta || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-  // Também é o caminho do parâmetro ausente: sem `m`, `digitada` é vazia e o
-  // formato reprova antes de qualquer ida ao banco.
-  if (digitada.length < 4 || digitada.length > 20) {
+  // Também é o caminho do parâmetro ausente: sem `m`, o formato reprova antes
+  // de qualquer ida ao banco.
+  if (erroFormatoMatricula_(bruta)) {
     // `bloqueia: true` não é detalhe. Sem ele o formulário lê `undefined`,
     // entende "não bloqueia" e mostra a mensagem permissiva — foi assim que
     // `0000000` passou. Matrícula malformada nunca é caso de "siga e a
@@ -760,6 +759,7 @@ function dadosFormularioPublico_() {
     versao: APP.versao,
     aberto: config('cadastro_aberto', 'SIM').toUpperCase() === 'SIM',
     exigirMatricula: config('exigir_matricula', 'SIM').toUpperCase() === 'SIM',
+    matriculaDigitos: matriculaDigitos_(),
     exigirCpf: config('exigir_cpf', 'NAO').toUpperCase() === 'SIM',
     cursosFases: cursosFasesAtivos_(),
     textoLgpd: config('texto_lgpd', ''),

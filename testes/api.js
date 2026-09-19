@@ -741,20 +741,49 @@ teste('projeto que não valida matrícula nem consulta a lista', () => {
   igual(quantas(a.falso, LEITURA_MATRICULA), 0, 'a lista oficial não foi tocada');
 });
 
-teste('sem o parâmetro m, recusa por FORMATO sem ir ao banco', () => {
+teste('sem o parâmetro m, recusa por FORMATO sem consultar a lista', () => {
   const a = montar();
   criarProjeto(a.api, 'p1');
 
   const r = corpoDe(get(a, { api: 'matricula', p: 'p1' }));
   igual(r, { ok: true, valida: false, existe: false, motivo: 'FORMATO', bloqueia: true });
-  igual(a.falso.requisicoes.length, 0, 'nem uma requisição');
+
+  // ERA "nem uma requisição". Desde 19/09 a régua do formato é
+  // `erroFormatoMatricula_`, que lê `matricula_digitos` da configuração — UMA
+  // leitura, a mesma que qualquer rota paga, e que o cache da execução
+  // reaproveita. O que continua proibido é ir à LISTA por uma matrícula que
+  // nem tem cara de matrícula: essa é a leitura que este teste guarda.
+  igual(quantas(a.falso, LEITURA_MATRICULA), 0, 'foi à lista por uma matrícula malformada');
+  verdadeiro(a.falso.requisicoes.length <= 1, 'mais que a leitura da configuração');
 });
 
 teste('matrícula curta ou longa demais recusa por FORMATO', () => {
   const a = montar();
   igual(corpoDe(get(a, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
   igual(corpoDe(get(a, { api: 'matricula', m: '123456789012345678901' })).motivo, 'FORMATO');
-  igual(a.falso.requisicoes.length, 0);
+  igual(quantas(a.falso, LEITURA_MATRICULA), 0, 'foi à lista por uma matrícula malformada');
+});
+
+teste('a rota usa a MESMA régua do envio — e não uma conta própria', () => {
+  // Até 19/09 esta rota media 4..20 por conta própria enquanto o envio media
+  // `matricula_digitos`. É a régua daqui que o site consulta no `blur`: duas
+  // réguas faziam o site dizer "válida" e o envio responder "inválida".
+  const a = montar();
+  criarProjeto(a.api, 'p1', { validar_matricula: 'SIM' });
+  matricular(a.api, ['9110001']);
+
+  // 6 dígitos: cabia em 4..20, e hoje reprova no formato.
+  igual(corpoDe(get(a, { api: 'matricula', m: '911000', p: 'p1' })).motivo, 'FORMATO');
+  // 7 passa; 8 com zero à esquerda (como a secretaria escreve) passa e acha.
+  igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, true);
+  igual(corpoDe(get(a, { api: 'matricula', m: '09110001', p: 'p1' })).existe, true);
+  // 8 SEM zero: tamanho errado.
+  igual(corpoDe(get(a, { api: 'matricula', m: '91100011', p: 'p1' })).motivo, 'FORMATO');
+
+  // E a régua acompanha a configuração — a mesma que o envio lê.
+  a.api.gravarConfig('matricula_digitos', '6');
+  igual(corpoDe(get(a, { api: 'matricula', m: '911000', p: 'p1' })).motivo !== 'FORMATO', true,
+    'com 6 configurado, 6 dígitos tem formato');
 });
 
 teste('pontuação na matrícula é normalizada antes de tudo', () => {
@@ -2018,25 +2047,44 @@ teste('formato reprovado sempre BLOQUEIA — nunca "siga e conferimos depois"', 
     igual(r.bloqueia, true, 'formato malformado tem de bloquear: ' + JSON.stringify(entrada));
   });
 
-  // '0000000' tem sete dígitos e passa no formato — o que ele NÃO faz é existir.
-  // Antes do conserto ele caía no ramo de formato (porque a chave vira '0') e
-  // saía sem `bloqueia`, com a mensagem permissiva. Agora é recusa por ausência.
+  // '0000000' tem sete dígitos mas a CHAVE vira '0' — um dígito. Até 19/09 ele
+  // passava no formato (a régua media só o digitado) e caía na recusa por
+  // ausência; desde a régua de `matricula_digitos`, que mede o digitado E a
+  // chave, ele reprova no formato. Os dois desfechos bloqueiam; o de agora é
+  // mais honesto, porque a mensagem diz o que está errado ("tem 7 dígitos") em
+  // vez de "não está na lista" — que faria o aluno procurar a coordenação por um
+  // número que nunca foi matrícula. O que este teste GUARDA é o `bloqueia`.
   const zeros = corpoDe(get(a, { api: 'matricula', m: '0000000', p: 'p1' }));
-  igual(zeros.valida, true, 'sete dígitos são formato plausível');
-  igual(zeros.existe, false, 'mas não está na lista');
+  igual(zeros.valida, false, 'sete zeros não são matrícula');
+  igual(zeros.motivo, 'FORMATO');
   igual(zeros.bloqueia, true, 'e por isso bloqueia');
 });
 
-teste('o tamanho é conferido no que foi DIGITADO, não na chave sem zeros', () => {
-  // '0001' é matrícula de quatro dígitos legítima. Conferir o tamanho depois de
-  // tirar o zero a transformaria em '1' e a reprovaria por formato.
+teste('o zero à esquerda da secretaria é aceito, e a chave sem ele acha o matriculado', () => {
+  // ERA: "'0001' é matrícula de quatro dígitos legítima". Desde 19/09 o tamanho
+  // vem de `matricula_digitos`, e 4 dígitos só valem se a configuração disser 4.
+  // A intenção do teste continua a mesma — o zero que a secretaria escreve na
+  // frente não pode reprovar o aluno — só que agora com a régua configurada.
   const a = montar();
   criarProjeto(a.api, 'p1', { validar_matricula: 'SIM' });
-  matricular(a.api, ['0001']);
+  matricular(a.api, ['9110001']);
 
-  const r = corpoDe(get(a, { api: 'matricula', m: '0001', p: 'p1' }));
-  igual(r.valida, true, 'quatro dígitos digitados passam no formato');
-  igual(r.existe, true, 'e a chave sem zeros acha o matriculado');
+  const r = corpoDe(get(a, { api: 'matricula', m: '09110001', p: 'p1' }));
+  igual(r.valida, true, 'oito dígitos com zero à esquerda passam no formato');
+  igual(r.existe, true, 'e a chave sem o zero acha o matriculado');
+
+  // E com a régua em 4, uma matrícula de quatro dígitos ('1001', que a
+  // secretaria escreve '01001') passa do mesmo jeito. Repare que '0001' NÃO
+  // passa: a régua mede a CHAVE, e '0001' normalizado é '1' — um dígito. Uma
+  // matrícula "de quatro dígitos" começando com três zeros nunca existiu; era
+  // o teste antigo, e não a secretaria, que a inventava.
+  a.api.gravarConfig('matricula_digitos', '4');
+  matricular(a.api, ['1001']);
+  const q = corpoDe(get(a, { api: 'matricula', m: '01001', p: 'p1' }));
+  igual(q.valida, true, 'cinco com zero à esquerda, com a régua em 4, passam');
+  igual(q.existe, true);
+  igual(corpoDe(get(a, { api: 'matricula', m: '0001', p: 'p1' })).motivo, 'FORMATO',
+    'chave de um dígito não tem formato de matrícula');
 });
 
 // -------------------------------------------------- orçamento de leitura

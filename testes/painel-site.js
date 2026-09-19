@@ -1059,6 +1059,78 @@ teste('os filtros existem, moram FORA da lista, e estão ligados', () => {
     'os campos de filtro foram para dentro do que se redesenha — eles somem a cada tecla');
 });
 
+teste('o período e a ordem (19/09) estão ligados, e os campos moram fora do que se redesenha', () => {
+  // O clique prova o efeito (`painel-navegador.js`); o que ele não prova é que
+  // o `onchange` dos dois campos de data chama a função certa — o falso não
+  // compila `onchange`, só `onclick`. Um campo de data ligado a nada aceitaria a
+  // data e a lista nunca recortaria, sem erro nenhum.
+  const marcacao = PAGINA.replace(/\n\s*/g, ' ');
+  ['filtro-aud-de', 'filtro-aud-ate'].forEach((id) => {
+    verdadeiro(new RegExp('<input type="date" id="' + id + '" onchange="filtrarRecentes\\(\\)">')
+      .test(marcacao), id + ' não é um type=date ligado a filtrarRecentes()');
+  });
+
+  // Os DOIS estão na lista do Limpar — que é o mesmo caminho do "Mostrar as N".
+  // Sem eles ali, o botão que promete trazer a marca escondida pelo período de
+  // volta não a traria.
+  const limpar = PAGINA.slice(PAGINA.indexOf('function limparFiltroAuditorio()'),
+    PAGINA.indexOf('// ------------------------------------------------- As duas listas tocáveis'));
+  verdadeiro(limpar.indexOf("'filtro-aud-de'") !== -1 && limpar.indexOf("'filtro-aud-ate'") !== -1,
+    'limparFiltroAuditorio não limpa o período');
+
+  // Fora de `desenharRecentes` — o teste de cima já varre `filtro-aud-`, e os
+  // ids novos têm o mesmo prefixo de propósito: a varredura os cobre sozinha.
+  const desenho = PAGINA.slice(PAGINA.indexOf('function desenharRecentes()'),
+    PAGINA.indexOf('function rodapeDeRecentes('));
+  igual(desenho.indexOf('filtro-aud-'), -1, 'o período foi para dentro do que se redesenha');
+
+  // O período e a ordem entram na PENEIRA, e em nenhum outro lugar: é ela que a
+  // faixa, a barra e o rodapé leem. Um período aplicado só no desenho deixaria a
+  // faixa marcar quem a tela não mostra.
+  const peneira = PAGINA.slice(PAGINA.indexOf('function recentesFiltradas()'),
+    PAGINA.indexOf('function itensVisiveis(lista)'));
+  verdadeiro(/dentroDoPeriodo_\(i\.criado_em, de, ate\)/.test(peneira),
+    'recentesFiltradas não aplica o período');
+  verdadeiro(/return ordenados_\(/.test(peneira) && /ORDEM\.recentes\)/.test(peneira),
+    'recentesFiltradas não aplica a ordem — a faixa e a tela percorreriam ordens diferentes');
+
+  // A janela do projeto: o mesmo par, ligado a `desenharInscritosProjeto`, e
+  // escrito pela abertura da janela — NÃO pelo redesenho da tabela.
+  const abertura = PAGINA.slice(PAGINA.indexOf('function verInscritosProjeto(id)'),
+    PAGINA.indexOf('function opcoesDeCursoEFase(itens)'));
+  const tabela = PAGINA.slice(PAGINA.indexOf('function desenharInscritosProjeto()'),
+    PAGINA.indexOf('// ------------------------------------------------------- Aba Disciplinas'));
+  ['insc-proj-de', 'insc-proj-ate'].forEach((id) => {
+    verdadeiro(new RegExp('<input type="date" id="' + id + '" onchange="desenharInscritosProjeto\\(\\)">')
+      .test(abertura.replace(/' \+\s*'/g, '')), id + ' não é um type=date ligado a desenharInscritosProjeto()');
+    igual(tabela.indexOf(id), -1, id + ' foi para dentro da tabela que se redesenha');
+  });
+  const peneiraProjeto = PAGINA.slice(PAGINA.indexOf('function inscritosDoProjetoFiltrados()'),
+    PAGINA.indexOf('function ordenarInscritosProjeto(chave)'));
+  verdadeiro(/dentroDoPeriodo_\(i\.criado_em, de, ate\)/.test(peneiraProjeto) &&
+    /ORDEM\.projeto\)/.test(peneiraProjeto),
+    'inscritosDoProjetoFiltrados não aplica o período ou a ordem — o Excel sairia diferente da tela');
+});
+
+teste('o carimbo é do fuso de São Paulo, e o período compara só o dia', () => {
+  // A premissa da comparação de texto: `criado_em` nasce de `agora()` com
+  // `APP.timezone`, e NÃO em UTC. Se um dia o servidor passar a gravar UTC, o
+  // dia do carimbo deixa de ser o dia do professor a partir das 21h — e esta é a
+  // linha que tem de acusar.
+  const UTILS = fs.readFileSync(path.join(RAIZ, 'apps-script', '01_Utils.gs'), 'utf8');
+  const CONFIG = fs.readFileSync(path.join(RAIZ, 'apps-script', '00_Config.gs'), 'utf8');
+  verdadeiro(/function agora\(\) \{\s*return Utilities\.formatDate\(new Date\(\), APP\.timezone, 'yyyy-MM-dd HH:mm:ss'\);/
+    .test(UTILS), 'agora() mudou de formato ou de fuso — a comparação de texto do período depende dos dois');
+  verdadeiro(/timezone: 'America\/Sao_Paulo'/.test(CONFIG), 'o fuso do sistema deixou de ser o do professor');
+
+  // E do lado da tela, a conta é sobre os dez primeiros caracteres, e não sobre
+  // `new Date()`: o carimbo lido como UTC empurraria as 22h para o dia seguinte.
+  const periodo = PAGINA.slice(PAGINA.indexOf('function dentroDoPeriodo_(carimbo, de, ate)'),
+    PAGINA.indexOf('function periodoEmTexto_(de, ate)'));
+  verdadeiro(/\.slice\(0, 10\)/.test(periodo), 'o período deixou de comparar só o dia');
+  igual(periodo.indexOf('new Date'), -1, 'o período passou a interpretar o carimbo como Date — e ele vira UTC');
+});
+
 teste('a faixa e as ações leem a lista VISÍVEL, e nunca AUDITORIO[lista]', () => {
   // As três funções servem às DUAS listas. Voltar a ler `AUDITORIO[lista]` faz a
   // faixa marcar linhas escondidas pelo filtro e o botão contá-las — e é o
