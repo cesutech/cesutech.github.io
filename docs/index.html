@@ -128,6 +128,14 @@
                     Matrícula *
                     <span class="selo-matricula" id="selo-matricula" aria-live="polite"></span>
                   </label>
+                  <!--
+                    `type="text"` de propósito, e não `number`: o campo recebe só
+                    dígitos (app.js filtra ao digitar), mas `number` engoliria o
+                    zero à esquerda que a secretaria escreve e aceitaria "e" e
+                    sinal. O `maxlength` NÃO está aqui: quem o põe é o app.js, com
+                    o tamanho que vem da configuração (`matricula_digitos`) —
+                    sem configuração, sem limite, e o servidor decide.
+                  -->
                   <input type="text" id="matricula" autocomplete="off" inputmode="numeric"
                          aria-describedby="erro-matricula">
                   <p class="erro-campo" id="erro-matricula"></p>
@@ -148,12 +156,12 @@
               <div class="grade-2">
                 <div class="campo">
                   <label for="email">Seu melhor e-mail *</label>
-                  <input type="email" id="email" autocomplete="email">
+                  <input type="email" id="email" autocomplete="email" autocapitalize="off" spellcheck="false">
                   <p class="erro-campo" id="erro-email">E-mail inválido.</p>
                 </div>
                 <div class="campo">
                   <label for="whatsapp">WhatsApp *</label>
-                  <input type="tel" id="whatsapp" inputmode="numeric" maxlength="15" placeholder="(00) 00000-0000">
+                  <input type="tel" id="whatsapp" autocomplete="tel-national" inputmode="tel" maxlength="15" placeholder="(48) 99999-9999">
                   <p class="erro-campo" id="erro-whatsapp">WhatsApp inválido.</p>
                 </div>
               </div>

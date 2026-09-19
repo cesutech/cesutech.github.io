@@ -1865,13 +1865,13 @@ teste('a ficha corrigida cai no endereço que a reconciliação usaria, e o dono
 teste('a correção reconfere a matrícula contra a lista oficial', () => {
   const amb = cenarioMatriculaTrocada();
 
-  chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '90909090' });
+  chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '9090909' });
   const nova = amb.api.listar('inscricoes', {}).itens[0];
   igual(nova.matricula_conferida, 'NAO',
     'sem reconferir, a inscrição ficaria com o visto verde que ganhou pela matrícula de outro');
 
   // E o visto chega até a ficha, que é onde o selo ✓ da lista de alunos lê.
-  igual(amb.api.ler('alunos', amb.api.chaveAluno_('mat:90909090')).matricula_conferida, 'NAO');
+  igual(amb.api.ler('alunos', amb.api.chaveAluno_('mat:9090909')).matricula_conferida, 'NAO');
 });
 
 teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, antes de qualquer exclusão', () => {
@@ -1912,7 +1912,13 @@ teste('matrícula fora do formato não chega a custar leitura nenhuma', () => {
   const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '12' });
   igual(r.ok, false);
   verdadeiro(/Matrícula inválida/.test(r.erro), r.erro);
-  igual(amb.falso.requisicoes.length, 0, 'conferência de formato depois de ler o banco');
+  // ERA "zero requisições". Desde 19/09 a régua lê `matricula_digitos` da
+  // configuração — uma leitura, que o cache da execução reaproveita. O que
+  // continua proibido é tocar em aluno, inscrição ou lista por uma matrícula
+  // que nem tem cara de matrícula.
+  igual(amb.falso.requisicoes.filter(function (q) {
+    return q.metodo !== 'GET' || q.url.indexOf('/config/') === -1;
+  }).length, 0, 'conferência de formato depois de ler o banco');
 });
 
 teste('inscrição SEM matrícula: mudar o NOME também move o documento', () => {
@@ -1942,7 +1948,7 @@ teste('inscrição SEM matrícula: mudar o NOME também move o documento', () =>
 teste('aluno que veio só da lista oficial não tem matrícula editável — e a recusa diz por quê', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, matricula: '77777777' });
+  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, matricula: '7777777' });
   igual(r.ok, false);
   verdadeiro(/não tem inscrição/.test(r.erro), r.erro);
 });
@@ -2104,7 +2110,7 @@ teste('o formulário do aluno continua barrando: a exceção é da coordenação
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
 
   const r = amb.api.submeterInscricao({
-    projeto_id: 'p2', matricula: '1003', nome: 'Tres Aluno', email: 'tres@exemplo.com',
+    projeto_id: 'p2', matricula: '9110003', nome: 'Tres Aluno', email: 'tres@exemplo.com',
     curso_fase: 'ADS - ADS11', declara_ciencia: true, consentimento_lgpd: 'SIM', origem: 'SITE'
   });
   igual(r.ok, false);

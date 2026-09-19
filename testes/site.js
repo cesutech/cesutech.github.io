@@ -1065,6 +1065,278 @@ async function rodar() {
       'os dois caminhos precisam passar pela mesma função de absorver o config');
   });
 
+  // ======================= o formato dos campos (pedido do Prof. Mário, 19/09)
+
+  /**
+   * "A matrícula tem que ter a quantidade de caracteres que a matrícula tem,
+   * para forçar o aluno a digitar certo." O número vem do servidor
+   * (`matriculaDigitos`, em `?api=config`), e é ele que manda no `maxlength`, no
+   * filtro e na mensagem. O que se prova aqui é o CONFORTO: a régua que vale é a
+   * do servidor, e o último teste do grupo garante que sem o número o site não
+   * barra ninguém por conta própria.
+   */
+  grupo('a matrícula tem o tamanho que a matrícula tem');
+
+  /** `?api=config` com o tamanho da matrícula — o servidor de hoje. */
+  function configCom(extra) {
+    return {
+      ok: true,
+      dados: Object.assign({
+        cursosFases: ['ADS - 1a fase'],
+        textoLgpd: 'Concordo.', textoDeclaracao: 'Declaro.', textoImagem: 'Autorizo.',
+        textoEsgotado: 'Esgotado.', exigirMatricula: true, matriculaDigitos: 7
+      }, extra || {})
+    };
+  }
+
+  /** Abre o formulário do projeto aberto com a config dada, sem preencher nada. */
+  async function formularioCom(opcoes) {
+    const cena = await siteCarregado(opcoes);
+    cena.entrarNoProjeto(0);
+    await cena.assentar();
+    cena.clicarNoCartaoDeVagas('Quero me inscrever');
+    await cena.assentar();
+    cena.zerarPedidos();
+    return cena;
+  }
+
+  /** Digita no campo como o aluno digita: põe o valor e dispara `input`. */
+  function digitar(cena, id, valor) {
+    cena.el(id).value = valor;
+    cena.el(id).disparar('input');
+    return cena.el(id).value;
+  }
+
+  const sete = await formularioCom({ respostaConfig: configCom() });
+
+  teste('o campo ganha maxlength = dígitos + 1, por causa do zero à esquerda', () => {
+    igual(sete.el('matricula').getAttribute('maxlength'), '8');
+    igual(sete.el('matricula').getAttribute('inputmode'), 'numeric', 'o teclado do celular tem de ser o numérico');
+  });
+
+  teste('só dígito entra: letra, ponto e espaço somem ao digitar', () => {
+    igual(digitar(sete, 'matricula', '91a10.00 1'), '9110001');
+    igual(digitar(sete, 'matricula', 'ADS-0001'), '0001');
+    igual(digitar(sete, 'matricula', ''), '');
+  });
+
+  digitar(sete, 'matricula', '911000');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('seis dígitos: a mensagem diz que são 7, e o servidor nem é perguntado', () => {
+    verdadeiro(sete.el('erro-matricula').classList.contains('visivel'), 'a mensagem não apareceu');
+    verdadeiro(contem(sete.texto('erro-matricula'), '7 dígitos'), 'a frase foi: ' + sete.texto('erro-matricula'));
+    igual(sete.el('matricula').getAttribute('aria-invalid'), 'true');
+    igual(sete.pedidosDe('api=matricula').length, 0, 'matrícula de tamanho errado não vale uma execução do servidor');
+  });
+
+  digitar(sete, 'matricula', '91100011');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('oito dígitos SEM zero à esquerda também recusa', () => {
+    verdadeiro(contem(sete.texto('erro-matricula'), '7 dígitos'), 'a frase foi: ' + sete.texto('erro-matricula'));
+    igual(sete.pedidosDe('api=matricula').length, 0);
+  });
+
+  digitar(sete, 'matricula', '0110001');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('zero à esquerda escondendo matrícula curta recusa — é a régua do servidor', () => {
+    verdadeiro(contem(sete.texto('erro-matricula'), '7 dígitos'), 'a frase foi: ' + sete.texto('erro-matricula'));
+    igual(sete.pedidosDe('api=matricula').length, 0);
+  });
+
+  // O navegador falso não aplica `maxlength`; o de verdade cortaria antes. A
+  // régua local tem de recusar mesmo assim — o colar e o autopreencher passam
+  // por cima do maxlength em navegador antigo.
+  digitar(sete, 'matricula', '009110001');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('dois zeros à esquerda é tamanho errado, mesmo com a chave certa atrás', () => {
+    verdadeiro(contem(sete.texto('erro-matricula'), '7 dígitos'), 'a frase foi: ' + sete.texto('erro-matricula'));
+    igual(sete.pedidosDe('api=matricula').length, 0);
+  });
+
+  digitar(sete, 'matricula', '09110001');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('oito COM zero à esquerda passa no formato e vai à lista oficial', () => {
+    igual(sete.pedidosDe('api=matricula').length, 1);
+    igual(sete.el('erro-matricula').classList.contains('visivel'), false);
+    igual(sete.texto('selo-matricula'), '✓ matrícula conferida');
+  });
+
+  digitar(sete, 'matricula', '9110001');
+  sete.sairDoCampoMatricula();
+  await sete.assentar();
+
+  teste('sete dígitos passa no formato e vai à lista oficial', () => {
+    igual(sete.pedidosDe('api=matricula').length, 2);
+    igual(sete.el('matricula').getAttribute('aria-invalid'), 'false');
+  });
+
+  const envioCurto = await formularioCom({ respostaConfig: configCom() });
+  envioCurto.preencherFormulario({ matricula: '911000' });
+  envioCurto.marcar('declara_ciencia');
+  envioCurto.marcar('consentimento_lgpd');
+  envioCurto.enviarFormulario();
+  await envioCurto.assentar();
+
+  teste('confirmar com matrícula curta não envia nada, e aponta o campo', () => {
+    igual(envioCurto.pedidosPost().length, 0, 'o POST saiu com matrícula de tamanho errado');
+    verdadeiro(envioCurto.visivel('erro-geral'));
+    verdadeiro(contem(envioCurto.texto('erro-matricula'), '7 dígitos'));
+  });
+
+  const oito = await formularioCom({ respostaConfig: configCom({ matriculaDigitos: 8 }) });
+  digitar(oito, 'matricula', '9110001');
+  oito.sairDoCampoMatricula();
+  await oito.assentar();
+
+  teste('a configuração manda: com 8 dígitos, sete é curto e a frase diz 8', () => {
+    igual(oito.el('matricula').getAttribute('maxlength'), '9');
+    verdadeiro(contem(oito.texto('erro-matricula'), '8 dígitos'), 'a frase foi: ' + oito.texto('erro-matricula'));
+    igual(oito.pedidosDe('api=matricula').length, 0);
+  });
+
+  // ---- O TESTE QUE PROTEGE O ALUNO: sem configuração, o site não decide ----
+
+  const semNumero = await formularioCom({
+    respostaConfig: configCom({ matriculaDigitos: undefined }),
+    respostaMatricula: { ok: true, valida: false, existe: false, motivo: 'FORMATO', bloqueia: true }
+  });
+  digitar(semNumero, 'matricula', '911000');
+  semNumero.sairDoCampoMatricula();
+  await semNumero.assentar();
+
+  teste('servidor de versão antiga (sem o número): sem maxlength, e quem reprova é o servidor', () => {
+    igual(semNumero.el('matricula').getAttribute('maxlength'), null, 'apareceu um maxlength sem configuração');
+    igual(semNumero.pedidosDe('api=matricula').length, 1, 'a conferência tem de ir ao servidor');
+    verdadeiro(semNumero.el('erro-matricula').classList.contains('visivel'));
+    verdadeiro(contem(semNumero.texto('erro-matricula'), 'Matrícula inválida'),
+      'sem o número, a frase é a genérica: ' + semNumero.texto('erro-matricula'));
+    verdadeiro(!contem(semNumero.texto('erro-matricula'), 'dígitos'), 'o site inventou um número que não recebeu');
+  });
+
+  const configCalada = await formularioCom({ demoras: { 'api=config': [Infinity, Infinity, Infinity] } });
+  digitar(configCalada, 'matricula', '911000');
+  configCalada.sairDoCampoMatricula();
+  await configCalada.assentar();
+
+  teste('servidor calado na configuração: o campo funciona e a conferência sai', () => {
+    igual(configCalada.el('matricula').getAttribute('maxlength'), null);
+    igual(configCalada.pedidosDe('api=matricula').length, 1, 'o aluno ficou bloqueado por falta de configuração');
+  });
+
+  const lixo = await formularioCom({ respostaConfig: configCom({ matriculaDigitos: 'sete' }) });
+  const zero = await formularioCom({ respostaConfig: configCom({ matriculaDigitos: 0 }) });
+
+  teste('número torto na configuração vale como ausente', () => {
+    igual(lixo.el('matricula').getAttribute('maxlength'), null);
+    igual(zero.el('matricula').getAttribute('maxlength'), null);
+  });
+
+  teste('o HTML não declara maxlength na matrícula — ele é da configuração', () => {
+    const campo = /<input[^>]*id="matricula"[^>]*>/.exec(HTML)[0];
+    verdadeiro(!contem(campo, 'maxlength'), 'um maxlength fixo no HTML é uma segunda régua');
+    verdadeiro(contem(campo, 'inputmode="numeric"'));
+    verdadeiro(contem(campo, 'type="text"'), 'type=number engole o zero à esquerda');
+  });
+
+  teste('a régua local é espelho, e a do servidor continua no caminho do envio', () => {
+    // O site nunca deixa de mandar a matrícula para o POST, e o servidor a
+    // revalida (`validarInscricao`). Isto é conferido no texto porque é
+    // contrato entre arquivos: uma mudança que "confiasse" no formulário
+    // apareceria aqui.
+    verdadeiro(contem(APP, 'formatoDaMatriculaServe'), 'a função de formato sumiu do app.js');
+    verdadeiro(/if \(!n\) return true;/.test(APP), 'sem o número, o site precisa dizer SIM e deixar o servidor decidir');
+    const gs = fs.readFileSync(path.join(__dirname, '..', 'apps-script', '04_Inscricoes.gs'), 'utf8');
+    verdadeiro(contem(gs, 'function erroFormatoMatricula_'), 'a régua do servidor sumiu');
+  });
+
+  grupo('telefone e e-mail: máscara ao digitar, conferência ao sair');
+
+  const contato = await formularioCom({ respostaConfig: configCom() });
+
+  teste('a máscara desenha (48) 99999-9999 conforme o aluno digita', () => {
+    igual(digitar(contato, 'whatsapp', '4'), '(4');
+    igual(digitar(contato, 'whatsapp', '48'), '(48');
+    igual(digitar(contato, 'whatsapp', '489'), '(48) 9');
+    igual(digitar(contato, 'whatsapp', '48999999'), '(48) 9999-99');
+    igual(digitar(contato, 'whatsapp', '4899999999'), '(48) 9999-9999', 'fixo com DDD: 10 dígitos');
+    igual(digitar(contato, 'whatsapp', '48999999999'), '(48) 99999-9999');
+    igual(digitar(contato, 'whatsapp', '489999999999'), '(48) 99999-9999', 'o décimo segundo dígito não entra');
+    igual(digitar(contato, 'whatsapp', '(48) 99999-9999'), '(48) 99999-9999', 'colar já formatado não dobra a máscara');
+  });
+
+  teste('o teclado do celular é o de telefone', () => {
+    const campo = /<input[^>]*id="whatsapp"[^>]*>/.exec(HTML)[0];
+    verdadeiro(contem(campo, 'type="tel"'));
+    verdadeiro(contem(campo, 'inputmode="tel"'), 'o inputmode do WhatsApp não é tel');
+  });
+
+  digitar(contato, 'whatsapp', '999999999');
+  contato.el('whatsapp').disparar('blur');
+
+  teste('nove dígitos: ao sair do campo, a mensagem aparece', () => {
+    verdadeiro(contato.el('erro-whatsapp').classList.contains('visivel'));
+    igual(contato.el('whatsapp').getAttribute('aria-invalid'), 'true');
+  });
+
+  digitar(contato, 'whatsapp', '48999999999');
+  contato.el('whatsapp').disparar('blur');
+
+  teste('onze dígitos: a mensagem some', () => {
+    igual(contato.el('erro-whatsapp').classList.contains('visivel'), false);
+  });
+
+  digitar(contato, 'whatsapp', '');
+  contato.el('whatsapp').disparar('blur');
+
+  teste('campo em branco não é apontado ao sair — quem cobra é o envio', () => {
+    igual(contato.el('erro-whatsapp').classList.contains('visivel'), false);
+  });
+
+  contato.el('email').value = 'maria@exemplo';
+  contato.el('email').disparar('blur');
+
+  teste('e-mail sem o .algo do fim é apontado ao sair do campo', () => {
+    verdadeiro(contato.el('erro-email').classList.contains('visivel'));
+    igual(contato.el('email').getAttribute('aria-invalid'), 'true');
+  });
+
+  contato.el('email').value = 'maria@exemplo.com';
+  contato.el('email').disparar('blur');
+
+  teste('e-mail no formato algo@algo.algo passa', () => {
+    igual(contato.el('erro-email').classList.contains('visivel'), false);
+    const campo = /<input[^>]*id="email"[^>]*>/.exec(HTML)[0];
+    verdadeiro(contem(campo, 'type="email"'));
+  });
+
+  const enviado = await formularioCom({ respostaConfig: configCom() });
+  enviado.preencherFormulario({ matricula: '09110001', whatsapp: '' });
+  digitar(enviado, 'whatsapp', '48999999999');
+  enviado.marcar('declara_ciencia');
+  enviado.marcar('consentimento_lgpd');
+  enviado.sairDoCampoMatricula();
+  await enviado.assentar();
+  enviado.enviarFormulario();
+  await enviado.assentar();
+
+  teste('o POST leva o telefone só com dígitos, e a matrícula como foi digitada', () => {
+    const corpo = enviado.corpoDoEnvio();
+    igual(corpo.whatsapp, '48999999999', 'a máscara vazou para o servidor');
+    // O zero à esquerda vai junto: quem o tira é `normalizarMatricula`, no
+    // servidor, que é também quem grava. O site não normaliza chave de ninguém.
+    igual(corpo.matricula, '09110001');
+  });
+
   // ==================================================== estilos e acessibilidade
 
   grupo('o que o CSS precisa ter para nada disso ficar sem estilo');

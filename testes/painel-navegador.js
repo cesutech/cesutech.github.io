@@ -45,22 +45,22 @@ function cadastroBase(api) {
   }, 'p2');
 
   api.escreverEmLote('matriculados', [
-    { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
-    { _id: '220002', matricula: '220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
+    { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
+    { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
   ]);
 
   // A Ana se inscreveu com a matrícula do Bruno. É o caso que a janela de edição
   // existe para consertar.
   api.gravarInscricao({
-    matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
+    matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE', curso_fase: 'ADS - 1'
   });
   api.gravarInscricao({
-    matricula: '900009', nome: 'X Um', email: 'x1@exemplo.com',
+    matricula: '9900009', nome: 'X Um', email: 'x1@exemplo.com',
     projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
   });
   api.gravarInscricao({
-    matricula: '901009', nome: 'X Dois', email: 'x2@exemplo.com',
+    matricula: '9901009', nome: 'X Dois', email: 'x2@exemplo.com',
     projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
   });
   api.reconciliar();
@@ -159,13 +159,13 @@ grupo('a janela de edição do aluno, clicada');
 teste('a janela abre com o comparativo e os cinco campos preenchidos das FONTES', () => {
   const cena = abrirPainel({ semear: cadastroBase });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
   verdadeiro(/comparativo__coluna/.test(cena.html('modal-corpo')),
     'as duas colunas do comparativo não foram desenhadas');
 
   const valor = (id) => cena.documento.getElementById(id).value;
-  igual(valor('ed-matricula'), '220002', 'a matrícula veio da inscrição');
+  igual(valor('ed-matricula'), '9220002', 'a matrícula veio da inscrição');
   igual(valor('ed-nome'), 'Ana Silva', 'o nome digitado veio da inscrição');
   igual(valor('ed-nome-oficial'), 'Bruno Souza', 'o nome oficial veio da lista da secretaria');
   igual(valor('ed-turma'), 'DIR21', 'a turma veio da lista da secretaria');
@@ -175,7 +175,7 @@ teste('a janela abre com o comparativo e os cinco campos preenchidos das FONTES'
 teste('o select de projetos traz a ocupação de cada um no rótulo', () => {
   const cena = abrirPainel({ semear: cadastroBase });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
   const rotulos = cena.documento.getElementById('ed-projeto').opcoes.map((o) => o.rotulo);
   igual(rotulos, ['Origem — 1/10', 'Lotado — 2/2 · Esgotado']);
@@ -208,9 +208,9 @@ teste('campo cuja FONTE não existe vem desabilitado — e não viaja no payload
 teste('corrigir a matrícula pela tela move a inscrição e devolve o dono da antiga ao cadastro', () => {
   const cena = abrirPainel({ semear: cadastroBase });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
-  cena.digitar('ed-matricula', '110001');
+  cena.digitar('ed-matricula', '9110001');
   cena.js.salvarEdicaoAluno();
 
   verdadeiro(cena.documento.getElementById('modal-fundo').classList.contains('oculto'),
@@ -219,14 +219,14 @@ teste('corrigir a matrícula pela tela move a inscrição e devolve o dono da an
     'a tela não confirmou: ' + cena.texto('mensagem-global'));
 
   const lista = cena.texto('conteudo-alunos');
-  verdadeiro(/Ana Silva 110001/.test(lista), 'a Ana não aparece com a matrícula certa: ' + lista);
-  verdadeiro(/Bruno Souza 220002/.test(lista), 'o Bruno não voltou ao cadastro: ' + lista);
+  verdadeiro(/Ana Silva 9110001/.test(lista), 'a Ana não aparece com a matrícula certa: ' + lista);
+  verdadeiro(/Bruno Souza 9220002/.test(lista), 'o Bruno não voltou ao cadastro: ' + lista);
 });
 
 teste('migrar pela tela conta a vaga, e a aba Projetos mostra 3 de 2', () => {
   const cena = abrirPainel({ semear: cadastroBase });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
   cena.digitar('ed-projeto', 'p2');
   cena.js.salvarEdicaoAluno();
@@ -298,7 +298,7 @@ teste('o select da migração diz o total e assume não saber a ocupação', () 
     }
   });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
   const modal = cena.texto('modal-corpo');
   verdadeiro(/Lotado — 2 vagas, ocupação não contada/.test(modal),
@@ -323,16 +323,16 @@ teste('o aviso da vizinhança da matrícula CHEGA À TELA, em amarelo', () => {
       cadastroBase(api);
       // A mesma pessoa, o mesmo erro de matrícula, num segundo projeto.
       api.gravarInscricao({
-        matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
       });
       api.reconciliar();
     }
   });
   cena.js.trocarAba('alunos');
-  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '220002'));
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
 
-  cena.digitar('ed-matricula', '110001');
+  cena.digitar('ed-matricula', '9110001');
   cena.js.salvarEdicaoAluno();
 
   const aviso = cena.texto('mensagem-global');
@@ -472,7 +472,7 @@ teste('excluir disciplina com inscrito é recusado em AMARELO, não em vermelho'
       // inscrição nenhuma e a disciplina seria apagada — que é exatamente o
       // estrago que trocar o formato causaria se houvesse inscrição gravada.
       api.gravarInscricao({
-        matricula: '110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE',
         curso_fase: 'ADM21 - WORK EXPERIENCE'
       });
@@ -500,7 +500,7 @@ teste('excluir disciplina com inscrito é recusado em AMARELO, não em vermelho'
  *
  * O cenário do `cadastroBase` já traz de graça o caso que interessa: a Ana Silva
  * está na lista oficial em ADS11 e se inscreveu digitando a matrícula do Bruno
- * (220002). Para a lista oficial de ADS11, portanto, ela FALTA — e a inscrição
+ * (9220002). Para a lista oficial de ADS11, portanto, ela FALTA — e a inscrição
  * dela aparece na turma do Bruno. É exatamente a divergência que a coordenação
  * precisa enxergar, e não uma montagem para o teste passar.
  */
@@ -1283,7 +1283,7 @@ teste('as TRÊS tabelas de gente têm os dois botões', () => {
 function comEscolhaDaDisciplina(api) {
   comDisciplinaDaAna(api);
   api.gravarInscricao({
-    matricula: '110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+    matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE',
     curso_fase: 'ADS11 - PRATICA EXTENSIONISTA (2026/1)'
   });
@@ -1953,7 +1953,7 @@ function importacaoMapeada(cena, mapeamento) {
   const analise = {
     ok: true, tempId: 't1', arquivo: 'lista.xlsx', tipo: 'xlsx', totalLinhas: 2,
     cabecalhos: ['Matrícula', 'Nome', 'Turma'],
-    amostra: [['110001', 'Ana Silva', 'ADS11']],
+    amostra: [['9110001', 'Ana Silva', 'ADS11']],
     mapeamento: mapeamento || { matricula: 0, nome: 1, turma: 2 }
   };
   cena.js.trocarAba('importar');
@@ -2598,7 +2598,7 @@ function auditorioBase(api) {
     nome: 'Robótica', vagas: '2', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
   }, 'p1');
 
-  inscrever(api, 'i1', 'Ana Silva', '110001', '2026-08-14 21:00:01', false);
+  inscrever(api, 'i1', 'Ana Silva', '9110001', '2026-08-14 21:00:01', false);
   inscrever(api, 'i2', 'kkkk jjjj', '999999', '2026-08-14 21:00:02', false);
   inscrever(api, 'i3', 'Bruno Souza', '110002', '2026-08-14 21:00:03', true);
   inscrever(api, 'i4', 'Carla Dias', '110003', '2026-08-14 21:00:04', true);
@@ -2954,7 +2954,7 @@ teste('sem fila nenhuma, o cabeçalho mostra a LOTAÇÃO em vez de ficar vazio',
     api.inserir('projetos', {
       nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
     }, 'p1');
-    inscrever(api, 'i1', 'Ana Silva', '110001', '2026-08-14 21:00:01', false);
+    inscrever(api, 'i1', 'Ana Silva', '9110001', '2026-08-14 21:00:01', false);
   });
 
   const cabecalho = cena.texto('auditorio-projetos');
@@ -3024,11 +3024,11 @@ function auditorioComRepetidas(api) {
     nome: 'Fotografia', vagas: '10', ativo: 'NAO', inscricoes_abertas: 'NAO', ordem: '3'
   }, 'p9');
 
-  inscreverEm(api, 'i1', 'Ana Silva', '110001', '2026-08-14 21:00:01', 'p1', 'Robótica');
+  inscreverEm(api, 'i1', 'Ana Silva', '9110001', '2026-08-14 21:00:01', 'p1', 'Robótica');
   inscreverEm(api, 'i2', 'Bruno Souza', '110002', '2026-08-14 21:00:02', 'p1', 'Robótica');
   inscreverEm(api, 'i3', 'Sem Um', '', '2026-08-14 21:00:03', 'p1', 'Robótica');
   inscreverEm(api, 'i4', 'Sem Dois', '', '2026-08-14 21:00:04', 'p2', 'Xadrez');
-  inscreverEm(api, 'i5', 'Ana Silva', '110001', '2026-08-14 21:00:05', 'p2', 'Xadrez');
+  inscreverEm(api, 'i5', 'Ana Silva', '9110001', '2026-08-14 21:00:05', 'p2', 'Xadrez');
   inscreverEm(api, 'i6', 'Carla Dias', '110003', '2026-08-14 21:00:06', 'p9', 'Fotografia');
 }
 
@@ -3217,7 +3217,7 @@ teste('a busca acha pela MATRÍCULA, e não só pelo nome', () => {
   // secretaria, e é por ela que ele procura os pares.
   const cena = abrirAuditorio(auditorioComRepetidas);
 
-  filtrar(cena, 'filtro-aud-busca', '110001');
+  filtrar(cena, 'filtro-aud-busca', '9110001');
   igual(idsDaLista(cena, 'recentes'), ['i5', 'i1'], 'a busca ignorou a matrícula');
 });
 
@@ -3347,7 +3347,7 @@ teste('o servidor CALADO sobre o corte não vira "está tudo aqui"', () => {
     respostas: {
       inscricoesRecentes: (corpo, c) => ({
         ok: true, lidas: 1, inscricoes: [{
-          id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:01',
+          id: 'i1', nome: 'Ana Silva', matricula: '9110001', criado_em: '2026-08-14 21:00:01',
           projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false
         }]
       })
@@ -3386,7 +3386,7 @@ teste('truncada SEM total não imprime "faltam -3": a agregação pode ter falha
     respostas: {
       inscricoesRecentes: () => ({
         ok: true, lidas: 3, truncada: true, inscricoes: [
-          { id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:03',
+          { id: 'i1', nome: 'Ana Silva', matricula: '9110001', criado_em: '2026-08-14 21:00:03',
             projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false },
           { id: 'i2', nome: 'Bruno Souza', matricula: '110002', criado_em: '2026-08-14 21:00:02',
             projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false },
@@ -3728,7 +3728,7 @@ teste('o servidor CALADO sobre o corte também não deixa o recorte prometer', (
     respostas: {
       inscricoesRecentes: {
         ok: true, lidas: 1, inscricoes: [{
-          id: 'i1', nome: 'Ana Silva', matricula: '110001', criado_em: '2026-08-14 21:00:01',
+          id: 'i1', nome: 'Ana Silva', matricula: '9110001', criado_em: '2026-08-14 21:00:01',
           projeto_id: 'p1', projeto_nome: 'Robótica', em_espera: false
         }]
       }
@@ -3848,11 +3848,11 @@ teste('a inscrição que fica para trás é dita, com o projeto no nome', () => 
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.inserir('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
-      { _id: '220002', matricula: '220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
+      { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -3860,11 +3860,11 @@ teste('a inscrição que fica para trás é dita, com o projeto no nome', () => 
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '110001' });
+  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, 'a correção foi recusada: ' + r.erro);
 
   const aviso = (r.avisos || []).join(' ');
-  verdadeiro(aviso.indexOf('220002 continua em 1 outra(s) inscrição') !== -1,
+  verdadeiro(aviso.indexOf('9220002 continua em 1 outra(s) inscrição') !== -1,
     'a inscrição que ficou para trás não foi dita: ' + aviso);
   verdadeiro(aviso.indexOf('"Projeto A"') !== -1 || aviso.indexOf('"Projeto B"') !== -1,
     'o aviso não nomeia o projeto onde ela ficou: ' + aviso);
@@ -3891,11 +3891,11 @@ teste('a fusão de duas fichas é dita ANTES de a coordenação ir embora', () =
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.inserir('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Carlos Reis', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
-      { _id: '220002', matricula: '220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Carlos Reis', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
+      { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.gravarInscricao({ matricula: '110001', nome: 'Carlos Reis', email: 'carlos@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9110001', nome: 'Carlos Reis', email: 'carlos@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -3903,11 +3903,11 @@ teste('a fusão de duas fichas é dita ANTES de a coordenação ir embora', () =
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const daAna = Object.keys(alunos).find((k) => alunos[k].projeto && alunos[k].projeto.stringValue === 'Projeto A');
 
-  const r = amb.chamar('editarAluno', { id: daAna, matricula: '110001' });
+  const r = amb.chamar('editarAluno', { id: daAna, matricula: '9110001' });
   verdadeiro(r.ok, 'a correção foi recusada: ' + r.erro);
 
   const aviso = (r.avisos || []).join(' ');
-  verdadeiro(aviso.indexOf('110001 já estava em 1 inscrição') !== -1,
+  verdadeiro(aviso.indexOf('9110001 já estava em 1 inscrição') !== -1,
     'a fusão não foi avisada: ' + aviso);
   verdadeiro(aviso.indexOf('Carlos Reis') !== -1,
     'o aviso não diz de quem era a matrícula, que é o que denuncia o erro de digitação: ' + aviso);
@@ -3922,10 +3922,10 @@ teste('a correção limpa não inventa aviso nenhum', () => {
     api.semearConfigPadrao_();
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
-      { _id: '220002', matricula: '220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
+      { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -3933,7 +3933,7 @@ teste('a correção limpa não inventa aviso nenhum', () => {
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '110001' });
+  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, r.erro);
   igual(r.avisos.filter((a) => a.indexOf('ATENÇÃO') === 0), [],
     'inventou aviso onde não havia vizinhança nenhuma');
@@ -3944,9 +3944,9 @@ teste('a inscrição recém-gravada não conta como vizinha de si mesma', () => 
     api.semearConfigPadrao_();
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -3954,7 +3954,7 @@ teste('a inscrição recém-gravada não conta como vizinha de si mesma', () => 
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '110001' });
+  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
   verdadeiro((r.avisos || []).join(' ').indexOf('já estava em') === -1,
     'a própria inscrição virou vizinha: ' + (r.avisos || []).join(' '));
 });
@@ -3964,9 +3964,9 @@ teste('a conferência da vizinhança NÃO acontece antes da escrita', () => {
     api.semearConfigPadrao_();
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -3975,7 +3975,7 @@ teste('a conferência da vizinhança NÃO acontece antes da escrita', () => {
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
   amb.falso.requisicoes.length = 0;
-  amb.chamar('editarAluno', { id: alvo, matricula: '110001' });
+  amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
 
   // A primeira ida a `inscricoes` tem de ser a ESCRITA. Quem garante a unicidade
   // continua sendo o 409 do banco, e não uma consulta nossa.
@@ -3990,9 +3990,9 @@ teste('vizinhança que falha vira aviso, e não derruba a correção', () => {
     api.semearConfigPadrao_();
     api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
     api.escreverEmLote('matriculados', [
-      { _id: '110001', matricula: '110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
+      { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
     api.reconciliar();
   });
 
@@ -4011,14 +4011,606 @@ teste('vizinhança que falha vira aviso, e não derruba a correção', () => {
     return saida;
   };
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '110001' });
+  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, 'a falha da conferência derrubou a correção: ' + r.erro);
   verdadeiro((r.avisos || []).join(' ').indexOf('Não consegui conferir') !== -1,
     'a falha da conferência passou calada: ' + JSON.stringify(r.avisos));
 
   const inscricoes = inscricoesDe(amb);
   igual(inscricoes.length, 1, 'a inscrição se perdeu');
-  igual(inscricoes[0].matricula, '110001', 'a correção não foi gravada');
+  igual(inscricoes[0].matricula, '9110001', 'a correção não foi gravada');
+});
+
+// ============================ O período e a ordenação — o pedido de 19/09
+//
+// "Não consegui saber a data da inscrição — se o aluno se inscreveu ontem,
+// semana passada. Precisei saber quem se inscreveu naquela semana." Três
+// coisas, e as duas listas de inscritos ganharam as três: VER a data, RECORTAR
+// por período e ORDENAR por coluna.
+//
+// O QUE ESTE BLOCO PROTEGE, e por que é clicado:
+//
+//   - o período compara SÓ O DIA, e os dois lados são inclusivos. O carimbo é
+//     'yyyy-MM-dd HH:mm:ss' e o campo é 'yyyy-MM-dd': comparar o carimbo inteiro
+//     com o fim do período deixaria de fora quem se inscreveu no último dia;
+//   - o período COMPÕE com o que já existia — busca, projeto, curso e fase — e
+//     entra na mesma peneira. Sem isso, a faixa do Auditório e a exportação
+//     leriam listas diferentes da que está na tela;
+//   - ordenar não desmarca ninguém e não fura a regra "só visíveis": a faixa
+//     passa a percorrer a ordem que está na TELA, e a conta do botão continua
+//     sendo a das marcadas visíveis;
+//   - "Recebida em" ordena pela string INTEIRA. Só pelo dia, uma rajada inteira
+//     empataria e a lista voltaria à ordem em que veio — em silêncio;
+//   - o arquivo diz o período no cabeçalho. Um Excel de "quem se inscreveu
+//     naquela semana" sem dizer qual semana chega do outro lado como a lista
+//     inteira.
+
+grupo('o Auditório com período e ordenação');
+
+/**
+ * Sete inscrições espalhadas por nove dias, e cada uma está aqui por um teste:
+ *
+ *   - i3 às 23:59:59 do dia 10 e i4 às 00:00:00 do dia 11 são as BORDAS: o
+ *     período "até o dia 10" tem de trazer i3, e é ela que a comparação do
+ *     carimbo inteiro perderia;
+ *   - i5 e i6 são do MESMO dia, com i6 mais cedo: ordenar por data só pelo dia
+ *     as empataria, e é isso que o teste da string inteira afirma;
+ *   - a Ana está duas vezes (i1 e i5), nas pontas do relógio, para a ordem por
+ *     nome ter empate e o filtro ter par;
+ *   - o Éder tem acento, e a Fabiana vem depois dele no alfabeto: comparar por
+ *     código de caractere jogaria "Éder" para o fim da lista.
+ */
+function auditorioEmDias(api) {
+  api.semearConfigPadrao_();
+  api.inserir('projetos', {
+    nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
+  }, 'p1');
+  api.inserir('projetos', {
+    nome: 'Xadrez', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2'
+  }, 'p2');
+
+  inscreverEm(api, 'i1', 'Ana Silva', '9110001', '2026-09-07 21:00:01', 'p1', 'Robótica');
+  inscreverEm(api, 'i2', 'Bruno Souza', '110002', '2026-09-09 08:15:00', 'p1', 'Robótica');
+  inscreverEm(api, 'i3', 'Carla Dias', '110003', '2026-09-10 23:59:59', 'p2', 'Xadrez');
+  inscreverEm(api, 'i4', 'Duda Reis', '110004', '2026-09-11 00:00:00', 'p2', 'Xadrez');
+  inscreverEm(api, 'i5', 'Ana Silva', '9110001', '2026-09-15 10:30:00', 'p2', 'Xadrez');
+  inscreverEm(api, 'i6', 'Éder Lima', '110005', '2026-09-15 09:00:00', 'p1', 'Robótica');
+  inscreverEm(api, 'i7', 'Fabiana Melo', '110006', '2026-09-12 12:00:00', 'p1', 'Robótica');
+}
+
+/** Como a lista vem do servidor: da mais nova para a mais velha. */
+const RELOGIO_DESC = ['i5', 'i6', 'i7', 'i4', 'i3', 'i2', 'i1'];
+
+/**
+ * O clique no cabeçalho — de verdade, pelo `onclick` que a marcação declara.
+ *
+ * `botaoQueChama` acha o botão pelo que ele diz que faz. Chamar
+ * `ordenarRecentes('nome')` por dentro provaria a função e não o cabeçalho; um
+ * cabeçalho ligado à chave errada passaria.
+ */
+function ordenar(cena, funcao, chave) {
+  cena.botaoQueChama(new RegExp(funcao + "\\('" + chave + "'\\)")).click();
+}
+
+/** O texto do cabeçalho que está ATIVO (com a seta) numa área da tela. */
+function cabecalhoAtivo(cena, id) {
+  const m = /<button[^>]*class="ordenar ordenar--ativo"[^>]*>([^<]*)<\/button>/.exec(cena.html(id));
+  return m ? desescaparTexto(m[1]) : '';
+}
+
+function desescaparTexto(v) {
+  return String(v).replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+teste('a lista mostra a DATA ao lado da hora — era só a hora, e o professor não sabia o dia', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  const texto = cena.texto('auditorio-recentes');
+  verdadeiro(texto.indexOf('15/09/2026') !== -1, 'a data não aparece na lista: ' + texto);
+  verdadeiro(texto.indexOf('07/09/2026') !== -1, 'a data da mais antiga não aparece: ' + texto);
+  // E a hora continua, com os segundos: são eles que denunciam rajada.
+  verdadeiro(texto.indexOf('21:00:01') !== -1, 'a hora com segundos sumiu: ' + texto);
+  verdadeiro(texto.indexOf('23:59:59') !== -1, texto);
+
+  // A fila também: "desde quando esta pessoa espera" é a mesma pergunta.
+  const fila = abrirAuditorio();
+  verdadeiro(fila.texto('auditorio-fila').indexOf('14/08/2026') !== -1,
+    'a fila ficou sem data: ' + fila.texto('auditorio-fila'));
+});
+
+teste('o padrão sem clique continua o de hoje: da mais nova para a mais velha, e a seta diz isso', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  igual(idsDaLista(cena, 'recentes'), RELOGIO_DESC, 'a ordem padrão mudou');
+  igual(cabecalhoAtivo(cena, 'auditorio-recentes'), 'Recebida em ▼',
+    'o cabeçalho não diz por onde a lista está ordenada');
+
+  // Sem nenhuma outra seta: só uma coluna ordena de cada vez.
+  igual((cena.html('auditorio-recentes').match(/ordenar--ativo/g) || []).length, 1);
+});
+
+teste('o período recorta pelo DIA, com as duas pontas dentro', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-11');
+  igual(idsDaLista(cena, 'recentes'), ['i4', 'i3', 'i2'], 'o período não recortou do dia 9 ao 11');
+
+  // A MUTAÇÃO que este par pega: ignorar o fim traria i5, i6 e i7; ignorar o
+  // início traria a i1.
+  const texto = cena.texto('auditorio-recentes');
+  igual(texto.indexOf('Fabiana'), -1, 'o fim do período foi ignorado: ' + texto);
+  igual(texto.indexOf('07/09/2026'), -1, 'o início do período foi ignorado: ' + texto);
+
+  // A BORDA DE CIMA É INCLUSIVA PELO DIA. i3 é das 23:59:59 do dia 10, e
+  // comparar o carimbo inteiro com '2026-09-10' a deixaria de fora — do dia que a
+  // pessoa acabou de pedir.
+  filtrar(cena, 'filtro-aud-de', '');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-10');
+  igual(idsDaLista(cena, 'recentes'), ['i3', 'i2', 'i1'],
+    'quem se inscreveu no último dia do período ficou de fora');
+
+  // E o rodapé diz que é o filtro escondendo, e não o teto.
+  verdadeiro(cena.texto('auditorio-recentes').indexOf('3 de 7 carregada(s)') !== -1,
+    cena.texto('auditorio-recentes'));
+});
+
+teste('só o início é "a partir de"; só o fim é "até"; os dois vazios é sem recorte', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-11');
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i6', 'i7', 'i4'], 'só o início não é "a partir de"');
+
+  filtrar(cena, 'filtro-aud-de', '');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-09');
+  igual(idsDaLista(cena, 'recentes'), ['i2', 'i1'], 'só o fim não é "até"');
+
+  filtrar(cena, 'filtro-aud-ate', '');
+  igual(idsDaLista(cena, 'recentes'), RELOGIO_DESC, 'os dois vazios deixaram de ser "sem recorte"');
+});
+
+teste('período de trás para a frente esvazia e a tela diz que é o recorte — e não o banco', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-12');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-09');
+
+  const texto = cena.texto('auditorio-recentes');
+  igual(idsDaLista(cena, 'recentes'), []);
+  verdadeiro(texto.indexOf('Ninguém neste recorte') !== -1, texto);
+  verdadeiro(/período/.test(texto), 'a frase do vazio não menciona o período: ' + texto);
+  igual(texto.indexOf('Nenhuma inscrição registrada'), -1, texto);
+});
+
+teste('período, busca e projeto COMBINAM — e o par de repetidas é da janela inteira', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-15');
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i6', 'i7', 'i4', 'i3', 'i2']);
+
+  filtrar(cena, 'filtro-aud-busca', 'silva');      // "ana" acharia a Fabiana
+  igual(idsDaLista(cena, 'recentes'), ['i5'], 'a busca não peneirou dentro do período');
+
+  filtrar(cena, 'filtro-aud-projeto', 'p1');
+  igual(idsDaLista(cena, 'recentes'), [], 'o projeto não peneirou dentro do período com busca');
+
+  // O recorte de quem repetiu: a OUTRA inscrição da Ana (i1) está fora do
+  // período, e mesmo assim a i5 é metade de um par — o par é um fato sobre a
+  // janela, e o período é só o que está na tela.
+  filtrar(cena, 'filtro-aud-projeto', '');
+  filtrar(cena, 'filtro-aud-busca', '');
+  filtrar(cena, 'filtro-aud-repetidas', 'SIM');
+  igual(idsDaLista(cena, 'recentes'), ['i5'],
+    'o par de repetidas passou a ser calculado sobre o período, e a Ana virou inscrita única');
+});
+
+teste('as três travas valem com o período: marca fica, botão conta as visíveis, "Mostrar" limpa o período', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  tocar(cena, 'recentes', 6);               // i2, do dia 9
+  tocar(cena, 'recentes', 7);               // i1, do dia 7
+  igual(marcadas(cena, 'recentes'), 2);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');   // esconde a i1
+
+  const barra = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(barra.indexOf('2 marcada(s)') !== -1, 'o período apagou marcação: ' + barra);
+  verdadeiro(barra.indexOf('1 fora do filtro') !== -1,
+    'a marca escondida pelo período não foi dita: ' + barra);
+  verdadeiro(barra.indexOf('Anular 1') !== -1, 'o botão contou quem o período esconde: ' + barra);
+
+  // "Mostrar as 1" tem de limpar o PERÍODO também — é ele que esconde a marca.
+  // A mutação: `limparFiltroAuditorio` sem os dois campos novos deixaria a i1
+  // escondida com o botão prometendo mostrá-la.
+  cena.botaoQueChama(/limparFiltroAuditorio\(\)/).click();
+  igual(cena.elemento('filtro-aud-de').value, '', 'o "Mostrar as N" não limpou o período');
+  igual(idsDaLista(cena, 'recentes'), RELOGIO_DESC);
+  igual(marcadas(cena, 'recentes'), 2, 'voltar do período perdeu marcação');
+  igual(cena.texto('auditorio-acoes-recentes').indexOf('fora do filtro'), -1,
+    cena.texto('auditorio-acoes-recentes'));
+});
+
+teste('clicar em Nome ordena por nome (sem acento mandar), e clicar de novo inverte', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  ordenar(cena, 'ordenarRecentes', 'nome');
+  // Empate (as duas da Ana) mantém a ordem em que veio: da mais nova para a mais
+  // velha. O Éder fica entre a Duda e a Fabiana — comparar por código de
+  // caractere o mandaria para o fim.
+  igual(idsDaLista(cena, 'recentes'), ['i5', 'i1', 'i2', 'i3', 'i4', 'i6', 'i7'],
+    'ordenar por nome não ordenou por nome');
+  igual(cabecalhoAtivo(cena, 'auditorio-recentes'), 'Nome ▲');
+
+  ordenar(cena, 'ordenarRecentes', 'nome');
+  igual(idsDaLista(cena, 'recentes'), ['i7', 'i6', 'i4', 'i3', 'i2', 'i5', 'i1'],
+    'o segundo clique na mesma coluna não inverteu');
+  igual(cabecalhoAtivo(cena, 'auditorio-recentes'), 'Nome ▼');
+
+  // Uma terceira coluna recomeça crescente — e não herda o "invertido".
+  ordenar(cena, 'ordenarRecentes', 'projeto_nome');
+  igual(idsDaLista(cena, 'recentes'), ['i6', 'i7', 'i2', 'i1', 'i5', 'i4', 'i3'],
+    'trocar de coluna não recomeçou crescente');
+  igual(cabecalhoAtivo(cena, 'auditorio-recentes'), 'Projeto ▲');
+});
+
+teste('ordenar por Recebida em usa a string INTEIRA — a hora desempata o dia', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  // O padrão já é por data, decrescente; o clique inverte para crescente.
+  ordenar(cena, 'ordenarRecentes', 'criado_em');
+  // i6 (09:00) ANTES de i5 (10:30), as duas do dia 15. Ordenar só pelo dia as
+  // empataria e a ordem estável devolveria i5 antes de i6 — o teste falha.
+  igual(idsDaLista(cena, 'recentes'), ['i1', 'i2', 'i3', 'i4', 'i7', 'i6', 'i5'],
+    'a ordem crescente por data não desempatou pela hora');
+  igual(cabecalhoAtivo(cena, 'auditorio-recentes'), 'Recebida em ▲');
+
+  ordenar(cena, 'ordenarRecentes', 'criado_em');
+  igual(idsDaLista(cena, 'recentes'), RELOGIO_DESC, 'o segundo clique não voltou ao padrão');
+});
+
+teste('ordenar NÃO mexe na seleção, a faixa segue a ordem da TELA, e a ação toca só visíveis', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  tocar(cena, 'recentes', 1);               // i5
+  tocar(cena, 'recentes', 2);               // i6
+  ordenar(cena, 'ordenarRecentes', 'nome');
+
+  igual(marcadas(cena, 'recentes'), 2, 'ordenar desmarcou alguém');
+  ['i5', 'i6'].forEach((id) => {
+    verdadeiro(new RegExp('id="linha-recentes-' + id + '" aria-pressed="true"').test(cena.html('auditorio-recentes')),
+      'a marca de ' + id + ' não sobreviveu à ordenação — ela é por id, não por posição');
+  });
+
+  // A FAIXA percorre o que está na tela, na ordem da tela. Por nome, a lista é
+  // i5, i1, i2, i3, i4, i6, i7. Limpar e tocar da 1ª à 3ª marca i5, i1 e i2 —
+  // e NÃO as seis que o relógio põe entre i5 e i2.
+  cena.botaoQueChama(/limparMarcas\('recentes'\)/).click();
+  tocar(cena, 'recentes', 1);
+  tocar(cena, 'recentes', 3);
+  igual(marcadas(cena, 'recentes'), 3, 'a faixa percorreu a ordem do servidor, e não a da tela');
+  ['i5', 'i1', 'i2'].forEach((id) => {
+    verdadeiro(new RegExp('id="linha-recentes-' + id + '" aria-pressed="true"').test(cena.html('auditorio-recentes')),
+      'a faixa não marcou ' + id);
+  });
+
+  // E o período esconde a i1 marcada: o botão conta 2, e anular apaga 2.
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');
+  const barra = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(barra.indexOf('3 marcada(s)') !== -1 && barra.indexOf('1 fora do filtro') !== -1, barra);
+  verdadeiro(barra.indexOf('Anular 2') !== -1, barra);
+
+  cena.botaoQueChama(/aoGravar\(this, anularMarcadas\)/).click();
+  verdadeiro(cena.confirmacoes[0].indexOf('Anular 2 inscrição(ões)?') !== -1, cena.confirmacoes[0]);
+  igual(inscricaoNoBanco(cena, 'i5'), null, 'a marcada visível não foi anulada');
+  igual(inscricaoNoBanco(cena, 'i2'), null, 'a marcada visível não foi anulada');
+  verdadeiro(inscricaoNoBanco(cena, 'i1') !== null,
+    'ANULOU QUEM O PERÍODO ESCONDIA — a trava "só visíveis" furou com o filtro novo');
+});
+
+teste('a ordem e o período NÃO tocam a fila — o despacho por lista continua', () => {
+  const cena = abrirAuditorio();            // auditorioBase: três na fila
+
+  ordenar(cena, 'ordenarRecentes', 'nome');
+  filtrar(cena, 'filtro-aud-de', '2026-08-15');   // esconde TODAS as recentes
+  igual(idsDaLista(cena, 'recentes'), []);
+
+  igual(idsDaLista(cena, 'fila'), ['i3', 'i4', 'i5'], 'o período ou a ordem de recentes peneirou a FILA');
+  igual(cena.html('auditorio-fila').indexOf('ordenarRecentes'), -1,
+    'a fila ganhou o cabeçalho da outra lista');
+});
+
+teste('Atualizar mantém o período e a ordem, como já mantinha os outros filtros', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-11');
+  ordenar(cena, 'ordenarRecentes', 'nome');
+  igual(idsDaLista(cena, 'recentes'), ['i2', 'i3', 'i4']);
+
+  cena.elemento('auditorio-atualizar').click();
+
+  igual(cena.elemento('filtro-aud-de').value, '2026-09-09', 'Atualizar jogou fora o período');
+  igual(cena.elemento('filtro-aud-ate').value, '2026-09-11', 'Atualizar jogou fora o período');
+  igual(idsDaLista(cena, 'recentes'), ['i2', 'i3', 'i4'], 'a lista voltou sem o recorte ou sem a ordem');
+});
+
+teste('ordenar e recortar por período não vão ao servidor', () => {
+  const cena = abrirAuditorio(auditorioEmDias);
+  const antes = cena.chamadas.length;
+
+  ordenar(cena, 'ordenarRecentes', 'nome');
+  ordenar(cena, 'ordenarRecentes', 'criado_em');
+  filtrar(cena, 'filtro-aud-de', '2026-09-09');
+  filtrar(cena, 'filtro-aud-ate', '2026-09-11');
+
+  igual(cena.chamadas.length, antes, 'a ordenação ou o período foram ao servidor');
+});
+
+grupo('a janela Projetos → Inscritos com período e ordenação');
+
+/**
+ * O mesmo desenho de `auditorioEmDias`, no projeto que a janela abre: bordas
+ * de dia, duas do mesmo dia, um nome com acento. As matrículas seguem a FORMA
+ * das reais (sete dígitos) e são inventadas.
+ */
+function projetoEmDias(api) {
+  api.semearConfigPadrao_();
+  api.inserir('projetos', {
+    nome: 'ARTE DIGITAL FLORIPA', vagas: '60', ativo: 'SIM', inscricoes_abertas: 'SIM',
+    ordem: '1', validar_matricula: 'NAO', professor: 'Prof. Mario', banner: ''
+  }, 'pe');
+
+  [
+    ['a1', 'Ana Paula', '2510865', 'ADS11 - PRATICA EXTENSIONISTA', '2026-09-07 21:00:01'],
+    ['a2', 'Bruno Costa', '2510866', 'ADS11 - PRATICA EXTENSIONISTA', '2026-09-09 08:15:00'],
+    ['a3', 'Carla Dias', '2510867', 'DIR21 - WORK EXPERIENCE', '2026-09-10 23:59:59'],
+    ['a4', 'Duda Reis', '2510868', 'DIR21 - WORK EXPERIENCE', '2026-09-15 10:30:00'],
+    ['a5', 'Éder Lima', '2510869', 'ADS11 - PRATICA EXTENSIONISTA', '2026-09-15 09:00:00']
+  ].forEach(([id, nome, matricula, curso, quando]) => {
+    api.inserir('inscricoes', {
+      criado_em: quando, origem: 'SITE', projeto_id: 'pe', projeto_nome: 'ARTE DIGITAL FLORIPA',
+      matricula: matricula, nome: nome, email: id + '@exemplo.com', whatsapp: '48999990000',
+      curso_fase: curso, matricula_conferida: 'NAO', declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
+    }, id);
+  });
+}
+
+function abrirJanelaDoProjeto(semear) {
+  const cena = abrirPainel({ semear: semear || projetoEmDias });
+  cena.js.trocarAba('projetos');
+  cena.js.verInscritosProjeto('pe');
+  return cena;
+}
+
+/** Os nomes da tabela, de cima para baixo — a ordem é o que se afirma. */
+function nomesDaTabela(cena) {
+  const nomes = [];
+  cena.html('insc-proj-tabela').replace(/<td class="quebra"><strong>([^<]*)<\/strong>/g,
+    (m, nome) => { nomes.push(desescaparTexto(nome)); return m; });
+  return nomes;
+}
+
+/** Mexe num filtro da janela e deixa a tabela reagir — ver `filtrar`. */
+function filtrarJanela(cena, id, valor) {
+  cena.digitar(id, valor);
+  cena.js.desenharInscritosProjeto();
+}
+
+const POR_NOME = ['Ana Paula', 'Bruno Costa', 'Carla Dias', 'Duda Reis', 'Éder Lima'];
+
+teste('o padrão sem clique é como o servidor manda, sem seta nenhuma', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  igual(nomesDaTabela(cena), cena.js.INSCRITOS_PROJETO.itens.map((i) => i.nome),
+    'a tabela reordenou o que o servidor mandou');
+  igual(nomesDaTabela(cena), POR_NOME, 'a cena parou de valer: o servidor não ordena mais por nome');
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), '', 'nasceu uma seta sem ninguém ter clicado');
+  igual(cena.html('insc-proj-tabela').indexOf('aria-sort'), -1);
+});
+
+teste('o período recorta pelo DIA e a contagem "N de M" segue', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-09');
+  filtrarJanela(cena, 'insc-proj-ate', '2026-09-10');
+  igual(nomesDaTabela(cena), ['Bruno Costa', 'Carla Dias'], 'o período não recortou do 9 ao 10');
+  verdadeiro(/2 de 5 na lista/.test(cena.texto('insc-proj-tabela')), cena.texto('insc-proj-tabela'));
+
+  // A borda: a Carla é das 23:59:59 do dia 10. Comparar o carimbo inteiro com
+  // '2026-09-10' a deixaria de fora.
+  filtrarJanela(cena, 'insc-proj-de', '');
+  igual(nomesDaTabela(cena), ['Ana Paula', 'Bruno Costa', 'Carla Dias'], 'só o fim não é "até", ou perdeu a borda');
+
+  filtrarJanela(cena, 'insc-proj-ate', '');
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-15');
+  igual(nomesDaTabela(cena), ['Duda Reis', 'Éder Lima'], 'só o início não é "a partir de"');
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-16');
+  const vazio = cena.texto('insc-proj-tabela');
+  verdadeiro(/Ninguém neste recorte/.test(vazio) && /período/.test(vazio),
+    'o vazio por período não explica o período: ' + vazio);
+});
+
+teste('inscrição SEM carimbo aparece sem período — e não entra em período nenhum', () => {
+  // `inscritosDoProjeto` filtra por projeto, sem ordenar por `criado_em`, então
+  // ela CHEGA aqui (no Auditório não chega: a ordenação do Firestore a deixa de
+  // fora). Sem recorte ela está na lista, com a célula da data vazia; com
+  // qualquer recorte ela some — dizer que ela é "da semana" seria inventar a
+  // data que o banco não tem.
+  const cena = abrirJanelaDoProjeto((api) => {
+    projetoEmDias(api);
+    api.inserir('inscricoes', {
+      criado_em: '', origem: 'SITE', projeto_id: 'pe', projeto_nome: 'ARTE DIGITAL FLORIPA',
+      matricula: '2510870', nome: 'Zeca Sem Carimbo', email: 'a6@exemplo.com',
+      curso_fase: 'ADS11 - PRATICA EXTENSIONISTA', matricula_conferida: 'NAO',
+      declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
+    }, 'a6');
+  });
+
+  verdadeiro(nomesDaTabela(cena).indexOf('Zeca Sem Carimbo') !== -1,
+    'sem recorte, quem não tem carimbo sumiu da lista');
+
+  filtrarJanela(cena, 'insc-proj-de', '2020-01-01');
+  igual(nomesDaTabela(cena).indexOf('Zeca Sem Carimbo'), -1,
+    'quem não tem carimbo entrou num período — a tela inventou a data');
+  verdadeiro(/5 de 6 na lista/.test(cena.texto('insc-proj-tabela')), cena.texto('insc-proj-tabela'));
+
+  filtrarJanela(cena, 'insc-proj-de', '');
+  filtrarJanela(cena, 'insc-proj-ate', '2030-12-31');
+  igual(nomesDaTabela(cena).indexOf('Zeca Sem Carimbo'), -1, 'só o fim também não pode trazê-la');
+});
+
+teste('período, busca e curso e fase COMBINAM', () => {
+  const cena = abrirJanelaDoProjeto();
+  const antes = cena.chamadas.length;
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-09');
+  filtrarJanela(cena, 'insc-proj-curso', 'ADS11 - PRATICA EXTENSIONISTA');
+  igual(nomesDaTabela(cena), ['Bruno Costa', 'Éder Lima'], 'o curso não peneirou dentro do período');
+
+  filtrarJanela(cena, 'insc-proj-busca', 'lima');
+  igual(nomesDaTabela(cena), ['Éder Lima'], 'a busca não peneirou dentro do período com curso');
+
+  // A busca acha quem está fora do período? NÃO pode: um filtro não anula o outro.
+  filtrarJanela(cena, 'insc-proj-busca', 'ana');
+  igual(nomesDaTabela(cena), [], 'a busca trouxe quem o período escondia');
+
+  igual(cena.chamadas.length, antes, 'peneirar foi ao servidor');
+});
+
+teste('clicar em Nome ordena; clicar de novo inverte; a seta acompanha', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  // O servidor já manda por nome. Clicar em Nome mantém — e o segundo clique é
+  // o que prova que a coluna está ligada: ele INVERTE.
+  ordenar(cena, 'ordenarInscritosProjeto', 'nome');
+  igual(nomesDaTabela(cena), POR_NOME);
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), 'Nome ▲');
+  verdadeiro(/<th aria-sort="ascending">/.test(cena.html('insc-proj-tabela')),
+    'o <th> ativo não diz aria-sort');
+
+  ordenar(cena, 'ordenarInscritosProjeto', 'nome');
+  igual(nomesDaTabela(cena), POR_NOME.slice().reverse(), 'o segundo clique não inverteu');
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), 'Nome ▼');
+  verdadeiro(/<th aria-sort="descending">/.test(cena.html('insc-proj-tabela')));
+
+  // Por curso e fase, crescente: os três de ADS antes dos dois de DIR, e dentro
+  // de cada curso a ordem em que veio (por nome).
+  ordenar(cena, 'ordenarInscritosProjeto', 'curso_fase');
+  igual(nomesDaTabela(cena), ['Ana Paula', 'Bruno Costa', 'Éder Lima', 'Carla Dias', 'Duda Reis']);
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), 'Curso e fase ▲');
+
+  // Por matrícula, decrescente em dois cliques.
+  ordenar(cena, 'ordenarInscritosProjeto', 'matricula');
+  ordenar(cena, 'ordenarInscritosProjeto', 'matricula');
+  igual(nomesDaTabela(cena), POR_NOME.slice().reverse(), 'a matrícula não ordenou');
+});
+
+teste('ordenar por Recebida em usa a string INTEIRA, e a ordem sobrevive ao filtro', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  ordenar(cena, 'ordenarInscritosProjeto', 'criado_em');
+  // O Éder (09:00) ANTES da Duda (10:30), os dois do dia 15: só pelo dia, os dois
+  // empatariam e a ordem estável manteria a Duda antes.
+  igual(nomesDaTabela(cena), ['Ana Paula', 'Bruno Costa', 'Carla Dias', 'Éder Lima', 'Duda Reis'],
+    'a ordem por data não desempatou pela hora');
+
+  ordenar(cena, 'ordenarInscritosProjeto', 'criado_em');
+  igual(nomesDaTabela(cena), ['Duda Reis', 'Éder Lima', 'Carla Dias', 'Bruno Costa', 'Ana Paula']);
+
+  // Filtrar não zera a ordem: a pessoa ordenou, depois recortou, e a lista
+  // recortada continua na ordem pedida.
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-09');
+  igual(nomesDaTabela(cena), ['Duda Reis', 'Éder Lima', 'Carla Dias', 'Bruno Costa'],
+    'o filtro jogou fora a ordem');
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), 'Recebida em ▼');
+});
+
+teste('a ordem nasce com a janela: fechar e abrir de novo volta ao padrão', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  ordenar(cena, 'ordenarInscritosProjeto', 'nome');
+  ordenar(cena, 'ordenarInscritosProjeto', 'nome');
+  igual(nomesDaTabela(cena), POR_NOME.slice().reverse());
+
+  cena.js.fecharModal();
+  cena.js.verInscritosProjeto('pe');
+  igual(nomesDaTabela(cena), POR_NOME, 'a ordem invertida da janela anterior vazou para a nova');
+  igual(cabecalhoAtivo(cena, 'insc-proj-tabela'), '');
+});
+
+teste('o Excel com período leva o período no cabeçalho — e só as linhas do período, na ordem da tela', () => {
+  const cena = abrirJanelaDoProjeto();
+  const planilha = espionarPlanilha(cena);
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-09');
+  filtrarJanela(cena, 'insc-proj-ate', '2026-09-15');
+  ordenar(cena, 'ordenarInscritosProjeto', 'criado_em');
+  clicarExportar(cena, 'projeto', 'excel');
+
+  igual(planilha.specs.length, 1, 'o clique não gerou planilha nenhuma');
+  const spec = planilha.specs[0];
+  const topo = spec.linhasDeTopo.join(' | ');
+
+  // A MUTAÇÃO: o período fora de `recorteEmTexto_`. O arquivo sairia com
+  // "Recorte: todos" e quatro linhas — a cara de uma lista inteira.
+  verdadeiro(/Recorte: .*Período: de 09\/09\/2026 a 15\/09\/2026/.test(topo),
+    'o cabeçalho não diz o período, ou não o diz no formato do professor: ' + topo);
+  igual(topo.indexOf('Recorte: todos'), -1, topo);
+  verdadeiro(/4 de 5/.test(topo), topo);
+
+  igual(spec.linhas.map((l) => l.nome), ['Bruno Costa', 'Carla Dias', 'Éder Lima', 'Duda Reis'],
+    'a planilha não levou o recorte, ou não levou a ordem da tela');
+});
+
+teste('só o início, só o fim, e o período JUNTO com o curso — as três frases', () => {
+  const cena = abrirJanelaDoProjeto();
+  const planilha = espionarPlanilha(cena);
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-10');
+  clicarExportar(cena, 'projeto', 'excel');
+  verdadeiro(/Período: a partir de 10\/09\/2026/.test(planilha.specs[0].linhasDeTopo.join(' | ')),
+    planilha.specs[0].linhasDeTopo.join(' | '));
+
+  filtrarJanela(cena, 'insc-proj-de', '');
+  filtrarJanela(cena, 'insc-proj-ate', '2026-09-10');
+  clicarExportar(cena, 'projeto', 'excel');
+  verdadeiro(/Período: até 10\/09\/2026/.test(planilha.specs[1].linhasDeTopo.join(' | ')),
+    planilha.specs[1].linhasDeTopo.join(' | '));
+
+  filtrarJanela(cena, 'insc-proj-curso', 'ADS11 - PRATICA EXTENSIONISTA');
+  clicarExportar(cena, 'projeto', 'excel');
+  const topo = planilha.specs[2].linhasDeTopo.join(' | ');
+  verdadeiro(/Curso e fase: ADS11 - PRATICA EXTENSIONISTA · Período: até 10\/09\/2026/.test(topo),
+    'o período não entrou na MESMA frase dos outros filtros: ' + topo);
+  igual(planilha.specs[2].linhas.length, 2, 'o arquivo não combinou curso e período');
+});
+
+teste('o PDF diz o mesmo período que o Excel', () => {
+  const cena = abrirJanelaDoProjeto();
+
+  filtrarJanela(cena, 'insc-proj-de', '2026-09-09');
+  filtrarJanela(cena, 'insc-proj-ate', '2026-09-11');
+  imprimirPdf(cena, 'projeto');
+
+  igual(cena.impressoes.length, 1, 'o clique não imprimiu');
+  const folha = cena.impressoes[0].html;
+  verdadeiro(folha.indexOf('Período: de 09/09/2026 a 11/09/2026') !== -1,
+    'a folha impressa não diz o período: ' + folha.slice(0, 600));
+  verdadeiro(folha.indexOf('Bruno Costa') !== -1 && folha.indexOf('Ana Paula') === -1,
+    'a folha levou gente fora do período');
+});
+
+teste('sem período nenhum, o cabeçalho continua dizendo "todos"', () => {
+  const cena = abrirJanelaDoProjeto();
+  const planilha = espionarPlanilha(cena);
+
+  clicarExportar(cena, 'projeto', 'excel');
+  const topo = planilha.specs[0].linhasDeTopo.join(' | ');
+  verdadeiro(/Recorte: todos/.test(topo), 'o período vazio virou texto no cabeçalho: ' + topo);
+  igual(topo.indexOf('Período'), -1, topo);
 });
 
 process.exit(resultado());

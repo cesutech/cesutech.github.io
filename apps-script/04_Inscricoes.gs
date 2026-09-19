@@ -127,6 +127,81 @@ function normalizarMatricula(v) {
 }
 
 /**
+ * Quantos dígitos a matrícula tem. Vem da configuração, e a régua NUNCA se
+ * desliga.
+ *
+ * Por que configuração e não constante: o 7 foi medido nas listas da secretaria
+ * (19/09), e não vem de documento nenhum da instituição — "se não me engano são
+ * 7". No dia em que a secretaria mudar o formato, ou em que a contagem se provar
+ * errada na frente de 300 alunos, a correção tem de ser uma célula em
+ * Configurações e não uma implantação.
+ *
+ * Por que a chave inválida cai no padrão em vez de liberar tudo: a faixa de 4 a
+ * 20 que existia antes é exatamente o que deixava matrícula errada passar, e o
+ * pedido do Prof. Mário foi fechá-la. Uma chave apagada ou digitada errado
+ * ("sete", "0") reabriria a faixa em silêncio, e ninguém perceberia até o
+ * cruzamento com a lista falhar — ou seja, no fim do semestre. `backupDias_`
+ * (14_Backup.gs) toma a decisão oposta com o mesmo raciocínio: lá o lado seguro
+ * é NÃO agir; aqui o lado seguro é CONTINUAR validando. O erro vai para o
+ * console, que é o Stackdriver do projeto, e a coordenação enxerga o valor
+ * torto na própria tela de Configurações.
+ *
+ * O padrão de fábrica sai de CONFIG_PADRAO, e não de um segundo literal aqui:
+ * o `config(chave, '7')` já é conferido contra CONFIG_PADRAO por teste, e um
+ * terceiro 7 escrito à mão seria o que envelhece sozinho.
+ */
+function matriculaDigitos_() {
+  var bruto = String(config('matricula_digitos', '7')).trim();
+  if (/^[1-9]\d*$/.test(bruto)) return Number(bruto);
+
+  var semente = '';
+  CONFIG_PADRAO.forEach(function (c) {
+    if (c.chave === 'matricula_digitos') semente = c.valor;
+  });
+  console.error('matricula_digitos: "' + bruto.slice(0, 40) + '" não é uma quantidade de ' +
+    'dígitos; a matrícula continua sendo validada com ' + semente + '.');
+  return Number(semente);
+}
+
+/**
+ * Confere o FORMATO da matrícula digitada. Devolve '' quando ela serve, ou a
+ * mensagem de recusa — que diz ao aluno o tamanho certo, porque "inválida" não
+ * ensina a corrigir.
+ *
+ * É a régua das DUAS portas, e o contrato é que nenhuma tenha conta própria: o
+ * envio (`validarInscricao`) chama daqui, e a conferência ao vivo
+ * (`conferirMatricula_`, 08_Api.gs) tem de chamar daqui também. Se as duas
+ * divergissem, o site diria "ok" ao sair do campo e o servidor recusaria no
+ * envio — o aluno leria duas mensagens sobre o mesmo número e não saberia em
+ * qual acreditar.
+ *
+ * São DUAS medidas, e as duas precisam bater. A chave (`normalizarMatricula`,
+ * que tira o zero à esquerda) tem de ter N dígitos: é o que a lista oficial
+ * guarda, e é o que o cruzamento compara. E o que o aluno DIGITOU, sem pontuação,
+ * tem de ter N ou N+1: as duas formas em que a matrícula circula — a do portal
+ * e a da secretaria, com o zero (ver o comentário em `normalizarMatricula`).
+ *
+ * Por que a segunda medida existe, se a primeira já pede N: sem ela
+ * `000009110001` passaria — a chave é `9110001`, certa, mas o aluno digitou doze
+ * caracteres e o formulário aceitaria qualquer quantidade de zeros. Por que a
+ * primeira existe, se a segunda já pede N ou N+1: sem ela `0110001` passaria —
+ * sete na tela, e a chave `110001`, de seis dígitos, que não existe na lista de
+ * ninguém. Juntas, N+1 só passa quando o caractere a mais é UM zero à esquerda,
+ * sem precisar dizer isso numa terceira condição.
+ */
+function erroFormatoMatricula_(bruta) {
+  var digitos = matriculaDigitos_();
+  var digitada = String(bruta || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  var soDigitos = /^\d+$/.test(digitada);
+  var tamanhoCerto = digitada.length === digitos || digitada.length === digitos + 1;
+
+  if (soDigitos && tamanhoCerto && normalizarMatricula(digitada).length === digitos) return '';
+
+  return 'A matrícula tem ' + digitos + ' dígitos. Confira o número no seu portal do aluno.';
+}
+
+/**
  * Confere se a matrícula consta da lista oficial importada.
  *
  * DELIBERADAMENTE não devolve dado nenhum do aluno — só sim ou não.
@@ -569,11 +644,17 @@ function validarInscricao(d) {
   }
 
   // Matrícula é a chave do aluno no CESUTECH. Não tem dígito verificador,
-  // então dá para checar só o formato.
+  // então dá para checar só o formato — e o formato é o TAMANHO, exato. A faixa
+  // de 4 a 20 que ficava aqui aceitava `911001` e `91100011`, e era assim que a
+  // matrícula digitada errada entrava e depois não casava com a lista oficial
+  // (pedido do Prof. Mário, 19/09). A régua vive em `erroFormatoMatricula_`
+  // porque a conferência ao vivo do site precisa da mesma.
   if (config('exigir_matricula', 'SIM').toUpperCase() === 'SIM') {
-    var matricula = normalizarMatricula(d.matricula);
-    if (!matricula) erros.push('Informe a matrícula.');
-    else if (matricula.length < 4 || matricula.length > 20) erros.push('Matrícula inválida.');
+    if (!normalizarMatricula(d.matricula)) erros.push('Informe a matrícula.');
+    else {
+      var formato = erroFormatoMatricula_(d.matricula);
+      if (formato) erros.push(formato);
+    }
   }
 
   // CPF é conferido só quando vem preenchido. Nenhum formulário do CESUTECH o

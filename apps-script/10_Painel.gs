@@ -1458,9 +1458,15 @@ function editarAluno(payload) {
  */
 function conferirFormatoDaEdicao_(payload) {
   if (payload.matricula !== undefined) {
+    // A MESMA régua do formulário do aluno (`erroFormatoMatricula_`). Era mais
+    // frouxa aqui (4..20) porque quem digita é a coordenação — mas uma ficha
+    // corrigida pelo painel com matrícula de tamanho errado nunca vai casar com a
+    // lista oficial, e o erro só apareceria no cruzamento, longe de quem digitou.
+    // Vazio continua aceito: é como se tira a matrícula de uma ficha.
     var matricula = normalizarMatricula(payload.matricula);
-    if (matricula && (matricula.length < 4 || matricula.length > 20)) {
-      return 'Matrícula inválida: são de 4 a 20 caracteres, sem contar pontuação.';
+    if (matricula) {
+      var erroMatricula = erroFormatoMatricula_(payload.matricula);
+      if (erroMatricula) return 'Matrícula inválida: ' + erroMatricula;
     }
   }
 
