@@ -490,6 +490,103 @@ teste('texto apagado pela coordenação continua apagado', () => {
   igual(corpoDe(get(a, { api: 'config' })).dados.textoImagem, '');
 });
 
+// ---- a janela geral de inscrição (pedido do Prof. Mário, 19/09, item 5) ----
+
+/** 05/10/2026 às 10:00 em Brasília — `agora()` formata em -03:00. */
+const DENTRO_DA_JANELA = Date.UTC(2026, 9, 5, 13, 0, 0);
+
+function montarNaJanela(chaves) {
+  const relogio = criarRelogio(DENTRO_DA_JANELA);
+  const a = montar({ relogio });
+  Object.keys(chaves || {}).forEach((chave) => a.api.gravarConfig(chave, chaves[chave]));
+  a.relogio = relogio;
+  return a;
+}
+
+teste('?api=config traz a janela com o `agora` DO SERVIDOR, para o site contar a partir dele', () => {
+  const a = montarNaJanela({ inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00' });
+  const d = corpoDe(get(a, { api: 'config' })).dados;
+
+  igual(d.janela, {
+    estado: 'ABERTA', inicio: '2026-10-01 08:00', fim: '2026-10-30 18:00', agora: '2026-10-05 10:00:00'
+  });
+  igual(d.aberto, true);
+});
+
+teste('sem as chaves, a janela é SEM_JANELA e `aberto` continua como era', () => {
+  const a = montarNaJanela({});
+  const d = corpoDe(get(a, { api: 'config' })).dados;
+
+  igual(d.janela, { estado: 'SEM_JANELA', inicio: '', fim: '', agora: '2026-10-05 10:00:00' });
+  igual(d.aberto, true);
+});
+
+teste('`aberto` combina o interruptor manual com a janela — os quatro cantos', () => {
+  const aberto = (chaves) => corpoDe(get(montarNaJanela(chaves), { api: 'config' })).dados;
+
+  const antes = aberto({ inscricoes_inicio: '2026-10-07 08:00' });
+  igual([antes.janela.estado, antes.aberto], ['ANTES', false]);
+
+  const depois = aberto({ inscricoes_fim: '2026-10-03 18:00' });
+  igual([depois.janela.estado, depois.aberto], ['DEPOIS', false]);
+
+  const fechadoNaMao = aberto({ cadastro_aberto: 'NAO', inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00' });
+  igual([fechadoNaMao.janela.estado, fechadoNaMao.aberto], ['ABERTA', false],
+    'a janela aberta não liga o que a coordenação desligou na mão');
+
+  const dentro = aberto({ inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00' });
+  igual([dentro.janela.estado, dentro.aberto], ['ABERTA', true]);
+});
+
+teste('chave torta chega ao site já limpa: vazia, como o servidor a tratou', () => {
+  const a = montarNaJanela({ inscricoes_inicio: '01/10/2026', inscricoes_fim: '2026-10-30 18:00' });
+  const d = corpoDe(get(a, { api: 'config' })).dados;
+
+  igual(d.janela.inicio, '', 'o site receberia um limite que o servidor ignorou');
+  igual(d.janela.estado, 'ABERTA');
+  verdadeiro(a.registros.erros.some((e) => e.indexOf('inscricoes_inicio') === 0), 'sem aviso no console');
+});
+
+teste('o `agora` chega até CACHE_ROTAS_S segundos velho — é o preço do cache, e é aceito', () => {
+  const a = montarNaJanela({ inscricoes_fim: '2026-10-30 18:00' });
+  get(a, { api: 'config' });
+
+  a.relogio.avancar(20000);
+  igual(corpoDe(get(a, { api: 'config' })).dados.janela.agora, '2026-10-05 10:00:00',
+    'a resposta veio do cache com o agora de quando foi montada');
+
+  a.cache.expirar();
+  igual(corpoDe(get(a, { api: 'config' })).dados.janela.agora, '2026-10-05 10:00:20',
+    'renovado o cache, o agora é o de agora');
+});
+
+teste('a janela não custa leitura: continua a configuração mais a consulta das disciplinas', () => {
+  const a = montarNaJanela({ inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00' });
+  get(a, { api: 'config' });
+
+  igual(a.falso.requisicoes.length, 2);
+  igual(quantas(a.falso, LEITURA_CONFIG), 1);
+});
+
+teste('o Cadastro.html recebe `aberto` falso fora da janela — e mostra "encerradas"', () => {
+  const a = montarNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
+  get(a, {});
+
+  igual(JSON.parse(a.paginas[0].dadosIniciais).aberto, false);
+});
+
+teste('o POST fora da janela responde JSON com a data, sem `situacao` de projeto', () => {
+  // Sem `situacao`: o site trata resposta com `situacao` como "o projeto
+  // lotou/fechou enquanto você preenchia" e redesenha o cartão. A janela é
+  // outra coisa — a mensagem vai para o `erro-geral`, e o formulário fica.
+  const a = montarNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+
+  const r = corpoDe(post(a, Object.assign({ acao: 'inscricao', projeto_id: 'p1' }, INSCRICAO_VALIDA)));
+  igual(r, { ok: false, erro: 'As inscrições encerraram em 03/10/2026 às 18:00.' });
+});
+
 // ------------------------------------------------------------ ?api=projetos
 
 grupo('doGet ?api=projetos — os cartões com a situação e a ocupação');

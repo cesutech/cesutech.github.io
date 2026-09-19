@@ -540,7 +540,8 @@ teste('os padrões de config deste arquivo são os mesmos de CONFIG_PADRAO', () 
   }
 
   igual(usadas.sort(), ['aluno_projeto_unico', 'cadastro_aberto', 'exigir_matricula',
-    'limite_inscricoes_hora', 'matricula_digitos', 'modo_validacao_matricula', 'texto_espera']);
+    'inscricoes_fim', 'inscricoes_inicio', 'limite_inscricoes_hora', 'matricula_digitos',
+    'modo_validacao_matricula', 'texto_espera']);
 });
 
 grupo('validarInscricao');
@@ -980,6 +981,166 @@ teste('falha do banco vira mensagem genérica, e o motivo fica no console', () =
   igual(r, { ok: false, erro: 'Erro ao registrar. Tente novamente em instantes.' });
   verdadeiro(registros.erros.some((e) => e.indexOf('submeterInscricao') === 0), 'console: ' + registros.erros.join(' | '));
   igual(inscricoesGravadas(falso).length, 0);
+});
+
+// ============================================================================
+
+/**
+ * O período GERAL de inscrição (pedido do Prof. Mário, 19/09, item 5).
+ *
+ * O que se prova, em ordem: que publicar esta versão não muda nada (as duas
+ * chaves vazias aceitam como sempre); que fora da janela o servidor recusa
+ * DIZENDO A DATA — o contador do site é conforto, a trava é aqui; que uma chave
+ * digitada torta é ignorada e anotada, e nunca fecha a inscrição; e que o
+ * interruptor manual continua mandando por cima da janela.
+ *
+ * O relógio é o de `criarRelogio`, em UTC; `agora()` formata em -03:00, então
+ * 13:00Z é '10:00' no carimbo — é contra esse texto que a janela compara.
+ */
+grupo('A janela geral de inscrição — ANTES, ABERTA, DEPOIS');
+
+/** Meio-dia e dez de 05/10/2026 em Brasília: '2026-10-05 10:00:00' no carimbo. */
+const MEIO_DA_JANELA = Date.UTC(2026, 9, 5, 13, 0, 0);
+
+function ambienteNaJanela(chaves, instante) {
+  const relogio = criarRelogio(instante === undefined ? MEIO_DA_JANELA : instante);
+  const amb = ambiente({ relogio });
+  Object.keys(chaves || {}).forEach((chave) => amb.api.gravarConfig(chave, chaves[chave]));
+  criarProjeto(amb.api, 'p_1');
+  matricular(amb.api, ['9110001']);
+  comLock(amb.api, amb.falso);
+  amb.relogio = relogio;
+  return amb;
+}
+
+teste('as duas chaves vazias = SEM_JANELA, e a inscrição entra como sempre entrou', () => {
+  const { api, falso } = ambienteNaJanela({});
+
+  igual(api.janelaDeInscricao_(), { estado: 'SEM_JANELA', inicio: '', fim: '' });
+  igual(api.recusaPelaJanela_(), '');
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(inscricoesGravadas(falso).length, 1);
+});
+
+teste('as chaves nascem VAZIAS em CONFIG_PADRAO — publicar no meio do semestre não fecha nada', () => {
+  const { api } = ambiente();
+  const padrao = {};
+  api.CONFIG_PADRAO.forEach((c) => { padrao[c.chave] = c; });
+
+  ['inscricoes_inicio', 'inscricoes_fim'].forEach((chave) => {
+    verdadeiro(padrao[chave], chave + ' sumiu de CONFIG_PADRAO');
+    igual(padrao[chave].valor, '', chave + ' com padrão preenchido fecharia inscrição ao publicar');
+    verdadeiro(/VAZIO/.test(padrao[chave].descricao), 'a descrição precisa dizer o que vazio significa');
+  });
+});
+
+teste('antes do início: recusa dizendo a data, sem ler nada além da configuração', () => {
+  const { api, falso } = ambienteNaJanela({ inscricoes_inicio: '2026-10-07 08:00' });
+  zerar(falso);
+
+  igual(api.janelaDeInscricao_().estado, 'ANTES');
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+
+  igual(r, { ok: false, erro: 'As inscrições abrem em 07/10/2026 às 08:00.' });
+  igual(quantas(falso, ESCRITA_INSCRICAO), 0);
+  igual(quantas(falso, LEITURA_MATRICULA), 0, 'nem a lista oficial se lê fora da janela');
+  igual(falso.requisicoes.length, 1, 'só a configuração — a mesma leitura de cadastro_aberto');
+});
+
+teste('depois do fim: recusa dizendo a data, e nada é gravado', () => {
+  const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
+
+  igual(api.janelaDeInscricao_().estado, 'DEPOIS');
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })),
+    { ok: false, erro: 'As inscrições encerraram em 03/10/2026 às 18:00.' });
+  igual(inscricoesGravadas(falso).length, 0);
+});
+
+teste('dentro da janela — início e fim definidos — aceita', () => {
+  const { api, falso } = ambienteNaJanela({
+    inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00'
+  });
+
+  igual(api.janelaDeInscricao_(),
+    { estado: 'ABERTA', inicio: '2026-10-01 08:00', fim: '2026-10-30 18:00' });
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(inscricoesGravadas(falso).length, 1);
+});
+
+teste('a janela é por MINUTO e compara texto no fuso do carimbo — nunca UTC', () => {
+  // 07:59:59 em Brasília, um segundo antes de abrir: ANTES.
+  const umSegundoAntes = ambienteNaJanela({ inscricoes_inicio: '2026-10-05 08:00' },
+    Date.UTC(2026, 9, 5, 10, 59, 59));
+  igual(umSegundoAntes.api.janelaDeInscricao_().estado, 'ANTES');
+
+  // 08:00:00 em Brasília: aberta no minuto exato. Lido como UTC, 08:00 já
+  // teria passado há três horas.
+  umSegundoAntes.relogio.avancar(1000);
+  igual(umSegundoAntes.api.janelaDeInscricao_().estado, 'ABERTA');
+
+  // No minuto do fim já é DEPOIS: é o instante em que o contador do site zera.
+  const noFim = ambienteNaJanela({ inscricoes_fim: '2026-10-05 10:00' });
+  igual(noFim.api.janelaDeInscricao_().estado, 'DEPOIS');
+  noFim.relogio.avancar(-1000);
+  igual(noFim.api.janelaDeInscricao_().estado, 'ABERTA', 'um segundo antes do fim ainda aceita');
+});
+
+teste('a inscrição SEM projeto — o formulário interno — também respeita a janela', () => {
+  const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
+
+  igual(api.submeterInscricao(envio({ curso_fase: '', declara_ciencia: false })).ok, false);
+  igual(inscricoesGravadas(falso).length, 0);
+});
+
+teste('chave fora do formato é ignorada e anotada — nunca fecha a inscrição', () => {
+  const casos = ['01/10/2026 08:00', '2026-10-01', 'amanhã', '2026-13-01 08:00', '2026-10-01 25:00'];
+
+  casos.forEach((valor) => {
+    const { api, falso, registros } = ambienteNaJanela({ inscricoes_fim: valor });
+
+    igual(api.janelaDeInscricao_(), { estado: 'SEM_JANELA', inicio: '', fim: '' },
+      '"' + valor + '" deveria ser tratado como vazio');
+    verdadeiro(registros.erros.some((e) => e.indexOf('inscricoes_fim: "' + valor.slice(0, 40)) === 0),
+      'sem aviso no console para "' + valor + '": ' + registros.erros.join(' | '));
+
+    const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+    igual(r.ok, true, '"' + valor + '" fechou a inscrição: ' + r.erro);
+    igual(inscricoesGravadas(falso).length, 1);
+  });
+});
+
+teste('início torto e fim certo: o fim continua valendo sozinho', () => {
+  const { api } = ambienteNaJanela({ inscricoes_inicio: 'segunda', inscricoes_fim: '2026-10-03 18:00' });
+
+  igual(api.janelaDeInscricao_(), { estado: 'DEPOIS', inicio: '', fim: '2026-10-03 18:00' });
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })).ok, false);
+});
+
+teste('cadastro_aberto=NAO recusa por cima da janela, com a mensagem de sempre', () => {
+  const { api, falso } = ambienteNaJanela({
+    cadastro_aberto: 'NAO', inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00'
+  });
+
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })),
+    { ok: false, erro: 'As inscrições estão encerradas no momento.' });
+  igual(inscricoesGravadas(falso).length, 0);
+});
+
+teste('a recusa da janela vem antes das guardas: não consome o teto por hora nem registra bloqueio', () => {
+  const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
+
+  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  igual(api.PropertiesService.getScriptProperties().getProperty('throttle_contagem'), null,
+    'a recusa da janela contou como inscrição no teto por hora');
+
+  // Robô fora da janela leva a mensagem da janela, e não a do honeypot — e não
+  // deixa BLOQUEIO na trilha: a janela fechou antes de a guarda olhar.
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_1', website: 'http://spam' }));
+  igual(r.erro, 'As inscrições encerraram em 03/10/2026 às 18:00.');
+  igual(acoesDoLog(falso), []);
 });
 
 grupo('Reenvio depois de queda de rede — a dedup é do banco');

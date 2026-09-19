@@ -734,8 +734,9 @@ function excedeuConsultas_() {
 /**
  * O que o formulário público precisa para se desenhar.
  *
- * As sete consultas de `config()` abaixo saem todas do mesmo documento, que
- * `lerConfig()` guarda pelo resto da execução (03_Config.gs) — uma leitura.
+ * As nove consultas de `config()` abaixo — as duas da janela estão dentro de
+ * `janelaDeInscricao_` — saem todas do mesmo documento, que `lerConfig()`
+ * guarda pelo resto da execução (03_Config.gs) — uma leitura.
  * `cursosFases` é a exceção e a novidade: ela deixou de sair da chave
  * `cursos_fases` e passa a sair da coleção `disciplinas`, onde a coordenação
  * consegue incluir, editar, ativar e inativar uma linha por vez. O custo disso
@@ -754,10 +755,23 @@ function excedeuConsultas_() {
  * SEMENTE (`semearConfigPadrao_`), não o fallback.
  */
 function dadosFormularioPublico_() {
+  var janela = janelaDeInscricao_();
+
   return {
     app: APP.nome,
     versao: APP.versao,
-    aberto: config('cadastro_aberto', 'SIM').toUpperCase() === 'SIM',
+    // `aberto` continua sendo a resposta única a "dá para se inscrever agora?":
+    // o interruptor manual E a janela geral. Cadastro.html só olha isto.
+    aberto: config('cadastro_aberto', 'SIM').toUpperCase() === 'SIM' &&
+      janela.estado !== 'ANTES' && janela.estado !== 'DEPOIS',
+    // O `agora` é o DO SERVIDOR, para o site contar o tempo que falta a partir
+    // dele e não do relógio do aluno — celular com a hora errada mostraria
+    // "faltam 3 dias" quando faltam 2. Ele chega até CACHE_ROTAS_S segundos
+    // velho, porque a rota inteira responde do cache (`rotaCacheada_`); o site
+    // guarda a diferença para o relógio dele e carrega esses segundos junto.
+    // Para um contador de dias e horas isso não aparece, e no zero quem decide
+    // é `submeterInscricao`, que lê a hora na hora.
+    janela: { estado: janela.estado, inicio: janela.inicio, fim: janela.fim, agora: agora() },
     exigirMatricula: config('exigir_matricula', 'SIM').toUpperCase() === 'SIM',
     matriculaDigitos: matriculaDigitos_(),
     exigirCpf: config('exigir_cpf', 'NAO').toUpperCase() === 'SIM',

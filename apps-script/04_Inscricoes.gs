@@ -440,6 +440,74 @@ function outrosProjetosDe_(dados) {
   return achados;
 }
 
+// ------------------------------------------------------------ Janela de inscrição
+
+/**
+ * O período GERAL de inscrição (pedido do Prof. Mário, 19/09, item 5): um
+ * início e um fim, em `inscricoes_inicio` e `inscricoes_fim`, por cima de tudo.
+ * `cadastro_aberto` continua sendo o interruptor manual e o `inscricoes_abertas`
+ * de cada projeto continua fechando o projeto sozinho (09_Projetos.gs); a
+ * janela é uma camada a mais, não a substituição de nenhuma das duas.
+ *
+ * Devolve { estado, inicio, fim }, com o estado em ANTES, ABERTA, DEPOIS ou
+ * SEM_JANELA — as duas chaves vazias — e os limites já limpos: '' quando a
+ * chave está vazia OU inválida.
+ *
+ * A comparação é de TEXTO, e é o raciocínio de `dentroDoPeriodo_` no painel:
+ * `agora()` sai em 'yyyy-MM-dd HH:mm:ss' no fuso de APP.timezone, a chave é o
+ * mesmo carimbo sem os segundos, e os dois têm largura fixa com zero à esquerda
+ * — comparar texto é comparar instante. `new Date('2026-10-01 08:00')` leria a
+ * chave como UTC (ou como nada, dependendo do motor) e a inscrição abriria três
+ * horas antes do combinado. Os 16 primeiros caracteres de `agora()` contra os
+ * 16 da chave: no minuto do fim, 'HH:mm' >= 'HH:mm' já é DEPOIS — que é o
+ * instante em que o contador do site chega a zero.
+ *
+ * Chave fora do formato é tratada como VAZIA, e o erro vai para o console: é a
+ * decisão de `matriculaDigitos_` pelo outro lado. Lá o lado seguro é continuar
+ * validando; aqui o lado seguro é NÃO fechar — uma data digitada torta na tela
+ * de Configurações não pode encerrar a inscrição do semestre inteiro sem
+ * ninguém perceber. O padrão vazio das duas chaves existe pela mesma razão:
+ * publicar esta versão no meio de um semestre não muda nada.
+ */
+var JANELA_FORMATO = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d$/;
+
+function limiteDaJanela_(chave, bruto) {
+  var valor = String(bruto || '').trim();
+  if (!valor || JANELA_FORMATO.test(valor)) return valor;
+
+  console.error(chave + ': "' + valor.slice(0, 40) + '" não está no formato AAAA-MM-DD HH:MM; ' +
+    'a chave foi ignorada e a inscrição segue sem limite desse lado.');
+  return '';
+}
+
+function janelaDeInscricao_() {
+  var inicio = limiteDaJanela_('inscricoes_inicio', config('inscricoes_inicio', ''));
+  var fim = limiteDaJanela_('inscricoes_fim', config('inscricoes_fim', ''));
+  var minuto = agora().slice(0, 16);
+
+  var estado;
+  if (!inicio && !fim) estado = 'SEM_JANELA';
+  else if (inicio && minuto < inicio) estado = 'ANTES';
+  else if (fim && minuto >= fim) estado = 'DEPOIS';
+  else estado = 'ABERTA';
+
+  return { estado: estado, inicio: inicio, fim: fim };
+}
+
+/** 'yyyy-MM-dd HH:mm' -> 'dd/mm/yyyy às HH:mm', para a recusa dizer a data. */
+function limiteEmTexto_(limite) {
+  return limite.slice(8, 10) + '/' + limite.slice(5, 7) + '/' + limite.slice(0, 4) +
+    ' às ' + limite.slice(11, 16);
+}
+
+/** A recusa fora da janela, com a data — ou '' dentro dela. */
+function recusaPelaJanela_() {
+  var janela = janelaDeInscricao_();
+  if (janela.estado === 'ANTES') return 'As inscrições abrem em ' + limiteEmTexto_(janela.inicio) + '.';
+  if (janela.estado === 'DEPOIS') return 'As inscrições encerraram em ' + limiteEmTexto_(janela.fim) + '.';
+  return '';
+}
+
 // ------------------------------------------------------------ Endpoint público
 
 /**
@@ -452,6 +520,13 @@ function submeterInscricao(dados) {
     if (config('cadastro_aberto', 'SIM').toUpperCase() !== 'SIM') {
       return { ok: false, erro: 'As inscrições estão encerradas no momento.' };
     }
+
+    // A janela vem DEPOIS do interruptor e ANTES das guardas. O servidor é a
+    // trava: o contador do site é conforto, e bastaria acertar o relógio do
+    // celular para passar por ele. Até aqui só a configuração foi lida, e
+    // recusar aqui não consome o teto por hora de `verificarAntiAbuso_`.
+    var foraDaJanela = recusaPelaJanela_();
+    if (foraDaJanela) return { ok: false, erro: foraDaJanela };
 
     dados = dados || {};
 

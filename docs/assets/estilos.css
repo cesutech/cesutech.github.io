@@ -207,6 +207,16 @@ a { color: var(--vinho); }
 .selo-vagas--esgotado { background: var(--vermelho-fundo); color: var(--vermelho); }
 .selo-vagas--fechado { background: var(--fundo-alt); color: var(--texto-fraco); }
 
+/* A faixa do período de inscrição, acima da lista. Cor, borda e margem vêm
+   das classes `.aviso--*` que já existem (atenção = ainda não abriu, sucesso =
+   aberta, erro = encerrada), e o app.js troca a classe com o estado; aqui só o
+   arranjo: título e contador na mesma linha enquanto cabem, um embaixo do
+   outro no celular. Dígitos de largura fixa para o contador não "andar" de
+   lado a cada minuto. */
+.faixa-janela { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.faixa-janela strong { font-size: 1rem; }
+.faixa-janela__contador { font-variant-numeric: tabular-nums; }
+
 /* ------------------------------------------------- Detalhe do projeto */
 
 /* Na tela de detalhe o banner institucional some, e o padding da seção
@@ -250,6 +260,9 @@ a { color: var(--vinho); }
   font-size: .82rem; line-height: 1.45; color: var(--texto-fraco);
   margin: 0 0 20px;
 }
+/* A mesma nota, ABAIXO do botão: é onde fica "as inscrições abrem em..." sob o
+   botão desligado, antes de a janela abrir. */
+.vagas-nota--abaixo { margin: 12px 0 0; text-align: center; }
 
 /* A mensagem que ocupa o lugar do botão quando o projeto lota. */
 .aviso-esgotado {

@@ -499,14 +499,48 @@ function abrirSite(opcoes) {
     return true;
   }
 
-  // O intervalo das fases da espera do envio continua no tempo REAL: ele não
-  // decide nada, só reescreve um texto, e prendê-lo ao relógio virtual faria o
-  // teste ter de fazer o tempo andar para ver uma mensagem que o navegador
-  // mostra sozinho. `unref` evita que um intervalo esquecido segure o processo.
+  // Os intervalos continuam no tempo REAL: nenhum deles decide nada — as fases
+  // da espera do envio e o contador do período só reescrevem um texto —, e
+  // prendê-los ao relógio virtual faria `assentar` disparar um intervalo vivo
+  // 400 vezes seguidas, empurrando o relógio horas adiante em todo teste que
+  // tivesse um contador na tela. `unref` evita que um intervalo esquecido segure
+  // o processo.
+  //
+  // O que o teste precisa é poder dizer "o próximo tique aconteceu" sem torcer
+  // para os 5ms passarem: `cena.tique()` dispara os que estão vivos, uma vez.
+  const intervalos = new Map();
   function repetir(fn, _ms) {
     const t = setInterval(fn, 5);
     if (t.unref) t.unref();
+    intervalos.set(t, fn);
     return t;
+  }
+  function pararDeRepetir(t) {
+    intervalos.delete(t);
+    clearInterval(t);
+  }
+
+  /**
+   * O `Date` que o app.js enxerga anda com o relógio virtual: `Date.now()` é o
+   * instante de abertura da página (`cfg.instante`, época em ms) mais o que
+   * `assentar` e `avancarRelogio` fizeram andar. É o desenho de `criarRelogio`
+   * (apoio.js), preso a ESTE relógio em vez de a um próprio — dois relógios
+   * andando separados fariam um prazo vencer sem `Date.now()` ter andado um
+   * milissegundo, e o contador do site, que compara os dois, ficaria parado num
+   * teste que diz que ele andou.
+   *
+   * `Date.UTC` e os demais estáticos vêm herdados; `new Date(x)` com argumento
+   * é o de sempre. Sem `instante`, a página abre na hora de verdade.
+   */
+  const instanteDeAbertura = cfg.instante === undefined ? Date.now() : Number(cfg.instante);
+  class DataVirtual extends Date {
+    constructor(...args) {
+      if (args.length === 0) super(instanteDeAbertura + relogio.agora);
+      else super(...args);
+    }
+    static now() {
+      return instanteDeAbertura + relogio.agora;
+    }
   }
 
   const contexto = {
@@ -517,8 +551,9 @@ function abrirSite(opcoes) {
     fetch: fetchFalso,
     setTimeout: agendar,
     setInterval: repetir,
-    clearInterval: (t) => clearInterval(t),
+    clearInterval: pararDeRepetir,
     clearTimeout: desagendar,
+    Date: DataVirtual,
     // O contexto do `vm` nasce só com o JavaScript da linguagem: `fetch`,
     // `URLSearchParams` e `AbortController` são do navegador, e é por isso que
     // os três precisam ser entregues aqui. O `AbortController` é o do Node, de
@@ -568,6 +603,10 @@ function abrirSite(opcoes) {
 
   /** Onde o relógio virtual está, em milissegundos desde a abertura da página. */
   cena.relogio = () => relogio.agora;
+
+  /** Dispara uma vez cada intervalo vivo — o próximo tique, sem esperar por ele. */
+  cena.tique = () => { intervalos.forEach((fn) => fn()); };
+  cena.intervalosVivos = () => intervalos.size;
 
   /**
    * Faz o tempo andar, disparando o que vencer no caminho.
