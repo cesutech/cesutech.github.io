@@ -3582,27 +3582,31 @@ teste('o teto do servidor MANDA no suposto — 200 não é uma cópia fixa na te
   const oferta = cena.texto('auditorio-alerta');
   verdadeiro(oferta.indexOf('Promover 300 da fila') !== -1,
     'a tela ignorou o teto que o servidor mandou e usou o suposto: ' + oferta);
-  verdadeiro(cena.texto('auditorio-teto-lote').indexOf('300') !== -1,
-    'a frase da regra ficou com o número velho: ' + cena.texto('auditorio-teto-lote'));
+  // E a barra de marcadas diz o MESMO número, desde a primeira linha tocada
+  // (a cena só tem fila; a barra é a mesma `desenharAcoes` das duas listas).
+  tocar(cena, 'fila', 1);
+  verdadeiro(cena.texto('auditorio-acoes-fila').indexOf('até 300 por vez') !== -1,
+    'a barra ficou com o número velho: ' + cena.texto('auditorio-acoes-fila'));
 });
 
-teste('o teto aparece na REGRA da faixa, antes de qualquer marcação', () => {
+teste('o teto aparece na barra desde a PRIMEIRA marcação — antes do estrago', () => {
   // A faixa marca 200 em dois toques, e a lista chega a mil linhas. Descobrir o
   // teto só depois de marcar 380 é descobrir tarde: o trabalho já foi feito, e a
-  // única saída é desmarcar 180 uma a uma.
+  // única saída é desmarcar 180 uma a uma. Até 21/09 o número morava numa frase
+  // fixa acima da lista; a frase saiu (pedido do Jonathan) e o número passou
+  // para a barra, que nasce com a primeira linha tocada — ninguém marca 380 sem
+  // ter marcado 1.
   //
-  // A MUTAÇÃO: tirar a frase da regra deixa o número 200 sem aparecer em lugar
-  // nenhum da aba até o estrago estar pronto.
+  // A MUTAÇÃO: dizer o teto só no aviso de "demais" (quando já passou de 200)
+  // deixa a barra de 1 marcada sem número nenhum.
   const cena = abrirAuditorio();
+  igual(cena.texto('auditorio-acoes-recentes'), '', 'sem marcação, sem barra');
 
-  const regra = cena.texto('auditorio-teto-lote');
-  verdadeiro(regra.indexOf('200') !== -1, 'o teto não é dito na regra da faixa: ' + regra);
-  verdadeiro(/anular/i.test(regra) && /promover/i.test(regra),
-    'a frase não diz a que ações o teto se aplica: ' + regra);
-
-  // E ela está lá SEM ninguém ter marcado nada — é o ponto.
-  igual(marcadas(cena, 'recentes'), 0);
-  igual(cena.texto('auditorio-acoes-recentes'), '');
+  tocar(cena, 'recentes', 1);
+  const barra = cena.texto('auditorio-acoes-recentes');
+  verdadeiro(barra.indexOf('1 marcada(s)') !== -1, barra);
+  verdadeiro(barra.indexOf('até 200 por vez') !== -1, 'o teto não é dito na barra da primeira marcação: ' + barra);
+  igual(marcadas(cena, 'recentes'), 1);
 });
 
 teste('marcar acima do teto AVISA antes do clique, e não nasce botão de ação', () => {
