@@ -34,7 +34,9 @@
  *                              de UMA pessoa); zero escritas
  *   incluirInscricao ......... 1 leitura de ponto + 1 agregação (o teto, só
  *                              sem `confirmar_teto`) + 1 leitura de ponto + 1
- *                              consulta + 1 escrita + 1 agregação, mais o log
+ *                              consulta + 1 escrita + 1 agregação, mais o log;
+ *                              duplicada: para na escrita recusada + 1 leitura
+ *                              de ponto (fila de espera ou vaga?)
  *   listarAlunos (consulta) .. 1 agregação + `tamanho` leituras por página, mais
  *                              1 leitura de ponto (os cursos) SÓ quando a tela
  *                              ainda não tem a lista — e a página N custa
@@ -697,15 +699,18 @@ function inscritosDoProjeto(payload) {
  * precisa, para não redigitar o que a secretaria já mandou.
  *
  * Custo: 1 leitura de ponto (a lista oficial, pelo id = matrícula normalizada,
- * que é o contrato de `matriculaConhecida`) + 1 consulta de igualdade
- * (`outrosProjetosDe_`, a mesma que o formulário público faz). Zero escritas.
+ * que é o contrato de `matriculaConhecida`) + 1 consulta de igualdade (a mesma
+ * que o formulário público faz por `outrosProjetosDe_`). Zero escritas.
  *
- * `ja_em` sai de `outrosProjetosDe_` com o contrato REAL dela: uma lista de
- * NOMES de projeto, sem id e sem marca de espera — é o que o formulário público
- * lê desde o primeiro semestre, e mudar o retorno para servir a esta tela
- * mexeria no caminho do aluno. Sem `projeto_id` no pedido, ela devolve TODOS os
- * projetos da pessoa, inclusive o desta janela: "já está neste projeto" é
- * notícia que a coordenação quer ANTES de clicar, e não só como recusa depois.
+ * `ja_em` sai de `inscricoesEmOutrosProjetos_` (04_Inscricoes.gs), a MESMA
+ * consulta de `outrosProjetosDe_` devolvendo `{ id, projeto_id, projeto_nome,
+ * em_espera }` em vez do nome. O id é o que a janela usa para marcar "(este
+ * projeto)" — o nome é desnormalizado na escrita, e um projeto renomeado ou
+ * dois homônimos deixariam a marca errada — e `em_espera` é o que a faz dizer
+ * "(em espera)": quem está na FILA deste projeto não se inclui, se promove
+ * (Auditório → Fila de espera), e a coordenação precisa saber disso ANTES de
+ * preencher o formulário, não pela recusa depois. Sem `projeto_id` no pedido, a
+ * consulta devolve TODOS os projetos da pessoa, inclusive o desta janela.
  *
  * A régua da matrícula é `erroFormatoMatricula_`, a mesma das outras três portas
  * (formulário, `?api=matricula`, `editarAluno`): vazia ou fora do formato recusa
@@ -731,7 +736,7 @@ function buscarMatriculado(payload) {
       telefone: oficial ? formatarTelefone(oficial.telefone) : '',
       curso: oficial ? String(oficial.curso || '') : '',
       turma: oficial ? String(oficial.turma || '') : '',
-      ja_em: outrosProjetosDe_({ matricula: matricula })
+      ja_em: inscricoesEmOutrosProjetos_({ matricula: matricula })
     };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -785,14 +790,16 @@ function buscarMatriculado(payload) {
  *   `consentimento_lgpd` ............ NÃO são exigidos nem preenchidos: a
  *                                     coordenação não consente pelo aluno. Os três
  *                                     vão VAZIOS ('') — e não 'NAO', que seria
- *                                     afirmar que o aluno recusou (ver
- *                                     `consentimento_`, 04_Inscricoes.gs). A ficha
- *                                     omite o campo vazio, e é assim que "não
+ *                                     afirmar que o aluno recusou. A ficha omite
+ *                                     o campo vazio, e é assim que "não
  *                                     perguntado" se distingue de "não aceitou".
  *
  * O formulário público NÃO muda em nada: `submeterInscricao` continua com todas
- * as travas, e `gravarInscricao` continua gravando o mesmo documento de sempre —
- * o único campo novo (`incluido_por`) só existe em quem entrou por aqui.
+ * as travas, e `gravarInscricao` continua gravando o mesmo documento de sempre.
+ * O que só existe em quem entrou por aqui — `incluido_por` e os aceites em
+ * branco — vai no SEGUNDO argumento de `gravarInscricao`, e não em `dados`, de
+ * propósito: `dados` é o formato do payload que o aluno manda, e uma marca ali
+ * seria uma marca que um POST à mão também manda (04_Inscricoes.gs explica).
  *
  * ------------------------------------------------------ O que NÃO passa por fora
  *
@@ -804,6 +811,15 @@ function buscarMatriculado(payload) {
  * como no formulário: quem não está na lista oficial ENTRA (a coordenação
  * decide), mas entra marcado — o "?" da lista de inscritos continua dizendo a
  * verdade, e a resposta avisa.
+ *
+ * O 409 tem DOIS significados, e a recusa precisa dizer qual: a chave de dedup é
+ * a mesma para quem está na FILA DE ESPERA do projeto (`vagas_excedentes_em_espera`
+ * em SIM), e "já está inscrito" seria falso no sentido que importa — a pessoa
+ * NÃO ocupa vaga, e a coordenação acabou de confirmar estourar o teto para
+ * incluí-la. Por isso, e SÓ nesse ramo, uma leitura de ponto da inscrição
+ * recusada: em espera, a resposta aponta o caminho certo, que é promover
+ * (Auditório → Fila de espera), não incluir de novo. Custa uma leitura a mais
+ * na duplicata, que é o caso raro; no caminho feliz não custa nada.
  *
  * Outro projeto da mesma pessoa NÃO recusa, e avisa nomeando-o: é a semântica do
  * modo NAO de `aluno_projeto_unico`, o padrão. Se a intenção era MOVER, o caminho
@@ -827,7 +843,8 @@ function buscarMatriculado(payload) {
  * Custo: 0 leituras quando o formato recusa; senão 1 leitura de ponto (o
  * projeto) + 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto
  * (a lista oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a
- * ocupação de depois) + o log. Duplicada: para na escrita recusada.
+ * ocupação de depois) + o log. Duplicada: para na escrita recusada, mais 1
+ * leitura de ponto para saber se é fila de espera ou vaga.
  */
 function incluirInscricao(payload) {
   try {
@@ -874,9 +891,10 @@ function incluirInscricao(payload) {
     var conhecida = matriculaConhecida(payload.matricula);
     var jaEstaEm = outrosProjetosDe_({ matricula: payload.matricula, projeto_id: projetoId });
 
+    // Só o que o formulário também manda: os aceites e quem incluiu NÃO entram
+    // aqui — vão no segundo argumento de `gravarInscricao` (ver o cabeçalho).
     var dados = {
       origem: 'COORDENACAO',
-      incluido_por: quem,
       projeto_id: projetoId,
       projeto_nome: projetoNome,
       matricula: payload.matricula,
@@ -888,18 +906,24 @@ function incluirInscricao(payload) {
       // O mesmo teto de `resolverAluno`: texto livre que o painel relê a cada
       // listagem não carrega um romance colado sem querer.
       observacoes: String(payload.observacoes || '').trim().slice(0, PAINEL_MAX_OBSERVACOES),
-      // Vazios de propósito — ver o cabeçalho: a coordenação não consente pelo
-      // aluno, e '' é o único valor que `consentimento_` NÃO traduz para 'NAO'.
-      declara_ciencia: '',
-      autoriza_imagem: '',
-      consentimento_lgpd: '',
       // Ocupa vaga: a fila de espera é decisão de `reservarVaga`, que não roda
       // aqui. Zerar é o mesmo cuidado de `submeterInscricao` com o campo.
       em_espera: 'NAO'
     };
 
-    var gravacao = gravarInscricao(dados);
+    var gravacao = gravarInscricao(dados, { incluido_por: quem });
     if (gravacao.duplicada) {
+      // A única leitura deste ramo, e o motivo está no cabeçalho: a chave é a
+      // mesma para quem está na fila, e a fila não se inclui — se promove.
+      var recusada = ler(INSCRICOES_COLECAO, gravacao.id);
+      if (recusada && String(recusada.em_espera).toUpperCase() === 'SIM') {
+        return {
+          ok: false,
+          em_espera: true,
+          erro: 'Este aluno está na FILA DE ESPERA deste projeto (protocolo ' + gravacao.id +
+                '), sem ocupar vaga. Para dar a vaga a ele, use Auditório → Fila de espera → Promover.'
+        };
+      }
       return {
         ok: false,
         erro: 'Este aluno já está inscrito neste projeto. Protocolo: ' + gravacao.id + '.'

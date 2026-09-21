@@ -4600,13 +4600,14 @@
   // ------------------------------------------------ Incluir aluno no projeto
 
   /**
-   * O que a janela "Incluir aluno" sabe enquanto está aberta: de que projeto
-   * é, e o que a lista oficial respondeu sobre a matrícula digitada.
+   * O que a janela "Incluir aluno" sabe enquanto está aberta: de que projeto é.
    *
    * Fica aqui pelo mesmo motivo de `ALUNO_EDICAO`: o Incluir precisa saber para
-   * onde voltar depois de gravar, e a janela precisa saber em que projetos a
-   * pessoa já está para avisar antes do clique. Zera em `fecharModal()`, com os
-   * outros estados de janela.
+   * onde voltar depois de gravar. Zera em `fecharModal()` e em
+   * `voltarParaInscritos()`, com os outros estados de janela — e é um objeto
+   * NOVO a cada abertura: é pela identidade dele que a resposta de um Incluir
+   * descobre se a janela que o clicou ainda é a que está aberta (ver
+   * `incluirInscricaoUI`).
    */
   var INCLUSAO = null;
 
@@ -4636,7 +4637,7 @@
     var p = PROJETOS.filter(function (x) { return String(x.id) === String(id); })[0];
     if (!p) return;
 
-    INCLUSAO = { projetoId: String(p.id), projetoNome: String(p.nome || ''), jaEm: [] };
+    INCLUSAO = { projetoId: String(p.id), projetoNome: String(p.nome || '') };
     janelaLarga(false);
     document.getElementById('modal-titulo').textContent = 'Incluir aluno em ' + p.nome;
     document.getElementById('mensagem-modal').innerHTML = '';
@@ -4753,9 +4754,27 @@
    * duas seria chute, e chute em campo que a aba Disciplinas cruza por igualdade
    * é o que faz uma turma inteira sumir de um relatório.
    *
-   * `ja_em` são NOMES de projeto (o contrato de `outrosProjetosDe_`). O deste
-   * projeto aparece marcado — a coordenação descobre a duplicata antes de clicar,
-   * e não pela recusa depois.
+   * `ja_em` são as inscrições da pessoa (`{ id, projeto_id, projeto_nome,
+   * em_espera }`, de `inscricoesEmOutrosProjetos_`). A deste projeto aparece
+   * marcada — pelo ID, porque o nome gravado na inscrição é o da época e dois
+   * projetos podem se chamar igual — e a que está na FILA diz "(em espera)": a
+   * coordenação descobre antes de clicar que o caminho não é incluir, é
+   * promover pelo Auditório.
+   *
+   * A RESPOSTA CHEGA DEPOIS, e a janela pode não estar mais lá. O `blur` dispara
+   * no mousedown, ANTES do clique em Voltar, no × ou no fundo — e a resposta do
+   * Apps Script leva um ou três segundos. Sem a guarda, o callback escrevia num
+   * `INCLUSAO` já nulo, estourava, e `chamar()` traduzia o estouro em "defeito do
+   * painel" em cima da lista que reabriu. Duas conferências, dentro do callback:
+   * o formulário ainda está na tela (`INCLUSAO` e os campos, procurados DE NOVO
+   * — os de antes da chamada podem ser os de um formulário que já foi trocado),
+   * e a matrícula perguntada ainda é a do campo (duas saídas do campo em
+   * sequência podem responder fora de ordem, e a resposta VELHA sobrescreveria a
+   * ficha da matrícula nova). Resposta órfã morre calada: não há ninguém a quem
+   * contar. Não importa QUAL janela perguntou: a resposta é a ficha de uma
+   * matrícula, e a marca "(este projeto)" é calculada contra a janela que está
+   * aberta AGORA — a resposta certa para o campo certo é certa em qualquer
+   * janela.
    */
   function buscarMatriculadoUI() {
     var matricula = campoTexto_('inc-matricula');
@@ -4769,6 +4788,12 @@
 
     chamar('buscarMatriculado', { matricula: matricula }, function (r) {
       if (!r) return;                       // chamar() já explicou o motivo
+
+      lista = document.getElementById('inc-lista');
+      jaEm = document.getElementById('inc-ja-em');
+      if (!INCLUSAO || !lista || !jaEm) return;                // a janela já não existe
+      if (campoTexto_('inc-matricula') !== matricula) return;  // a pergunta já mudou
+
       if (!r.ok) {
         lista.className = 'pequeno erro-campo visivel';
         lista.textContent = r.erro || 'Não consegui consultar a lista oficial.';
@@ -4786,14 +4811,20 @@
         lista.textContent = 'Não está na lista oficial importada — a inscrição entra marcada como não conferida.';
       }
 
-      INCLUSAO.jaEm = r.ja_em || [];
-      if (INCLUSAO.jaEm.length) {
-        var nomes = INCLUSAO.jaEm.map(function (nome) {
-          return '<strong>' + escapar(nome) + '</strong>' +
-            (nome === INCLUSAO.projetoNome ? ' (este projeto)' : '');
+      var inscricoes = r.ja_em || [];
+      if (inscricoes.length) {
+        var daqui = function (i) { return String(i.projeto_id) === INCLUSAO.projetoId; };
+        var nomes = inscricoes.map(function (i) {
+          return '<strong>' + escapar(i.projeto_nome || i.projeto_id) + '</strong>' +
+            (daqui(i) ? ' (este projeto)' : '') +
+            (i.em_espera ? ' (em espera)' : '');
         });
+        var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
         jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
-          '. Se a intenção é mover, use Alunos → Editar → Projeto.</div>';
+          (naFilaDaqui
+            ? '. Quem está na fila de espera deste projeto não se inclui de novo: para dar a vaga, use ' +
+              'Auditório → Fila de espera → Promover.'
+            : '. Se a intenção é mover, use Alunos → Editar → Projeto.') + '</div>';
       }
     });
   }
@@ -4823,12 +4854,25 @@
    * Erro deixa o formulário como está — quem errou o e-mail não redigita o
    * resto. Sucesso reabre a lista do projeto, com o aluno nela, e avisa dentro
    * da janela: é para onde os olhos voltaram.
+   *
+   * E A JANELA PODE JÁ NÃO ESTAR LÁ quando a resposta chega: o Incluir trava,
+   * mas o Voltar, o × e o fundo não, e a escrita leva segundos. A guarda aqui é
+   * a IDENTIDADE de `INCLUSAO` — em `buscarMatriculadoUI` basta a existência,
+   * porque a ficha de uma matrícula serve a qualquer janela; o desfecho de um
+   * Incluir é de UM clique, numa janela — e ela decide o que fazer com cada
+   * desfecho. Pergunta do teto ou recusa: nada foi gravado e a coordenação
+   * abandonou o formulário, então a resposta morre calada (uma pergunta sobre um
+   * formulário que não existe não tem resposta possível). Sucesso: FOI gravado,
+   * e isso ela precisa saber onde quer que esteja — `avisar` escreve na janela
+   * aberta ou no topo da página —, e a lista de inscritos que reabriu ANTES da
+   * resposta não tem o aluno, então é redesenhada.
    */
   function incluirInscricaoUI(confirmarTeto) {
     if (!INCLUSAO) return;
 
+    var janela = INCLUSAO;
     var payload = {
-      projeto_id: INCLUSAO.projetoId,
+      projeto_id: janela.projetoId,
       matricula: campoTexto_('inc-matricula'),
       nome: campoTexto_('inc-nome'),
       email: campoTexto_('inc-email'),
@@ -4840,19 +4884,25 @@
 
     chamar('incluirInscricao', payload, function (r) {
       if (!r) return;                       // chamar() já explicou o motivo
+      var aindaAqui = INCLUSAO === janela;
 
       if (!r.ok && r.precisa_confirmar) {
+        if (!aindaAqui) return;
         if (!window.confirm(r.erro + ' Continuar?')) return;
         aoGravar(document.getElementById('modal-salvar'), incluirInscricaoUI, true);
         return;
       }
-      if (!r.ok) { avisar('erro', r.erro || 'Falha ao incluir.'); return; }
+      if (!r.ok) {
+        if (aindaAqui) avisar('erro', r.erro || 'Falha ao incluir.');
+        return;
+      }
 
-      var projetoId = INCLUSAO.projetoId;
+      var projetoId = janela.projetoId;
       var texto = r.mensagem + (r.aviso ? ' ' + r.aviso : '') +
         ' A ficha em Alunos atualiza no próximo Atualizar daquela aba.';
 
-      voltarParaInscritos();
+      if (aindaAqui) voltarParaInscritos();
+      else if (janelaMostraInscritosDe_(projetoId)) verInscritosProjeto(projetoId);
       avisar(r.aviso ? 'atencao' : 'sucesso', texto);
 
       // A tabela atrás da janela ainda diz a ocupação de antes — e é dela que a
@@ -4862,15 +4912,31 @@
     });
   }
 
+  /** A janela está aberta, e o que ela mostra é a lista de inscritos DESTE projeto. */
+  function janelaMostraInscritosDe_(projetoId) {
+    var fundo = document.getElementById('modal-fundo');
+    return Boolean(fundo && !fundo.classList.contains('oculto') &&
+      document.getElementById('insc-proj-tabela') &&
+      PROJETO_DA_JANELA && String(PROJETO_DA_JANELA.id) === String(projetoId));
+  }
+
   /**
    * De volta à lista do projeto, sem gravar. Botão deliberado, como o Cancelar:
    * não pergunta. O que estava digitado no formulário morre aqui, e com ele o
    * sinal de trabalho — a lista que reabre não tem nada a perder.
+   *
+   * A faixa de aviso morre junto, pelo motivo de `fecharModal()`: o elemento é
+   * fixo na marcação e sobrevive à troca do corpo, e `verInscritosProjeto` não
+   * o toca. Sem esta linha, o "E-mail inválido." de um formulário que já não
+   * está na tela ficava em vermelho por cima da lista de inscritos. O sucesso
+   * do Incluir escreve o aviso dele DEPOIS de voltar, e por isso continua
+   * aparecendo — a ordem lá não é acaso.
    */
   function voltarParaInscritos() {
     var id = INCLUSAO && INCLUSAO.projetoId;
     INCLUSAO = null;
     MODAL_COM_TRABALHO = false;
+    document.getElementById('mensagem-modal').innerHTML = '';
     if (id) verInscritosProjeto(id);
   }
 

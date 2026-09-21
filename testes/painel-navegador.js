@@ -4752,8 +4752,19 @@ teste('matrícula fora da lista oficial: a janela diz, e não inventa nada', () 
 
 teste('matrícula já inscrita: o aviso amarelo nomeia o projeto e ensina a mover', () => {
   // Mutação que derruba: ignorar `ja_em` — a coordenação só descobriria a
-  // duplicata pela recusa depois de preencher tudo.
-  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  // duplicata pela recusa depois de preencher tudo. Ou marcar "(este projeto)"
+  // pelo NOME em vez do id: o projeto é renomeado abaixo depois da inscrição, e
+  // o nome gravado nela é o da época.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      // Um projeto homônimo do "Lotado", e o "Lotado" renomeado depois de as
+      // inscrições dele existirem: o nome gravado na inscrição já não é o do
+      // projeto, e o homônimo tem o nome que a inscrição guarda.
+      api.inserir('projetos', { nome: 'Lotado', vagas: '5', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '3', validar_matricula: 'SIM' }, 'p3');
+      api.atualizar('projetos', 'p2', { nome: 'Lotado (turma B)' });
+    }
+  });
   abrirInclusao(cena, 'p2');
 
   // 9220002 é a matrícula com que a Ana se inscreveu em "Origem".
@@ -4762,11 +4773,129 @@ teste('matrícula já inscrita: o aviso amarelo nomeia o projeto e ensina a move
   verdadeiro(aviso.indexOf('Já inscrito em Origem') !== -1, aviso);
   verdadeiro(aviso.indexOf('Alunos → Editar → Projeto') !== -1, aviso);
   verdadeiro(/aviso--atencao/.test(cena.html('inc-ja-em')), 'o aviso não veio em amarelo');
+  igual(aviso.indexOf('(este projeto)'), -1, 'Origem não é este projeto');
 
-  // E quem já está NESTE projeto vê isso dito.
+  // E quem já está NESTE projeto vê isso dito — pelo id, apesar do nome antigo.
   sairDaMatricula(cena, '9900009');
   aviso = cena.texto('inc-ja-em');
   verdadeiro(aviso.indexOf('Lotado (este projeto)') !== -1, aviso);
+  igual(aviso.indexOf('(em espera)'), -1, 'X Um ocupa vaga, não está na fila');
+
+  // O homônimo NÃO é este projeto.
+  cena.js.voltarParaInscritos();
+  abrirInclusao(cena, 'p3');
+  sairDaMatricula(cena, '9900009');
+  aviso = cena.texto('inc-ja-em');
+  verdadeiro(aviso.indexOf('Já inscrito em Lotado') !== -1, aviso);
+  igual(aviso.indexOf('(este projeto)'), -1, 'o homônimo foi marcado como este projeto: ' + aviso);
+});
+
+teste('matrícula na FILA DE ESPERA deste projeto: o aviso diz "(em espera)" e aponta a promoção, e o Incluir é recusado apontando o mesmo caminho', () => {
+  // Mutação que derruba: `ja_em` sem a marca de espera (a tela diria "já
+  // inscrito" para quem NÃO ocupa vaga), ou o servidor tratar o 409 da fila
+  // como "já está inscrito" — a coordenação confirmaria estourar o teto e
+  // leria uma recusa que não a leva a lugar nenhum.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
+      });
+    }
+  });
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+
+  const aviso = cena.texto('inc-ja-em');
+  verdadeiro(aviso.indexOf('Lotado (este projeto) (em espera)') !== -1, aviso);
+  verdadeiro(aviso.indexOf('Auditório → Fila de espera → Promover') !== -1, aviso);
+  igual(aviso.indexOf('Alunos → Editar'), -1, 'mover não é o caminho para quem está na fila daqui');
+
+  cena.respostaConfirm = true;
+  botaoSalvar(cena).click();
+  igual(cena.confirmacoes.length, 1, 'o teto pergunta antes — 2/2');
+  const erro = cena.texto('mensagem-modal');
+  verdadeiro(erro.indexOf('FILA DE ESPERA') !== -1, erro);
+  verdadeiro(erro.indexOf('Auditório → Fila de espera → Promover') !== -1, erro);
+  igual(erro.indexOf('já está inscrito'), -1, erro);
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Lotado', 'o formulário se perdeu');
+  igual(cena.api.contarInscritos_('p2'), 2, 'a fila virou vaga por fora do Auditório');
+  igual(Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0].em_espera, 'SIM');
+});
+
+teste('a resposta da lista oficial chega DEPOIS do Voltar (ou do fechar): morre calada, sem "defeito do painel"', () => {
+  // Mutação que derruba: tirar o `!INCLUSAO` da guarda de dentro do callback
+  // de `buscarMatriculadoUI` (a versão anterior escrevia `INCLUSAO.jaEm` ali
+  // sem guarda nenhuma, e é o mesmo estouro). O blur dispara no mousedown,
+  // antes do clique em Voltar, e a resposta do Apps Script chega segundos
+  // depois: o callback escrevia numa janela que já não existia, estourava, e
+  // `chamar()` traduzia o estouro em "Isto é defeito do painel" por cima da
+  // lista de inscritos. A resposta encenada clica em Voltar ANTES de "chegar" —
+  // é a ordem que o navegador de verdade produz.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      buscarMatriculado: (corpo, c) => {
+        c.js.voltarParaInscritos();
+        return { ok: true, encontrado: true, nome: 'Ana Silva', email: 'ana@exemplo.com',
+          telefone: '', curso: 'ADS', turma: 'ADS11', ja_em: [] };
+      }
+    }
+  });
+  abrirInclusao(cena, 'p1');
+  sairDaMatricula(cena, '9110001');
+
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Origem');
+  igual(cena.texto('mensagem-modal'), '', 'a resposta órfã escreveu na lista que reabriu');
+  igual(cena.texto('mensagem-global'), '');
+  verdadeiro(!cena.documento.getElementById('inc-nome'), 'o formulário voltou para a tela');
+
+  // A mesma resposta chegando depois do × (fecharModal): nada na página. O
+  // corpo da janela fechada ainda tem os campos — o × só a esconde —, então
+  // aqui é `INCLUSAO` nulo quem segura, e a resposta traz um projeto de
+  // propósito: é ao marcar "(este projeto)" que o callback leria
+  // `INCLUSAO.projetoId`.
+  cena.respostas.buscarMatriculado = (corpo, c) => {
+    c.js.fecharModal();
+    return { ok: true, encontrado: true, nome: 'Ana Silva', email: '', telefone: '', curso: 'ADS', turma: 'ADS11',
+      ja_em: [{ id: 'abc', projeto_id: 'p2', projeto_nome: 'Lotado', em_espera: false }] };
+  };
+  abrirInclusao(cena, 'p1');
+  sairDaMatricula(cena, '9110001');
+  verdadeiro(!janelaAberta(cena));
+  igual(cena.texto('mensagem-global'), '');
+  igual(cena.texto('mensagem-modal'), '');
+});
+
+teste('duas saídas do campo, a resposta VELHA chegando por último: a ficha da matrícula corrigida não é sobrescrita', () => {
+  // Mutação que derruba: tirar a conferência `campoTexto_('inc-matricula') !==
+  // matricula` — a resposta da matrícula que a coordenação já corrigiu
+  // preencheria nome, e-mail e curso de OUTRA pessoa por cima da ficha certa.
+  // Encenado: enquanto a consulta de 9220002 (Bruno) viaja, o campo é
+  // corrigido para 9110001 (Ana) — e é a resposta do Bruno que chega.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      buscarMatriculado: (corpo, c) => {
+        delete c.respostas.buscarMatriculado;
+        c.digitar('inc-matricula', '9110001');
+        return { ok: true, encontrado: true, nome: 'Bruno Souza', email: 'bruno@exemplo.com',
+          telefone: '', curso: 'DIREITO', turma: 'DIR21', ja_em: [] };
+      }
+    }
+  });
+  abrirInclusao(cena, 'p1');
+  sairDaMatricula(cena, '9220002');
+
+  igual(cena.documento.getElementById('inc-nome').value, '', 'a ficha da matrícula antiga foi escrita no formulário');
+  igual(cena.texto('inc-lista'), '');
+
+  // A saída seguinte, já com a matrícula certa, percorre o servidor de verdade.
+  sairDaMatricula(cena, '9110001');
+  igual(cena.documento.getElementById('inc-nome').value, 'Ana Silva');
+  igual(cena.texto('inc-lista'), 'Na lista oficial: ADS · ADS11');
 });
 
 teste('formato inválido ao sair do campo: a linha diz o tamanho certo, sem estourar a janela', () => {
@@ -4820,9 +4949,11 @@ teste('projeto cheio e a coordenação diz NÃO: nada é gravado e o formulário
 
 teste('sucesso reabre a lista do projeto com o aluno nela, e a tabela atrás mostra a ocupação nova', () => {
   // Mutação que derruba: fechar a janela em vez de reabrir a lista (a
-  // coordenação não veria o aluno entrar), ou não recarregar a aba Projetos (a
-  // próxima inclusão leria a ocupação de antes).
-  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  // coordenação não veria o aluno entrar), não recarregar a aba Projetos (a
+  // próxima inclusão leria a ocupação de antes), ou o servidor tirar o operador
+  // de `usuarioAtual()` — `usuario: ''` é o GitHub Pages, onde ele é 'anonimo',
+  // e o `incluido_por` tem de vir da SESSÃO.
+  const cena = abrirPainel({ semear: cadastroParaIncluir, usuario: '' });
   abrirInclusao(cena, 'p1');
   sairDaMatricula(cena, '9110001');
 
@@ -4844,8 +4975,52 @@ teste('sucesso reabre a lista do projeto com o aluno nela, e a tabela atrás mos
 
   const doc = Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0];
   igual(doc.origem, 'COORDENACAO');
-  igual(doc.incluido_por, 'coord@exemplo.com');
+  igual(doc.incluido_por, 'coord@exemplo.com', 'quem incluiu tem de ser a sessão, não usuarioAtual() (anonimo)');
   verdadeiro(/^ADS11 - /.test(doc.curso_fase), 'o curso escolhido pela turma não viajou: ' + doc.curso_fase);
+});
+
+teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a tela diz isso em vez de "defeito do painel"', () => {
+  // Mutação que derruba: ler `INCLUSAO.projetoId` dentro do callback em vez da
+  // janela capturada — com `INCLUSAO` já nulo, o sucesso de uma ESCRITA virava
+  // "a tela quebrou ao desenhá-la" —, ou não redesenhar a lista que reabriu
+  // ANTES da resposta: ela ficava sem o aluno que acabou de entrar. O Incluir
+  // trava; o Voltar não. A ordem encenada é a do navegador: Voltar (a lista
+  // reabre sem a aluna), a escrita cai no banco, a resposta chega.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      incluirInscricao: (corpo, c) => {
+        delete c.respostas.incluirInscricao;
+        c.js.voltarParaInscritos();                                                              // ela já voltou...
+        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
+      }
+    }
+  });
+  abrirInclusao(cena, 'p1');
+  sairDaMatricula(cena, '9110001');
+  botaoSalvar(cena).click();
+
+  igual(Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001').length, 1);
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Origem');
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(/^Incluído\. Protocolo/.test(aviso), 'a coordenação precisa saber que gravou: ' + aviso);
+  igual(aviso.indexOf('defeito do painel'), -1, aviso);
+  // Pela matrícula: a Ana já está em "Origem" com a do Bruno (9220002), e o
+  // nome sozinho casaria com a linha de antes.
+  verdadeiro(/9110001/.test(cena.texto('insc-proj-tabela')), 'a lista reaberta ficou sem a aluna incluída');
+  verdadeiro(/2 de 2 na lista/.test(cena.texto('insc-proj-tabela')), cena.texto('insc-proj-tabela'));
+
+  // E a recusa chegando depois do Voltar morre calada: nada foi gravado, e o
+  // formulário de que ela fala já não existe.
+  cena.respostas.incluirInscricao = (corpo, c) => {
+    c.js.voltarParaInscritos();
+    return { ok: false, erro: 'E-mail inválido.' };
+  };
+  abrirInclusao(cena, 'p1');
+  preencherInclusao(cena, { matricula: '9110002', nome: 'Beatriz Nova', email: 'sem-arroba' });
+  botaoSalvar(cena).click();
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Origem');
+  igual(cena.texto('mensagem-modal'), '', 'o erro de um formulário abandonado apareceu na lista');
 });
 
 teste('o aviso do servidor chega junto, em amarelo — matrícula fora da lista e projeto repetido', () => {
@@ -4888,6 +5063,14 @@ teste('erro do servidor fica DENTRO da janela e preserva o formulário', () => {
   const dup = cena.texto('mensagem-modal');
   verdadeiro(/já está inscrito neste projeto\. Protocolo: [0-9a-f]{16}\./.test(dup), dup);
   igual(Object.keys(cena.documentos('inscricoes')).length, 3);
+
+  // Voltar leva o erro embora: a lista de inscritos não tem por que mostrar o
+  // "já está inscrito" de um formulário que já não está na tela.
+  // Mutação que derruba: tirar a limpeza de `#mensagem-modal` de
+  // `voltarParaInscritos()` — `verInscritosProjeto` não toca na faixa.
+  cena.botaoQueChama(/voltarParaInscritos\(\)/).click();
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Origem');
+  igual(cena.texto('mensagem-modal'), '', 'a faixa de erro do formulário ficou por cima da lista');
 });
 
 teste('Voltar reabre a lista sem gravar — e a lista volta a fechar no clique no fundo, sem perguntar', () => {
