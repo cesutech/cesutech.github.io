@@ -5267,4 +5267,587 @@ teste('todo campo que a janela manda é lido pelo servidor — o contrato dos do
     });
 });
 
+// ================================== "Incluir aluno" pela aba Alunos (21/09)
+//
+// A segunda porta do MESMO formulário. A coordenação travou num beco: a ficha
+// de quem veio só da lista oficial abre em Editar com o projeto desabilitado
+// (não há inscrição para migrar), e a única porta do Incluir ficava dentro da
+// lista de inscritos de um projeto — onde ninguém procura quem ainda não está
+// em projeto nenhum. Aqui a porta nova é CLICADA: o botão da barra, o select de
+// projeto, o Incluir sem projeto, o sucesso que fecha e atualiza a aba, e o
+// "Incluir num projeto" de dentro da janela Editar.
+
+grupo('a janela "Incluir aluno" pela aba Alunos, clicada');
+
+/** Clica no botão da barra da aba Alunos — pelo botão, não por dentro. */
+function abrirInclusaoPelaAba(cena) {
+  cena.js.trocarAba('alunos');
+  const botao = cena.documento.getElementById('botao-incluir-aluno');
+  if (!botao) throw new Error('a barra da aba Alunos não tem o botão Incluir aluno');
+  botao.click();
+}
+
+/** Escolhe o projeto no select — e chama o `onchange`, que o falso não liga sozinho. */
+function escolherProjeto(cena, id) {
+  cena.digitar('inc-projeto', id);
+  cena.js.escolherProjetoDaInclusao();
+}
+
+/** A ficha do cadastro com esta matrícula, como o cruzamento a deixou. */
+function fichaDe(cena, matricula) {
+  return cena.documentos('alunos')[alunoOnde(cena, 'matricula', matricula)];
+}
+
+teste('o botão está na barra da aba Alunos, e abre a janela com o select de projeto NA FRENTE e o título "Incluir aluno"', () => {
+  // Mutação que derruba: tirar o botão da barra; abrir sem tirar `oculto` do
+  // `#modal-fundo` (pela lista de inscritos a janela já estava aberta — por aqui
+  // não está); desenhar o select depois da matrícula; o rodapé vir com o Voltar
+  // da lista, que aqui não tem para onde voltar; ou `corpoDaInclusao` ler a
+  // ocupação de `INSCRITOS_PROJETO` sem olhar se há projeto — a última lista
+  // aberta é de um projeto que ninguém escolheu.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('projetos');
+  cena.js.verInscritosProjeto('p2');      // "Lotado", 2/2, fica em INSCRITOS_PROJETO...
+  cena.js.fecharModal();                  // ... depois de a lista fechar
+
+  const botao = cena.documento.getElementById('botao-incluir-aluno');
+  verdadeiro(botao, 'a barra da aba Alunos não tem o botão');
+  igual(botao.getAttribute('onclick'), 'abrirInclusaoDeAluno()');
+  verdadeiro(!janelaAberta(cena));
+  abrirInclusaoPelaAba(cena);
+
+  verdadeiro(janelaAberta(cena), 'o clique não abriu a janela');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno');
+  const html = cena.html('modal-corpo');
+  verdadeiro(cena.documento.getElementById('inc-projeto'), 'o formulário nasceu sem o select de projeto');
+  verdadeiro(html.indexOf('id="inc-projeto"') < html.indexOf('id="inc-matricula"'), 'o projeto não é o primeiro campo');
+  verdadeiro(/onchange="escolherProjetoDaInclusao\(\)"/.test(html), 'escolher no select não avisa ninguém');
+  ['inc-matricula', 'inc-nome', 'inc-email', 'inc-whatsapp', 'inc-curso', 'inc-observacoes'].forEach((id) => {
+    verdadeiro(cena.documento.getElementById(id), 'o formulário nasceu sem o campo ' + id);
+  });
+  const rodape = cena.html('modal-rodape');
+  verdadeiro(/onclick="fecharModal\(\)">Cancelar</.test(rodape), 'o rodapé não tem o Cancelar que fecha: ' + rodape);
+  igual(rodape.indexOf('voltarParaInscritos'), -1, 'o rodapé tem um Voltar sem lista para onde voltar');
+  igual(botaoSalvar(cena).textContent, 'Incluir');
+  verdadeiro(/aoGravar\(this, incluirInscricaoUI\)/.test(rodape), 'o Incluir grava por fora do envelope');
+
+  const texto = cena.texto('modal-corpo');
+  igual(texto.indexOf('Hoje:'), -1, 'a ocupação da última lista aberta vazou para o formulário da aba: ' + texto);
+  verdadeiro(texto.indexOf('a aba Alunos é atualizada') !== -1, 'o aviso não diz o que acontece ao incluir: ' + texto);
+  igual(texto.indexOf('próximo Atualizar'), -1, 'o aviso manda clicar em Atualizar, e é a tela quem vai fazer isso');
+  verdadeiro(!cena.documento.getElementById('modal-caixa').classList.contains('modal--largo'),
+    'o formulário herdou a largura da lista');
+});
+
+teste('o select lista os projetos de PROJETOS com a ocupação no rótulo — o MESMO rótulo do select da migração — e "escolha" na frente', () => {
+  // Mutação que derruba: rótulo só com o nome (a coordenação incluiria num
+  // projeto lotado sem saber); montar o select de outra lista; a primeira opção
+  // já ser um projeto (o Incluir sairia sem ninguém ter escolhido); ou
+  // `selectDeProjetos` e `opcoesDeProjetoParaInclusao` escreverem rótulos
+  // diferentes para o mesmo projeto.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('projetos');          // PROJETOS carregado pela aba
+  abrirInclusaoPelaAba(cena);
+
+  const select = cena.documento.getElementById('inc-projeto');
+  igual(select.value, '', 'o select nasceu com um projeto escolhido');
+  igual(select.opcoes.map((o) => o.valor), ['', 'p1', 'p2']);
+  igual(select.opcoes.map((o) => o.rotulo), ['— escolha o projeto —', 'Origem — 1/10', 'Lotado — 2/2 · Esgotado']);
+
+  cena.js.fecharModal();
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
+  igual(cena.documento.getElementById('ed-projeto').opcoes.map((o) => o.rotulo),
+    select.opcoes.slice(1).map((o) => o.rotulo), 'a Editar e o Incluir descrevem o mesmo projeto de jeitos diferentes');
+});
+
+teste('com a aba Projetos nunca aberta, a janela busca os projetos pela mesma chamada dela ANTES de desenhar — e não marca a aba como pronta', () => {
+  // Mutação que derruba: desenhar sem esperar a resposta (o select nasceria só
+  // com "escolha"); buscar por outra chamada; ou marcar `ABAS_PRONTAS.projetos`
+  // (a aba abriria depois sem tabela — a lista em memória não é a tela dela).
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  const projetos = chamadasDe(cena, 'painelProjetos').length;
+  const disciplinas = chamadasDe(cena, 'listarDisciplinas').length;
+  abrirInclusaoPelaAba(cena);
+
+  igual(chamadasDe(cena, 'painelProjetos').length, projetos + 1, 'a lista de projetos não foi buscada');
+  igual(cena.documento.getElementById('inc-projeto').opcoes.map((o) => o.valor), ['', 'p1', 'p2'], 'o select não nasceu inteiro');
+  // As duas listas faltavam, e as duas chegaram antes do desenho.
+  igual(chamadasDe(cena, 'listarDisciplinas').length, disciplinas + 1);
+  verdadeiro(cena.documento.getElementById('inc-curso').opcoes.length > 2, 'o select de curso nasceu vazio');
+
+  cena.js.fecharModal();
+  cena.js.trocarAba('projetos');
+  verdadeiro(cena.texto('conteudo-projetos').indexOf('Carregando') === -1);
+  verdadeiro(/Origem/.test(cena.texto('conteudo-projetos')), 'a aba Projetos abriu sem a tabela');
+  igual(chamadasDe(cena, 'painelProjetos').length, projetos + 2, 'a aba Projetos não se carregou — a janela a deu como pronta');
+
+  // Com a lista já em memória, abrir de novo não vai ao servidor.
+  abrirInclusaoPelaAba(cena);
+  igual(chamadasDe(cena, 'painelProjetos').length, projetos + 2, 'a lista foi buscada de novo com ela já na tela');
+});
+
+teste('Incluir sem projeto escolhido: a janela diz "Escolha o projeto." e NENHUMA requisição sai', () => {
+  // Mutação que derruba: tirar a guarda de `incluirInscricaoUI` — o pedido
+  // sairia com `projeto_id: ''` para o servidor recusar com uma frase pior, e
+  // uma ida a mais.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  abrirInclusaoPelaAba(cena);
+  sairDaMatricula(cena, '9110001');
+  const antes = cena.requisicoesHttp.length;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.requisicoesHttp.length, antes, 'saiu requisição sem projeto escolhido');
+  igual(requisicoesDe(cena, 'incluirInscricao').length, 0);
+  verdadeiro(cena.texto('mensagem-modal').indexOf('Escolha o projeto.') !== -1, cena.texto('mensagem-modal'));
+  verdadeiro(/aviso--erro/.test(cena.html('mensagem-modal')));
+  verdadeiro(janelaAberta(cena));
+  igual(cena.documento.getElementById('inc-nome').value, 'Ana Silva', 'o formulário se perdeu');
+  verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado sem requisição em voo');
+  igual(Object.keys(cena.documentos('inscricoes')).length, 3, 'gravou sem projeto');
+});
+
+teste('escolher o projeto e Incluir: o pedido leva o projeto escolhido, a janela fecha, a faixa do painel diz o protocolo, e a aba Alunos é ATUALIZADA (cruzada) — e a aba Projetos também', () => {
+  // Mutação que derruba: `projeto_id` de outro lugar que não o select; reabrir
+  // a lista em vez de fechar (`voltarParaInscritos` — não há lista); `avisar`
+  // ANTES de `atualizarAlunosUI` sem passar o relato (a faixa do cruzamento
+  // apaga o protocolo — no navegador segundos depois, aqui na hora);
+  // `carregarAlunos(1)` sem cruzar (a ficha da Ana continuaria "só
+  // matriculada", sem projeto); ou não recarregar a aba Projetos (a próxima
+  // inclusão leria a ocupação de antes).
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('projetos');
+  abrirInclusaoPelaAba(cena);
+  igual(fichaDe(cena, '9110001').status, 'SO_MATRICULADO', 'o cenário devia começar com a Ana só na lista oficial');
+  igual(fichaDe(cena, '9110001').projeto, '');
+
+  escolherProjeto(cena, 'p1');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Origem', 'o título não diz o projeto escolhido');
+  sairDaMatricula(cena, '9110001');
+  const atualizacoes = chamadasDe(cena, 'atualizarAlunos').length;
+  const projetos = chamadasDe(cena, 'painelProjetos').length;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, [], 'Origem tem vaga: não era para perguntar');
+  const envio = chamadasDe(cena, 'incluirInscricao')[0].args[0];
+  igual(envio.projeto_id, 'p1', 'o pedido não levou o projeto do select');
+  igual(envio.matricula, '9110001');
+  verdadeiro(!janelaAberta(cena), 'a janela ficou aberta depois do sucesso');
+  igual(cena.js.INCLUSAO, null);
+
+  const faixa = cena.texto('mensagem-global');
+  verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 2\/10\./.test(faixa), 'o topo da página não diz que gravou: ' + faixa);
+  verdadeiro(faixa.indexOf('Dados cruzados') !== -1, 'o relato do cruzamento não veio junto: ' + faixa);
+  igual(faixa.indexOf('próximo Atualizar'), -1, 'a faixa manda clicar em Atualizar — a tela acabou de fazer isso: ' + faixa);
+  verdadeiro(/aviso--sucesso/.test(cena.html('mensagem-global')), 'sem ressalva, o sucesso é verde');
+  igual(cena.texto('mensagem-modal'), '');
+
+  igual(chamadasDe(cena, 'atualizarAlunos').length, atualizacoes + 1, 'a aba Alunos não foi atualizada (cruzada)');
+  igual(chamadasDe(cena, 'painelProjetos').length, projetos + 1, 'a aba Projetos não foi recarregada');
+  const ficha = fichaDe(cena, '9110001');
+  igual(ficha.status, 'CONFIRMADO', 'o cruzamento não pôs a inscrição na ficha: ' + JSON.stringify(ficha));
+  igual(ficha.projeto, 'Origem', 'a ficha não apareceu com o projeto');
+  verdadeiro(/Ana Silva/.test(cena.texto('conteudo-alunos')), 'a tabela da aba não foi redesenhada');
+  verdadeiro(/Origem 10 2 \/ 10/.test(cena.texto('conteudo-projetos')),
+    'a aba Projetos não mostra 2 / 10: ' + cena.texto('conteudo-projetos'));
+  const doc = Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0];
+  igual(doc.projeto_id, 'p1');
+  igual(doc.origem, 'COORDENACAO');
+});
+
+teste('a ressalva do servidor (matrícula fora da lista oficial) chega AMARELA à faixa do painel — e o cruzamento não a apaga nem a esverdeia', () => {
+  // Mutação que derruba: `contarReconciliacao` ignorar o relato (a faixa
+  // ficaria só com "Dados cruzados", e o protocolo com a ressalva morreria);
+  // ou usar a cor do cruzamento (verde) por cima de um relato amarelo — o mesmo
+  // princípio de `relatar`: amarelo fica.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p1');
+  sairDaMatricula(cena, '9110777');
+  preencherInclusao(cena, { nome: 'Carla Terceira', email: 'carla@exemplo.com' });
+
+  botaoSalvar(cena).click();
+
+  verdadeiro(!janelaAberta(cena));
+  const faixa = cena.texto('mensagem-global');
+  verdadeiro(faixa.indexOf('Incluído.') !== -1, faixa);
+  verdadeiro(faixa.indexOf('não está na lista oficial') !== -1, faixa);
+  verdadeiro(faixa.indexOf('Dados cruzados') !== -1, faixa);
+  verdadeiro(/aviso--atencao/.test(cena.html('mensagem-global')),
+    'a ressalva foi engolida pelo verde do cruzamento: ' + cena.html('mensagem-global'));
+
+  // O Atualizar de sempre, sem relato nenhum, continua como era.
+  cena.js.atualizarAlunosUI();
+  const sozinho = cena.texto('mensagem-global');
+  igual(sozinho.indexOf('Incluído'), -1, 'o relato de antes vazou para o Atualizar seguinte: ' + sozinho);
+  verdadeiro(sozinho.indexOf('nada entrou desde a última vez') !== -1, sozinho);
+});
+
+teste('o cruzamento recusado pelo orçamento do dia: a janela fecha, a faixa diz o protocolo E o "não cruzei", e a ficha NÃO ganha o projeto — o formulário não tinha prometido', () => {
+  // Cada Incluir pela aba gasta uma rodada do cruzamento — a inscrição nova
+  // reabre o freio 1 —, e o freio 2 é por dia (PAINEL_ORCAMENTO_RECONCILIACAO,
+  // 10_Painel.gs): no tamanho real do cadastro, a terceira inclusão do dia já
+  // pode cair nele. A primeira versão do formulário prometia "a ficha aparece
+  // com o projeto", e aqui ela não aparece: a lista recarrega, a ficha continua
+  // "só matriculada", e quem explica é a faixa.
+  //
+  // Mutação que derruba: o formulário voltar a prometer a ficha com o projeto;
+  // o ramo `motivo` de `contarReconciliacao` ignorar o relato (a faixa diria só
+  // "Não cruzei", e o protocolo morreria — o teste da ressalva amarela cobre o
+  // ramo `resumo`, não este); ou escrever esse ramo em verde — verde se apaga
+  // sozinho em 6 s (`avisar`), e o relógio levaria o "não cruzei" junto,
+  // deixando a coordenação com uma ficha sem projeto e nenhuma explicação.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('alunos');
+  cena.js.atualizarAlunosUI();                                        // nasce a marca da reconciliação...
+  const marca = JSON.parse(cena.ambiente.propriedades.get('painel_reconciliacao'));
+  marca.gasto = cena.api.PAINEL_ORCAMENTO_RECONCILIACAO;              // ... e o dia já gastou tudo
+  cena.ambiente.propriedades.set('painel_reconciliacao', JSON.stringify(marca));
+
+  abrirInclusaoPelaAba(cena);
+  const aviso = cena.texto('modal-corpo');
+  verdadeiro(aviso.indexOf('a ficha ganha o projeto quando o cruzamento roda') !== -1,
+    'o aviso não condiciona a ficha ao cruzamento: ' + aviso);
+  igual(aviso.indexOf('a ficha aparece com o projeto'), -1, 'o aviso promete o que o servidor pode recusar: ' + aviso);
+  escolherProjeto(cena, 'p1');
+  sairDaMatricula(cena, '9110001');
+  const atualizacoes = chamadasDe(cena, 'atualizarAlunos').length;
+  cena.zerarTarefas();
+
+  botaoSalvar(cena).click();
+
+  verdadeiro(!janelaAberta(cena));
+  igual(chamadasDe(cena, 'atualizarAlunos').length, atualizacoes + 1, 'a aba Alunos não foi atualizada');
+  const faixa = cena.texto('mensagem-global');
+  verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 2\/10\. Não cruzei os dados/.test(faixa),
+    'a faixa não traz o protocolo na frente do "não cruzei": ' + faixa);
+  verdadeiro(faixa.indexOf(String(cena.api.PAINEL_ORCAMENTO_RECONCILIACAO)) !== -1, 'a recusa não diz o teto: ' + faixa);
+  verdadeiro(/Reconciliar agora/.test(faixa), 'a faixa não diz a saída: ' + faixa);
+  verdadeiro(/aviso--info/.test(cena.html('mensagem-global')),
+    'a cor não é a do "não cruzei" de sempre: ' + cena.html('mensagem-global'));
+  cena.rodarTarefas();                                                 // os 6 s do verde, se alguém os armou
+  verdadeiro(cena.texto('mensagem-global').indexOf('Não cruzei os dados') !== -1,
+    'o relógio apagou a explicação: ' + cena.texto('mensagem-global'));
+
+  // A inscrição existe, e a ficha não a tem — é exatamente o que a faixa diz.
+  const doc = Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0];
+  igual(doc.projeto_id, 'p1', 'a inclusão não foi gravada');
+  igual(fichaDe(cena, '9110001').status, 'SO_MATRICULADO', 'a ficha mudou sem cruzamento?');
+  igual(fichaDe(cena, '9110001').projeto, '');
+  verdadeiro(/Ana Silva/.test(cena.texto('conteudo-alunos')), 'a lista não foi recarregada');
+});
+
+teste('Cancelar fecha a janela sem gravar e sem requisição — e reabrir traz o formulário limpo', () => {
+  // Mutação que derruba: o Cancelar chamar `voltarParaInscritos()` (sem lista,
+  // a janela ficaria aberta com o formulário dentro) ou `incluirInscricaoUI`
+  // (gravaria); ou `abrirInclusaoDeAluno` reaproveitar o `INCLUSAO` anterior.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p1');
+  preencherInclusao(cena, { matricula: '9110002', nome: 'Beatriz Nova', email: 'bia@exemplo.com' });
+  verdadeiro(cena.js.modalTemTrabalho(), 'digitar no formulário devia contar como trabalho');
+  const antes = cena.requisicoesHttp.length;
+
+  cena.botaoQueChama(/^fecharModal\(\)$/).click();
+
+  verdadeiro(!janelaAberta(cena), 'Cancelar não fechou a janela');
+  igual(cena.requisicoesHttp.length, antes, 'Cancelar falou com o servidor');
+  igual(Object.keys(cena.documentos('inscricoes')).length, 3, 'Cancelar gravou');
+  igual(cena.js.INCLUSAO, null);
+  igual(cena.confirmacoes, [], 'Cancelar perguntou — botão deliberado não pergunta');
+
+  abrirInclusaoPelaAba(cena);
+  igual(cena.documento.getElementById('inc-matricula').value, '', 'o formulário reabriu com o que tinha sido cancelado');
+  igual(cena.documento.getElementById('inc-projeto').value, '');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno', 'o título reabriu com o projeto da vez anterior');
+  verdadeiro(!cena.js.modalTemTrabalho(), 'o formulário novo nasceu com trabalho de ninguém');
+});
+
+teste('a resposta do Incluir chega DEPOIS do ×: a janela FICA fechada, a faixa do painel diz que gravou, e a aba Alunos é atualizada mesmo assim', () => {
+  // Mutação que derruba: tratar a porta da aba como a da lista no sucesso
+  // (`voltarParaInscritos`/`verInscritosProjeto` — aqui não há lista, e a aba
+  // Alunos ficaria sem o cruzamento); reabrir a janela para avisar; ou o ramo
+  // `precisa_confirmar` perguntar sobre um formulário que já não existe.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      incluirInscricao: (corpo, c) => {
+        delete c.respostas.incluirInscricao;
+        c.js.fecharModal();                                                                   // ela fechou no ×...
+        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));   // ... e aí a escrita cai
+      }
+    }
+  });
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p1');
+  sairDaMatricula(cena, '9110001');
+  const atualizacoes = chamadasDe(cena, 'atualizarAlunos').length;
+  botaoSalvar(cena).click();
+
+  verdadeiro(!janelaAberta(cena), 'a janela fechada reabriu com a resposta tardia');
+  igual(cena.texto('mensagem-modal'), '');
+  const faixa = cena.texto('mensagem-global');
+  verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 2\/10\./.test(faixa), faixa);
+  igual(chamadasDe(cena, 'atualizarAlunos').length, atualizacoes + 1, 'a aba Alunos não foi atualizada');
+  igual(fichaDe(cena, '9110001').status, 'CONFIRMADO');
+  igual(fichaDe(cena, '9110001').projeto, 'Origem');
+
+  // A pergunta do teto chegando depois do ×: morre calada, sem reenvio.
+  cena.respostas.incluirInscricao = (corpo, c) => {
+    c.js.fecharModal();
+    return { ok: false, precisa_confirmar: true, inscritos: 2, vagas: 2, erro: 'Este projeto está com 2/2. Incluir deixa 3/2.' };
+  };
+  cena.respostaConfirm = true;
+  cena.documento.getElementById('mensagem-global').innerHTML = '';
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p2');
+  preencherInclusao(cena, { matricula: '9110002', nome: 'Beatriz Nova', email: 'bia@exemplo.com' });
+  const envios = requisicoesDe(cena, 'incluirInscricao').length;
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, [], 'perguntou o teto de um formulário que já não existe');
+  igual(requisicoesDe(cena, 'incluirInscricao').length, envios + 1, 'reenviou com confirmar_teto sem pergunta');
+  verdadeiro(!janelaAberta(cena));
+  igual(cena.texto('mensagem-global'), '');
+  igual(cena.api.contarInscritos_('p2'), 2);
+});
+
+teste('trocar o projeto no select enquanto a pergunta do teto viaja: o "sim" NÃO vale para o projeto novo — nada é gravado, a janela explica, e o Incluir seguinte pergunta sobre o projeto da tela', () => {
+  // O Incluir trava só o botão; o select fica vivo durante os segundos do Apps
+  // Script. A primeira versão relia `INCLUSAO.projetoId` na segunda chamada, e
+  // o "sim" dado a "Lotado está com 2/2" saía com `confirmar_teto` para Origem
+  // — por cima do teto de Origem, sobre o qual ninguém tinha perguntado. Pela
+  // lista do projeto isso não existe (o projeto é fixo); a mutabilidade é desta
+  // porta.
+  //
+  // Mutação que derruba: reenviar lendo o projeto da janela em vez do
+  // perguntado (a inscrição entra em Origem, 2/1, sem pergunta — o segundo
+  // envio aqui teria `p1` com `confirmar_teto`); ou tirar a guarda e mandar o
+  // perguntado às cegas (gravaria em Lotado com a tela dizendo Origem).
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.atualizar('projetos', 'p1', { vagas: '1' });   // Origem 1/1: cheia também
+    },
+    respostas: {
+      incluirInscricao: (corpo, c) => {
+        delete c.respostas.incluirInscricao;
+        escolherProjeto(c, 'p1');                          // a troca, com o pedido em voo
+        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+      }
+    }
+  });
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+  cena.respostaConfirm = true;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, ['Este projeto está com 2/2. Incluir deixa 3/2. Continuar?'], 'a pergunta era sobre Lotado');
+  igual(chamadasDe(cena, 'incluirInscricao').map((c) => c.args[0].projeto_id), ['p2'],
+    'reenviou para um projeto sobre o qual ninguém perguntou');
+  igual(cena.api.contarInscritos_('p1'), 1, 'a inscrição entrou em Origem por cima do teto, sem pergunta');
+  igual(cena.api.contarInscritos_('p2'), 2, 'gravou em Lotado com a tela dizendo Origem');
+  verdadeiro(janelaAberta(cena), 'a janela fechou sem ter gravado nada');
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(aviso.indexOf('A pergunta do teto era sobre Lotado') !== -1, aviso);
+  verdadeiro(aviso.indexOf('nada foi incluído') !== -1, aviso);
+  verdadeiro(/aviso--erro/.test(cena.html('mensagem-modal')));
+  verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado sem requisição em voo');
+  igual(cena.documento.getElementById('inc-projeto').value, 'p1', 'a tela desfez a escolha da coordenação');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Origem');
+
+  // Incluir de novo: agora a pergunta é sobre Origem, e o "sim" vale para ela.
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes[1], 'Este projeto está com 1/1. Incluir deixa 2/1. Continuar?');
+  igual(chamadasDe(cena, 'incluirInscricao').map((c) => [c.args[0].projeto_id, c.args[0].confirmar_teto]),
+    [['p2', undefined], ['p1', undefined], ['p1', true]]);
+  igual(cena.api.contarInscritos_('p1'), 2);
+  igual(cena.api.contarInscritos_('p2'), 2);
+  verdadeiro(!janelaAberta(cena));
+  verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 2\/1\./.test(cena.texto('mensagem-global')),
+    cena.texto('mensagem-global'));
+});
+
+teste('a marca "(este projeto)" segue o projeto escolhido: trocar o select redesenha o aviso de já-inscrito, sem consultar de novo', () => {
+  // Mutação que derruba: não redesenhar no `onchange` (quem está na fila do
+  // projeto recém-escolhido leria "use Alunos → Editar → Projeto" quando o
+  // Incluir vai, na verdade, promover); ou consultar a lista oficial de novo a
+  // cada troca — o nome e o e-mail corrigidos na tela seriam sobrescritos pela
+  // ficha. Guardar `ja_em` fora de `INCLUSAO` NÃO cai aqui: uma janela só, uma
+  // matrícula só. É o teste seguinte que a pega.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
+      });
+    }
+  });
+  abrirInclusaoPelaAba(cena);
+  sairDaMatricula(cena, '9110001');       // ANTES de escolher o projeto
+  const consultas = chamadasDe(cena, 'buscarMatriculado').length;
+
+  let aviso = cena.texto('inc-ja-em');
+  verdadeiro(aviso.indexOf('Lotado (em espera)') !== -1, aviso);
+  igual(aviso.indexOf('(este projeto)'), -1, 'sem projeto escolhido, ninguém é "este projeto": ' + aviso);
+  verdadeiro(aviso.indexOf('Alunos → Editar → Projeto') !== -1, aviso);
+
+  escolherProjeto(cena, 'p2');
+  aviso = cena.texto('inc-ja-em');
+  verdadeiro(aviso.indexOf('Lotado (este projeto) (em espera)') !== -1, 'o aviso não seguiu o projeto escolhido: ' + aviso);
+  verdadeiro(aviso.indexOf('Incluir dá a vaga à inscrição que já existe') !== -1, aviso);
+  igual(chamadasDe(cena, 'buscarMatriculado').length, consultas, 'trocar o projeto consultou a lista oficial de novo');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Lotado');
+
+  escolherProjeto(cena, 'p1');
+  aviso = cena.texto('inc-ja-em');
+  igual(aviso.indexOf('(este projeto)'), -1, aviso);
+  verdadeiro(aviso.indexOf('Alunos → Editar → Projeto') !== -1, aviso);
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Origem');
+
+  // De volta a "escolha": o título perde o projeto, e o Incluir volta a recusar.
+  escolherProjeto(cena, '');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno');
+  const antes = cena.requisicoesHttp.length;
+  botaoSalvar(cena).click();
+  igual(cena.requisicoesHttp.length, antes);
+  verdadeiro(cena.texto('mensagem-modal').indexOf('Escolha o projeto.') !== -1);
+});
+
+teste('o aviso de já-inscrito morre com a janela e com a matrícula apagada: `ja_em` vive em INCLUSAO, e não fora dela', () => {
+  // Mutação que derruba: guardar `ja_em` numa variável da página em vez de em
+  // `INCLUSAO` (a consulta de uma janela cancelada reapareceria na seguinte,
+  // com a matrícula em branco, assim que alguém escolhesse o projeto da fila:
+  // "está na fila de espera deste projeto" sobre ninguém); ou tirar o
+  // `INCLUSAO.jaEm = []` de `buscarMatriculadoUI` (apagar a matrícula e trocar
+  // o projeto redesenharia o aviso da matrícula anterior). As duas sobreviviam
+  // ao teste anterior, que tem uma janela só e uma matrícula só.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
+      });
+    }
+  });
+
+  // Consulta na primeira janela, Cancelar, segunda janela sem matrícula:
+  // escolher o projeto da fila não pode ressuscitar a consulta da outra.
+  abrirInclusaoPelaAba(cena);
+  sairDaMatricula(cena, '9110001');
+  verdadeiro(cena.texto('inc-ja-em').indexOf('Lotado') !== -1, 'o cenário devia começar com a Ana na fila de Lotado');
+  cena.botaoQueChama(/^fecharModal\(\)$/).click();
+  abrirInclusaoPelaAba(cena);
+  igual(cena.texto('inc-ja-em'), '');
+  igual(cena.js.INCLUSAO.jaEm, [], 'a janela nova nasceu com a consulta da anterior');
+  escolherProjeto(cena, 'p2');
+  igual(cena.texto('inc-ja-em'), '', 'a consulta da janela cancelada reapareceu na nova: ' + cena.texto('inc-ja-em'));
+
+  // Consulta, matrícula apagada (a saída do campo em branco), projeto trocado:
+  // o aviso da matrícula que já não está no campo não volta.
+  sairDaMatricula(cena, '9110001');
+  verdadeiro(cena.texto('inc-ja-em').indexOf('Lotado (este projeto) (em espera)') !== -1, cena.texto('inc-ja-em'));
+  const consultas = chamadasDe(cena, 'buscarMatriculado').length;
+  sairDaMatricula(cena, '');
+  igual(chamadasDe(cena, 'buscarMatriculado').length, consultas, 'matrícula em branco consultou a lista oficial');
+  igual(cena.texto('inc-ja-em'), '');
+  escolherProjeto(cena, 'p1');
+  escolherProjeto(cena, 'p2');
+  igual(cena.texto('inc-ja-em'), '', 'o aviso da matrícula apagada voltou ao trocar o projeto: ' + cena.texto('inc-ja-em'));
+});
+
+teste('Editar de quem veio só da lista oficial: o aviso ganha "Incluir num projeto", que abre o formulário com a matrícula no campo e a lista oficial já consultada', () => {
+  // Mutação que derruba: não disparar a consulta ao abrir (nome e e-mail
+  // ficariam em branco, e a coordenação redigitaria o que a secretaria já
+  // sabe); não pôr a matrícula no campo; o botão aparecer também para quem TEM
+  // inscrição (o caminho desse é migrar, pelo select da própria Editar); ou o
+  // Cancelar voltar à Editar em vez de fechar. E uma que SOBREVIVEU à primeira
+  // versão: contar as listas que faltam ENQUANTO se pede cada uma — aqui as
+  // duas faltam (nenhuma aba aberta), e a resposta da primeira, chegando antes
+  // do segundo pedido, zerava a conta e desenhava o formulário TRÊS vezes; a
+  // consulta à lista oficial saía três vezes, e é isso que o "+ 1" abaixo pega.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('alunos');
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9110001'));
+
+  verdadeiro(cena.documento.getElementById('ed-projeto').disabled, 'o cenário devia ser o beco: projeto desabilitado');
+  const botao = cena.documento.getElementById('ed-incluir');
+  verdadeiro(botao, 'o aviso de "só da lista oficial" não tem o botão');
+  igual(botao.textContent, 'Incluir num projeto');
+  igual(botao.getAttribute('onclick'), "abrirInclusaoDeAluno('', '9110001')");
+  const consultas = chamadasDe(cena, 'buscarMatriculado').length;
+
+  botao.click();
+
+  verdadeiro(janelaAberta(cena));
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno');
+  verdadeiro(cena.documento.getElementById('inc-projeto'), 'o formulário veio sem o select de projeto');
+  igual(cena.documento.getElementById('inc-matricula').value, '9110001', 'a matrícula não veio preenchida');
+  verdadeiro(/id="inc-matricula" value="9110001"/.test(cena.html('modal-corpo')),
+    'a matrícula foi escrita depois, e não na marcação — viraria "trabalho" de ninguém');
+  igual(chamadasDe(cena, 'buscarMatriculado').length, consultas + 1, 'a lista oficial não foi consultada ao abrir');
+  igual(cena.documento.getElementById('inc-nome').value, 'Ana Silva');
+  igual(cena.documento.getElementById('inc-email').value, 'ana@exemplo.com');
+  igual(cena.texto('inc-lista'), 'Na lista oficial: ADS · ADS11');
+  verdadeiro(!cena.documento.getElementById('ed-turma'), 'a janela Editar continuou na tela');
+  igual(cena.js.ALUNO_EDICAO, null, 'o estado da Editar sobreviveu à troca de formulário');
+
+  cena.botaoQueChama(/^fecharModal\(\)$/).click();
+  verdadeiro(!janelaAberta(cena), 'Cancelar não fechou');
+  verdadeiro(!cena.documento.getElementById('ed-turma'), 'Cancelar voltou à Editar');
+
+  // Quem TEM inscrição não ganha o botão: o caminho dele é migrar.
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
+  verdadeiro(!cena.documento.getElementById('ed-incluir'), 'o botão apareceu para quem tem inscrição');
+  verdadeiro(!cena.documento.getElementById('ed-projeto').disabled);
+});
+
+teste('o beco, de ponta a ponta: Editar → Incluir num projeto → escolher → Incluir — a ficha sai de "só matriculada" para confirmada, com o projeto', () => {
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  cena.js.trocarAba('alunos');
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9110001'));
+  cena.documento.getElementById('ed-incluir').click();
+  escolherProjeto(cena, 'p1');
+
+  botaoSalvar(cena).click();
+
+  verdadeiro(!janelaAberta(cena));
+  igual(cena.confirmacoes, []);
+  const ficha = fichaDe(cena, '9110001');
+  igual(ficha.status, 'CONFIRMADO', JSON.stringify(ficha));
+  igual(ficha.projeto, 'Origem');
+  verdadeiro(/^Incluído\. Protocolo/.test(cena.texto('mensagem-global')), cena.texto('mensagem-global'));
+  const doc = Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0];
+  igual(doc.nome, 'Ana Silva', 'o nome da lista oficial não viajou');
+  igual(doc.email, 'ana@exemplo.com');
+  verdadeiro(/^ADS11 - /.test(doc.curso_fase), 'o curso escolhido pela turma não viajou: ' + doc.curso_fase);
+});
+
+teste('pela lista do projeto nada mudou: sem select, o projeto no título, a ocupação de hoje, e o Voltar que reabre a lista', () => {
+  // Mutação que derruba: desenhar o select de projeto sempre (um convite a
+  // incluir em OUTRO projeto a partir da lista de um), o rodapé da lista ganhar
+  // o Cancelar que fecha, ou o sucesso da lista passar a fechar a janela (os
+  // testes do grupo anterior cobrem o resto, sem ajuste nenhum).
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  abrirInclusao(cena, 'p2');
+
+  verdadeiro(!cena.documento.getElementById('inc-projeto'), 'o select de projeto apareceu pela lista do projeto');
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Lotado');
+  verdadeiro(/Hoje: 2 ocupando vaga de 2/.test(cena.texto('modal-corpo')));
+  verdadeiro(cena.texto('modal-corpo').indexOf('próximo Atualizar') !== -1, cena.texto('modal-corpo'));
+  const rodape = cena.html('modal-rodape');
+  verdadeiro(/voltarParaInscritos\(\)">Voltar</.test(rodape), rodape);
+  igual(rodape.indexOf('fecharModal'), -1, 'o rodapé da lista ganhou o Cancelar da aba');
+  igual(cena.js.INCLUSAO.daLista, true);
+  igual(cena.js.INCLUSAO.projetoId, 'p2');
+});
+
 process.exit(resultado());

@@ -2336,7 +2336,10 @@ teste('só as DUAS janelas de lista alargam, e o fechamento é quem estreita', (
   verdadeiro(/janelaLarga\(false\)/.test(fechar[0]),
     'a janela larga deixou de ser estreitada ao fechar — o próximo formulário herda 1180px');
 
-  const inclusao = /function abrirInclusaoDeAluno\(id\)[\s\S]*?\n  \}/.exec(PAGINA);
+  // A assinatura ganhou a matrícula em 21/09, com a porta pela aba Alunos (o
+  // "Incluir num projeto" da janela Editar abre o formulário com ela no campo).
+  // O que se afirma continua o mesmo: a função estreita a janela.
+  const inclusao = /function abrirInclusaoDeAluno\(id, matricula\)[\s\S]*?\n  \}/.exec(PAGINA);
   verdadeiro(inclusao !== null, 'abrirInclusaoDeAluno sumiu do painel');
   verdadeiro(/janelaLarga\(false\)/.test(inclusao[0]),
     'o formulário de inclusão passou a herdar a largura da lista');
