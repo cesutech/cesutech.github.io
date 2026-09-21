@@ -4613,7 +4613,8 @@
    * NOVO a cada abertura: é pela identidade dele que a resposta de um Incluir
    * descobre se a janela que o clicou ainda é a que está aberta (ver
    * `incluirInscricaoUI`). Trocar o projeto no select muda o campo, não o
-   * objeto: a janela continua a mesma.
+   * objeto: a janela continua a mesma — e é por isso que a confirmação do teto
+   * carrega o projeto que foi perguntado, em vez de reler este campo.
    */
   var INCLUSAO = null;
 
@@ -4749,9 +4750,16 @@
       'do período de inscrição, do interruptor do formulário e do teto de vagas (com confirmação). ' +
       'A coordenação não consente pelo aluno — ciência e aviso de privacidade ficam em branco na ' +
       'inscrição. ' +
+      // Pela aba, o aviso promete só o que a tela faz: rodar o Atualizar. A
+      // ficha ganha o projeto quando o CRUZAMENTO roda, e ele tem freio de
+      // orçamento por dia (PAINEL_ORCAMENTO_RECONCILIACAO, 10_Painel.gs) — no
+      // tamanho real do cadastro, a terceira inclusão do dia já pode cair nele.
+      // "A ficha aparece com o projeto" seria uma promessa que o servidor pode
+      // recusar; quem diz se cruzou é a faixa do painel, depois de incluir.
       (p
         ? 'A ficha em <strong>Alunos</strong> atualiza no próximo <strong>Atualizar</strong> daquela aba.'
-        : 'Ao incluir, a aba <strong>Alunos</strong> é atualizada — a ficha aparece com o projeto.') +
+        : 'Ao incluir, a aba <strong>Alunos</strong> é atualizada: a ficha ganha o projeto quando o ' +
+          'cruzamento roda, e a faixa do painel diz se rodou — ou por que não.') +
       (ocupacao ? '<br>Hoje: <strong>' + escapar(ocupacao) + '</strong>.' : '') + '</div>';
 
     // O select de projeto é o PRIMEIRO campo, e só existe quando o projeto não
@@ -4993,6 +5001,20 @@
    * destrava antes de entregar a resposta, e travá-lo outra vez é o que impede o
    * clique duplo enquanto a confirmação viaja.
    *
+   * E A SEGUNDA LEVA `projetoPerguntado`: o projeto sobre o qual o servidor
+   * perguntou — o do pedido que saiu, não o da janela agora. Pela aba Alunos o
+   * projeto é um select, e o Incluir trava só o botão: entre o clique e a
+   * resposta (segundos, no Apps Script) o select continua vivo, e "Este projeto
+   * está com 2/2. Continuar?" pode chegar com OUTRO projeto escolhido na tela.
+   * Reler `INCLUSAO.projetoId` na segunda chamada mandava o "sim" — com
+   * `confirmar_teto`, que passa por cima do teto — ao projeto novo, sobre o qual
+   * ninguém perguntou. Quando os dois divergem, nada sai: a janela explica, e o
+   * Incluir seguinte pergunta sobre o projeto que está na tela. Recusar, e não
+   * travar o select junto com o botão, porque travar à mão é o que `aoGravar`
+   * existe para não se fazer — um destravamento esquecido num desfecho (a rede
+   * caindo) deixaria o select preso. Pela lista do projeto os dois nunca
+   * divergem, e nada muda.
+   *
    * Sem projeto escolhido (o select da aba Alunos ainda em "escolha"), recusa
    * ANTES de mandar: o servidor recusaria do mesmo jeito, mas uma ida ao Apps
    * Script para ouvir "projeto não encontrado" é uma ida a mais e uma frase
@@ -5019,9 +5041,17 @@
    * resposta é redesenhada, e a aba Alunos é atualizada de qualquer jeito. O que
    * o sucesso tardio NUNCA faz é reabrir a janela que a coordenação fechou.
    */
-  function incluirInscricaoUI(confirmarTeto) {
+  function incluirInscricaoUI(confirmarTeto, projetoPerguntado) {
     if (!INCLUSAO) return;
     if (!INCLUSAO.projetoId) { avisar('erro', 'Escolha o projeto.'); return; }
+    if (confirmarTeto === true && projetoPerguntado !== INCLUSAO.projetoId) {
+      // O "sim" foi dado a uma pergunta sobre outro projeto (ver o cabeçalho).
+      // Ninguém adota o botão, e `aoGravar` o devolve.
+      avisar('erro', 'A pergunta do teto era sobre ' + nomeDoProjetoEmProjetos_(projetoPerguntado) +
+        ', e o projeto foi trocado enquanto ela viajava: nada foi incluído. Confira o projeto ' +
+        'e clique em Incluir de novo.');
+      return;
+    }
 
     var janela = INCLUSAO;
     var payload = {
@@ -5042,7 +5072,7 @@
       if (!r.ok && r.precisa_confirmar) {
         if (!aindaAqui) return;
         if (!window.confirm(r.erro + ' Continuar?')) return;
-        aoGravar(document.getElementById('modal-salvar'), incluirInscricaoUI, true);
+        aoGravar(document.getElementById('modal-salvar'), incluirInscricaoUI, true, payload.projeto_id);
         return;
       }
       if (!r.ok) {
@@ -5050,7 +5080,9 @@
         return;
       }
 
-      var projetoId = janela.projetoId;
+      // O projeto do PEDIDO, e não `janela.projetoId`: pela aba o select pode
+      // ter mudado enquanto a resposta viajava, e o que foi gravado é o que saiu.
+      var projetoId = payload.projeto_id;
       var tipo = r.aviso ? 'atencao' : 'sucesso';
       var texto = r.mensagem + (r.aviso ? ' ' + r.aviso : '');
 
@@ -5071,6 +5103,12 @@
       // projeto, num clique de coordenação.
       if (projetoId) carregarProjetos();
     });
+  }
+
+  /** O nome de um projeto de `PROJETOS` — ou o id, quando a lista não o tem. */
+  function nomeDoProjetoEmProjetos_(id) {
+    var p = PROJETOS.filter(function (x) { return String(x.id) === String(id); })[0];
+    return p && p.nome ? String(p.nome) : String(id);
   }
 
   /** A janela está aberta, e o que ela mostra é a lista de inscritos DESTE projeto. */
