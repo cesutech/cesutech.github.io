@@ -129,7 +129,10 @@
       trocar a tela de entrada de todo mundo por causa de uma noite seria o mesmo
       erro ao contrário.
     -->
-    <button class="aba" data-aba="auditorio" onclick="trocarAba('auditorio')">Auditório</button>
+    <!-- O rótulo virou "Geral" em 21/09 (pedido do Jonathan). O nome INTERNO
+         continua `auditorio` — ids, funções, 13_Auditorio.gs e as ações do
+         log —, porque é o nome que a trilha já carrega e ninguém vê. -->
+    <button class="aba" data-aba="auditorio" onclick="trocarAba('auditorio')">Geral</button>
     <button class="aba" data-aba="projetos" onclick="trocarAba('projetos')">Projetos</button>
     <button class="aba" data-aba="disciplinas" onclick="trocarAba('disciplinas')">Disciplinas</button>
     <button class="aba" data-aba="alunos" onclick="trocarAba('alunos')">Alunos</button>
@@ -201,12 +204,6 @@
     Atualizar limpa a marcação de propósito (ver `carregarAuditorio`).
   -->
   <section id="secao-auditorio" class="oculto">
-    <div class="barra-acoes">
-      <button class="btn btn--primario" id="auditorio-atualizar"
-              onclick="carregarAuditorio()">Atualizar</button>
-      <span class="pequeno texto-fraco" id="auditorio-lido" style="align-self:center"></span>
-    </div>
-
     <!-- O estado em uma olhada: por projeto, quanto entrou, quanto cabe, quantos
          esperam. Quem chega nesta tela precisa saber em dois segundos se há
          problema — e o problema é gente esperando. -->
@@ -216,27 +213,15 @@
          anulação. `aria-live` porque o bloco aparece e muda SEM troca de tela. -->
     <div id="auditorio-alerta" aria-live="polite"></div>
 
-    <h2>Chegando agora</h2>
-    <p class="texto-fraco pequeno">
-      Da mais nova para a mais velha, com a data e o horário — toque no cabeçalho
-      da lista para ordenar por outra coluna. É aqui que uma rajada se enxerga:
-      mesmo projeto, segundos entre uma linha e outra, nomes sem cara de gente.
-    </p>
     <!--
-      O TETO DO LOTE MORA AQUI, e não só na hora em que ele é estourado.
-
-      A faixa marca 200 em dois toques, e a lista chega a mil linhas: descobrir o
-      teto só depois de ter marcado 380 é descobrir tarde — o trabalho já foi
-      feito e a única saída é desmarcar 180 uma a uma. A frase é escrita por
-      `desenharTetoDoLote`, e não fixa na marcação, porque o número é do SERVIDOR
-      (`lote_maximo`, nas duas leituras): repeti-lo aqui à mão criaria uma tela
-      que continua dizendo 200 no dia em que o servidor passar a fazer 500.
+      Aqui moravam um título ("Chegando agora"), a explicação da lista e a regra
+      da faixa (toque, toque em outra, entre as duas). Saíram em 21/09 a pedido
+      do Jonathan: quem opera esta aba já sabe os gestos, e o texto empurrava a
+      lista para baixo em toda visita. O que era FUNCIONAL ali — o teto do lote,
+      "até 200 por vez", que o servidor manda — não sumiu: passou para a barra
+      de marcadas (`desenharAcoes`), que aparece na PRIMEIRA linha tocada. É o
+      mesmo momento "antes do estrago": ninguém marca 380 sem ter visto 1.
     -->
-    <p class="pequeno" id="auditorio-regra">
-      <strong>Toque</strong> numa linha para marcar. Toque em <strong>outra</strong> e
-      tudo que estiver <strong>entre as duas</strong> é marcado junto. Toque numa
-      marcada para desmarcar só ela.<span id="auditorio-teto-lote"></span>
-    </p>
     <!--
       Os filtros moram FORA de `#auditorio-recentes`, e o motivo é o mesmo que
       `desenharInscritosProjeto` já escreveu: a lista se redesenha a cada tecla,
@@ -285,6 +270,13 @@
         <input type="date" id="filtro-aud-ate" onchange="filtrarRecentes()">
       </div>
       <button class="btn" onclick="limparFiltroAuditorio()">Limpar filtros</button>
+      <!-- Atualizar mora na linha dos filtros (21/09), e não numa barra própria
+           acima dos cartões: é a linha em que a coordenação já está com o dedo
+           quando quer dado novo. O que ele faz não mudou — recarrega cartões e
+           lista, e LIMPA a marcação de propósito (ver `carregarAuditorio`). -->
+      <button class="btn btn--primario" id="auditorio-atualizar"
+              onclick="carregarAuditorio()">Atualizar</button>
+      <span class="pequeno texto-fraco" id="auditorio-lido" style="align-self:center"></span>
     </div>
 
     <div id="auditorio-acoes-recentes"></div>
@@ -2848,7 +2840,6 @@
     // servidor novo e depois com um velho continuaria usando o número do primeiro
     // — e ele pode ter mudado justamente por causa da troca.
     AUDITORIO.loteMaximo = null;
-    desenharTetoDoLote();
 
     desenharAcoes('recentes');
     desenharAcoes('fila');
@@ -2881,7 +2872,6 @@
       AUDITORIO.fila = r.fila || [];
       AUDITORIO.truncada = Boolean(r.truncada);
       guardarLoteMaximo_(r.lote_maximo);
-      desenharTetoDoLote();
       AUDITORIO.okProjetos = true;
       marcarAuditorioPronto();
       desenharProjetosDoAuditorio();
@@ -2907,7 +2897,6 @@
       AUDITORIO.recentesTruncada = typeof r.truncada === 'boolean' ? r.truncada : null;
       AUDITORIO.recentesTotal = Number(r.total) || 0;
       guardarLoteMaximo_(r.lote_maximo);
-      desenharTetoDoLote();
       // A OFERTA TAMBÉM, e não só a faixa de aviso: `desenharOferta` imprime o
       // teto no próprio botão ("Promover 200 da fila"), e ela é desenhada pela
       // OUTRA leitura, que pode ter chegado antes desta. Sem este redesenho, a
@@ -3092,18 +3081,6 @@
     return idsQueCabem().slice(0, loteMaximo_());
   }
 
-  /**
-   * A frase do teto na regra da faixa — o número 200 dito ANTES de ser estourado.
-   *
-   * A faixa marca 200 linhas em dois toques, e a lista chega a mil: sem esta
-   * frase, o teto só aparece depois que o trabalho já foi feito, e a saída de
-   * quem marcou 380 é desmarcar 180 uma a uma. Ela é curta e mora colada à regra
-   * da faixa porque é a mesma regra — o que um gesto faz, e até onde ele vai.
-   */
-  function desenharTetoDoLote() {
-    document.getElementById('auditorio-teto-lote').innerHTML =
-      ' Anular e promover fazem até <strong>' + loteMaximo_() + '</strong> por vez.';
-  }
 
   // ------------------------------------------ Período e ordenação das listas
   //
@@ -3721,9 +3698,14 @@
           'onclick="aoGravar(this, promoverMarcadas)">Promover ' + visiveis + '</button>';
     }
 
+    // O teto vai na barra desde a PRIMEIRA marcação, e não só no aviso de
+    // "demais": a faixa marca 200 em dois toques, e quem descobre o número
+    // depois de marcar 380 desmarca 180 uma a uma. O número é o do SERVIDOR
+    // (`lote_maximo`, nas duas leituras) — nunca um 200 fixo na tela.
     el.innerHTML = '<div class="barra-acoes">' +
       '<strong style="align-self:center">' + marcadas + ' marcada(s)' +
-      (fora ? ' &middot; ' + fora + ' fora do filtro' : '') + '</strong>' + acao +
+      (fora ? ' &middot; ' + fora + ' fora do filtro' : '') +
+      ' &middot; até ' + teto + ' por vez</strong>' + acao +
       (fora ? '<button class="btn" onclick="limparFiltroAuditorio()">Mostrar as ' +
         fora + '</button>' : '') +
       '<button class="btn" onclick="limparMarcas(\'' + lista + '\')">Limpar</button></div>' +
