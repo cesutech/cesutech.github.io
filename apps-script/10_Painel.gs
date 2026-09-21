@@ -2492,7 +2492,15 @@ function listarLotes(payload) {
           linhas: l.linhas,
           importado_em: l.importado_em,
           importado_por: l.importado_por,
-          status: l.status
+          status: l.status,
+          // A turma do relatório, gravada por `registrarLote_` desde 21/09. Lote
+          // anterior a isso vem sem os campos, e a coluna da aba fica vazia —
+          // que é a verdade sobre ele: não há chave para a conferência de quem
+          // não veio, e reimportar o mesmo arquivo é o que a grava.
+          turma: l.turma_cabecalho || '',
+          turma_origem: l.turma_origem || '',
+          semestre: l.semestre_cabecalho || '',
+          linhas_da_turma: l.linhas_da_turma || ''
         };
       })
     };

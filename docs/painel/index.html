@@ -469,6 +469,22 @@
 
         <div id="aviso-importacao"></div>
 
+        <!--
+          A TURMA DO RELATÓRIO, lida do cabeçalho do arquivo e conferida aqui.
+
+          A secretaria emite um relatório por turma, e é essa turma — não a de
+          cada linha — que o lote guarda como chave de "quem estava no banco
+          como ADS41 e não veio neste arquivo". O campo é editável porque o OCR
+          estraga cabeçalho (ADS4l), e sem isto a única saída seria reimportar.
+          Mexer nele registra a turma como INFORMADA no lote; apagar importa
+          sem a chave. A dica embaixo diz de onde o valor veio.
+        -->
+        <div class="campo" id="campo-turma-cabecalho">
+          <label for="turma-cabecalho">Turma do relatório</label>
+          <input type="text" id="turma-cabecalho" maxlength="40" placeholder="ex.: ADS41">
+          <span class="dica" id="dica-turma-cabecalho"></span>
+        </div>
+
         <div class="tabela-wrap mb">
           <table>
             <thead>
@@ -7040,6 +7056,8 @@
       r.totalLinhas + ' linha(s), formato ' + escapar(r.tipo) + '.</div>' +
       (r.aviso ? '<div class="aviso aviso--atencao">' + escapar(r.aviso) + '</div>' : '');
 
+    montarTurmaDoRelatorio(r.cabecalho);
+
     // Mapeamento campo → coluna
     var corpo = document.getElementById('corpo-mapeamento');
     corpo.innerHTML = '';
@@ -7079,6 +7097,47 @@
       linhas += '</tr>';
     });
     document.getElementById('corpo-amostra').innerHTML = linhas;
+  }
+
+  /**
+   * O campo "Turma do relatório" do passo 2, preenchido pelo que a análise leu.
+   *
+   * Quatro origens, e a dica diz qual foi — porque é a única defesa contra o
+   * OCR que estraga o cabeçalho: o professor precisa saber se está confirmando
+   * o que o arquivo diz ou um palpite tirado das linhas. Arquivo com mais de um
+   * cabeçalho vem VAZIO de propósito: dois relatórios colados não têm uma turma,
+   * e prefixar um deles seria decidir por ele.
+   */
+  function montarTurmaDoRelatorio(cabecalho) {
+    var c = cabecalho || {};
+    var campo = document.getElementById('turma-cabecalho');
+    var dica = document.getElementById('dica-turma-cabecalho');
+    var valor = '';
+    var texto = '';
+
+    if (c.origem === 'CABECALHO') {
+      valor = c.turma;
+      texto = 'Lida do cabeçalho do arquivo' + (c.semestre ? ' (' + escapar(c.semestre) + ')' : '') +
+        '. É por ela que, no fim, o sistema confere quem estava como ' + escapar(c.turma) +
+        ' e não veio. Um relatório por turma.';
+    } else if (c.origem === 'DISCIPLINA') {
+      valor = c.turma;
+      texto = 'Lida da linha da disciplina. É por ela que, no fim, o sistema confere quem estava ' +
+        'como ' + escapar(c.turma) + ' e não veio.';
+    } else if (c.turmas && c.turmas.length > 1) {
+      texto = 'O arquivo tem mais de um cabeçalho (' + escapar(c.turmas.join(', ')) + '). Informe a ' +
+        'turma, ou deixe vazio para importar sem a conferência de quem não veio.';
+    } else if (c.sugestao && c.sugestao.valida) {
+      valor = c.sugestao.turma;
+      texto = 'Não reconhecida no arquivo; sugerida pelas linhas (' + c.sugestao.comTurma + ' de ' +
+        c.sugestao.total + '). Confira antes de importar.';
+    } else {
+      texto = 'Não reconhecida no arquivo. Informe a turma, ou deixe vazio para importar sem a ' +
+        'conferência de quem não veio.';
+    }
+
+    campo.value = valor;
+    dica.innerHTML = texto;
   }
 
   function atualizarExemplo(select) {
@@ -7127,7 +7186,11 @@
       arquivo: IMPORTACAO.arquivo,
       tipo: IMPORTACAO.tipo,
       mapeamento: mapeamento,
-      substituir: document.getElementById('substituir').checked
+      substituir: document.getElementById('substituir').checked,
+      // O valor do campo, SEMPRE — inclusive vazio. É o servidor que decide se
+      // houve mudança (comparando com o que a análise leu); vazio explícito é
+      // "importar sem a chave", e ausente seria "decida por mim".
+      turmaCabecalho: document.getElementById('turma-cabecalho').value.trim()
     }, function (r) {
       if (!r || !r.ok) { avisar('erro', (r && r.erro) || 'Falha na importação.'); return; }
 
@@ -7140,7 +7203,13 @@
         // repetidas" e o aviso do substituir. O servidor sempre mandou; a tela
         // nunca desenhou, e os números sumiam sem deixar rastro para o professor.
         (r.aviso ? '<div class="aviso aviso--atencao">' + escapar(r.aviso) + '</div>' : '') +
+        '<div id="pos-revisao"></div>' +
         '<div id="pos-importacao"></div>';
+
+      // A turma com que o lote ficou. Bloco próprio, escrito depois, pelo mesmo
+      // motivo de `pos-importacao`: é o lugar onde a conferência de quem não
+      // veio vai desenhar o resultado dela.
+      document.getElementById('pos-revisao').innerHTML = turmaRegistradaNoLote(r.cabecalho);
 
       // A reconciliação é uma EXECUÇÃO À PARTE, e de propósito — ver o cabeçalho
       // de 05_Importacao.gs. Aqui ela é só o botão seguinte.
@@ -7158,6 +7227,25 @@
         '<button class="btn" onclick="reiniciarImportacao()">Importar outro arquivo</button>' +
         '</div>';
     });
+  }
+
+  /**
+   * A linha do passo 3 que diz com que turma o lote ficou — o que a conferência
+   * de quem não veio vai usar. Sem turma, diz que a conferência não existe para
+   * este arquivo, para ninguém esperar por ela.
+   */
+  function turmaRegistradaNoLote(cabecalho) {
+    var c = cabecalho || {};
+    if (!c.turma) {
+      return '<p class="texto-fraco pequeno">Este arquivo ficou sem turma do relatório — a ' +
+        'conferência de quem não veio só existe por turma.</p>';
+    }
+    var origem = c.origem === 'INFORMADA' ? 'informada por você' :
+      c.origem === 'MAIORIA' ? 'deduzida das linhas' : 'lida do arquivo';
+    return '<p class="texto-fraco pequeno">Turma do relatório registrada: <strong>' + escapar(c.turma) +
+      '</strong>' + (c.semestre ? ' — ' + escapar(c.semestre) : '') + ' (' + origem + '), ' +
+      c.linhasDaTurma + ' linha(s) dessa turma' +
+      (c.preenchidas ? ', ' + c.preenchidas + ' sem turma no arquivo receberam essa' : '') + '.</p>';
   }
 
   /**
@@ -7218,6 +7306,8 @@
     document.getElementById('arquivo').value = '';
     document.getElementById('status-upload').innerHTML = '';
     document.getElementById('substituir').checked = false;
+    document.getElementById('turma-cabecalho').value = '';
+    document.getElementById('dica-turma-cabecalho').innerHTML = '';
     irParaPasso(1);
   }
 
@@ -7242,7 +7332,7 @@
         'lista antiga inteira, use <strong>Apagar matriculados</strong> na linha dela — quem voltou ' +
         'numa importação mais nova pertence ao lote mais novo e não é tocado.</p>' +
         '<div class="tabela-wrap"><table><thead><tr>' +
-        '<th>Quando</th><th>Arquivo</th><th>Tipo</th><th>Linhas</th><th>Por</th><th>Modo</th><th></th>' +
+        '<th>Quando</th><th>Arquivo</th><th>Tipo</th><th>Linhas</th><th>Turma</th><th>Por</th><th>Modo</th><th></th>' +
         '</tr></thead><tbody>';
       r.itens.forEach(function (l) {
         html += '<tr>' +
@@ -7250,6 +7340,7 @@
           '<td class="quebra">' + escapar(l.arquivo) + '</td>' +
           '<td>' + escapar(l.tipo) + '</td>' +
           '<td>' + escapar(l.linhas) + '</td>' +
+          '<td>' + turmaDoLote(l) + '</td>' +
           '<td>' + escapar(l.importado_por) + '</td>' +
           '<td>' + escapar(l.status) + '</td>' +
           '<td>' + (l.status === 'EXPURGADO'
@@ -7261,6 +7352,23 @@
       });
       el.innerHTML = html + '</tbody></table></div>';
     });
+  }
+
+  /**
+   * A coluna "Turma" da aba Importações: a turma do relatório e de onde veio.
+   *
+   * Lida do arquivo (cabeçalho ou linha da disciplina) fica sem rótulo — é o
+   * caso normal. Deduzida das linhas ou informada à mão ganham o rótulo, porque
+   * são as duas que valem a pena reconferir antes de confiar na conferência de
+   * quem não veio. Lote sem turma (anterior a 21/09, ou arquivo sem cabeçalho)
+   * fica vazio: reimportar o mesmo arquivo é o que grava a chave.
+   */
+  function turmaDoLote(l) {
+    if (!l.turma) return '<span class="texto-fraco">—</span>';
+    var rotulo = l.turma_origem === 'INFORMADA' ? ' (informada)' :
+      (l.turma_origem === 'CABECALHO' || l.turma_origem === 'DISCIPLINA') ? '' : ' (linhas)';
+    return escapar(l.turma) + (l.semestre ? ' <span class="texto-fraco pequeno">' + escapar(l.semestre) + '</span>' : '') +
+      (rotulo ? '<span class="texto-fraco pequeno">' + rotulo + '</span>' : '');
   }
 
   /**

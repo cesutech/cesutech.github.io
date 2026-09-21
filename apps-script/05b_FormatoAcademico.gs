@@ -139,6 +139,115 @@ function extrairTelefones_(texto) {
   return lista[lista.length - 1];
 }
 
+// ------------------------------------------------------------ Cabeçalho
+
+/**
+ * A turma e o semestre do CABEÇALHO do relatório — a chave de "quem estava nesta
+ * turma e não veio neste arquivo".
+ *
+ * O relatório da secretaria é emitido UM POR TURMA, e diz isso na primeira linha
+ * útil, sempre na mesma forma:
+ *
+ *   ADM 41 (MATRIZ NOVA) - 2026/2 Relação de Alunos Matriculados com Telefone
+ *   PMM21 - 2026/2 Relação de Alunos Matriculados com Telefone
+ *
+ * É a turma do RELATÓRIO, e não a de cada linha: a linha traz a turma do aluno,
+ * e o mesmo arquivo lista aluno de outra fase cursando junto (o ADM 31 dentro do
+ * relatório de ADM 41). Para saber quem da turma sumiu da lista, a régua tem de
+ * ser a do cabeçalho — a da linha diria que o aluno de ADM 31 "não veio" no
+ * arquivo de ADM 31, quando ele veio, só que no de ADM 41.
+ *
+ * Duas fontes, em ordem de confiança:
+ *   CABECALHO    `TURMA - AAAA/S` (com o semestre). Exatamente UMA turma distinta
+ *                nas ocorrências; mais de uma é arquivo com dois relatórios
+ *                colados, e aí ninguém é a chave — a tela pergunta.
+ *   DISCIPLINA   `(TURMA)` no fim do título da disciplina, quando não há
+ *                cabeçalho com semestre. Sem semestre.
+ *
+ * As duas expressões nascem DENTRO da função, e não no escopo do arquivo, por
+ * causa do `g`: expressão global guarda `lastIndex` entre chamadas e só o zera
+ * quando `exec` devolve null. Os laços abaixo vão até o fim e por isso zeram;
+ * bastaria alguém "otimizar" com um `break` no primeiro achado para a segunda
+ * chamada sobre o mesmo texto começar do meio e não achar nada — o tipo de
+ * defeito que só aparece na segunda importação da tarde. Dentro da função, o
+ * `lastIndex` nasce zerado a cada chamada e o laço pode mudar sem medo.
+ *
+ * O que NÃO casa, de propósito: `(09342914)` (matrícula — sem letras),
+ * `(48)90001-0013` (telefone — a trava do parêntese começar com letra é de
+ * PADRAO_TURMA), e `ADS4l - 2026/2` (OCR trocando 1 por l — não é turma, e é
+ * melhor cair na maioria das linhas do que gravar `ADS4L` como chave).
+ *
+ * Devolve { turma, turmaBruta, semestre, origem, turmas, aviso }:
+ *   turma       chave normalizada (`normalizarTurma`) ou ''
+ *   turmaBruta  como veio ('ADM 41 (MATRIZ NOVA)') — o par matricula/matricula_oficial
+ *   semestre    '2026/2' ou ''
+ *   origem      'CABECALHO' | 'DISCIPLINA' | ''
+ *   turmas      as turmas distintas dos cabeçalhos, quando há mais de uma
+ *   aviso       a frase para a tela, só no caso ambíguo
+ */
+function cabecalhoDoArquivo_(texto) {
+  // O mesmo achatamento de `extrairAcademicoAchatado_`: o OCR quebra a linha
+  // onde quer, e "2026/" numa linha com "2" na seguinte é o mesmo cabeçalho.
+  var plano = String(texto || '').replace(/\s+/g, ' ');
+  var cabecalho = new RegExp('(' + PADRAO_TURMA.source + ')\\s*[-–—]\\s*(20\\d{2})\\s*/\\s*([12])(?!\\d)', 'g');
+  var disciplina = new RegExp('\\((' + PADRAO_TURMA.source + ')\\)', 'g');
+
+  var vazio = { turma: '', turmaBruta: '', semestre: '', origem: '', turmas: [], aviso: '' };
+  var m;
+
+  var turmas = [];
+  var brutas = {};
+  var semestres = {};
+  while ((m = cabecalho.exec(plano)) !== null) {
+    var chave = normalizarTurma(m[1]);
+    if (!chave) continue;
+    if (brutas[chave] === undefined) { turmas.push(chave); brutas[chave] = m[1].trim(); }
+    semestres[m[2] + '/' + m[3]] = true;
+  }
+
+  if (turmas.length === 1) {
+    return {
+      turma: turmas[0], turmaBruta: brutas[turmas[0]],
+      semestre: Object.keys(semestres)[0] || '',
+      origem: 'CABECALHO', turmas: turmas, aviso: ''
+    };
+  }
+
+  if (turmas.length > 1) {
+    // Dois cabeçalhos são dois relatórios num arquivo só. O semestre ainda serve
+    // quando os dois concordam — é o que fica no lote se o professor informar a
+    // turma à mão no passo 2 — e sai vazio quando discordam.
+    var unicos = Object.keys(semestres);
+    return {
+      turma: '', turmaBruta: '', semestre: unicos.length === 1 ? unicos[0] : '',
+      origem: '', turmas: turmas,
+      aviso: 'O arquivo tem mais de um cabeçalho de turma (' + turmas.join(', ') + '). ' +
+             'A secretaria emite um relatório por turma — a conferência de quem não veio ' +
+             'fica desligada para este arquivo, a menos que você informe a turma.'
+    };
+  }
+
+  var daDisciplina = [];
+  var brutasDisciplina = {};
+  while ((m = disciplina.exec(plano)) !== null) {
+    var chaveDisciplina = normalizarTurma(m[1]);
+    if (!chaveDisciplina) continue;
+    if (brutasDisciplina[chaveDisciplina] === undefined) {
+      daDisciplina.push(chaveDisciplina);
+      brutasDisciplina[chaveDisciplina] = m[1].trim();
+    }
+  }
+
+  if (daDisciplina.length === 1) {
+    return {
+      turma: daDisciplina[0], turmaBruta: brutasDisciplina[daDisciplina[0]],
+      semestre: '', origem: 'DISCIPLINA', turmas: daDisciplina, aviso: ''
+    };
+  }
+
+  return vazio;
+}
+
 // ------------------------------------------------------------ PDF
 
 /**

@@ -2560,6 +2560,186 @@ teste('o botão de uma linha de tabela que some na resposta não estoura ao volt
   verdadeiro(!novo.disabled, 'a tabela redesenhou com o botão travado');
 });
 
+// ------------------------------------------- A turma do relatório, na tela
+
+/**
+ * O QUE ESTE BLOCO PROTEGE: a chave da conferência de "quem estava como ADS41 e
+ * não veio" passa pela tela DUAS vezes — no campo "Turma do relatório" do passo
+ * 2 (o único lugar em que o professor pode consertar um cabeçalho que o OCR
+ * estragou) e na coluna "Turma" da aba Importações (onde ele confere depois).
+ * Os dois são marcação e concatenação de string; nenhum teste de servidor os
+ * vê. Aqui se abre o passo 2 com a análise encenada e se lê o que ficou na tela
+ * e o que saiu no payload.
+ */
+grupo('a turma do relatório — o campo do passo 2 e a coluna da aba Importações');
+
+/** A análise de um PDF de ADS41, como o servidor a devolve. */
+function analiseComCabecalho(cabecalho) {
+  return {
+    ok: true, tempId: 't1', arquivo: 'ads41.pdf', tipo: 'PDF', totalLinhas: 2,
+    cabecalhos: ['Nome completo', 'Matrícula', 'Turma', 'Telefone'],
+    amostra: [['Ana Silva', '9110001', 'ADS41', '']],
+    mapeamento: { nome: 0, matricula: 1, turma: 2 },
+    cabecalho: cabecalho
+  };
+}
+
+function abrirPasso2(cena, cabecalho) {
+  const analise = analiseComCabecalho(cabecalho);
+  cena.js.trocarAba('importar');
+  cena.js.IMPORTACAO = analise;
+  cena.js.montarPasso2(analise);
+  return analise;
+}
+
+teste('o passo 2 mostra a turma lida do cabeçalho, com o semestre na dica', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirPasso2(cena, {
+    turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origem: 'CABECALHO', turmas: ['ADS41'], aviso: ''
+  });
+
+  igual(cena.elemento('turma-cabecalho').value, 'ADS41');
+  const dica = cena.texto('dica-turma-cabecalho');
+  verdadeiro(dica.indexOf('2026/2') !== -1, 'a dica não diz o semestre: ' + dica);
+  verdadeiro(dica.indexOf('cabeçalho do arquivo') !== -1, dica);
+});
+
+teste('sem cabeçalho reconhecido, a sugestão das linhas entra no campo e a dica manda conferir', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirPasso2(cena, {
+    turma: '', turmaBruta: '', semestre: '', origem: '', turmas: [], aviso: '',
+    sugestao: { turma: 'ADS41', fracao: 0.9, comTurma: 27, total: 30, valida: true }
+  });
+
+  igual(cena.elemento('turma-cabecalho').value, 'ADS41');
+  const dica = cena.texto('dica-turma-cabecalho');
+  verdadeiro(dica.indexOf('27 de 30') !== -1, dica);
+  verdadeiro(dica.indexOf('Confira') !== -1, 'a sugestão tem de pedir conferência: ' + dica);
+});
+
+teste('sugestão fraca NÃO entra no campo — palpite vira pergunta', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirPasso2(cena, {
+    turma: '', turmaBruta: '', semestre: '', origem: '', turmas: [], aviso: '',
+    sugestao: { turma: 'ADS41', fracao: 1, comTurma: 3, total: 3, valida: false }
+  });
+
+  igual(cena.elemento('turma-cabecalho').value, '', 'três linhas viraram chave prefixada');
+  verdadeiro(cena.texto('dica-turma-cabecalho').indexOf('Informe a turma') !== -1);
+});
+
+teste('dois cabeçalhos no arquivo: campo vazio e a dica nomeia os dois', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirPasso2(cena, {
+    turma: '', turmaBruta: '', semestre: '2026/2', origem: '', turmas: ['ADS41', 'ADS31'], aviso: 'x',
+    sugestao: { turma: 'ADS41', fracao: 0.6, comTurma: 30, total: 50, valida: true }
+  });
+
+  igual(cena.elemento('turma-cabecalho').value, '', 'dois relatórios colados não têm UMA turma');
+  const dica = cena.texto('dica-turma-cabecalho');
+  verdadeiro(dica.indexOf('ADS41, ADS31') !== -1, dica);
+});
+
+teste('o payload do Confirmar leva o campo — como está, mexido ou apagado', () => {
+  // Mutação que derruba: tirar `turmaCabecalho` do payload — o servidor seguiria
+  // a cadeia automática e a única saída para um cabeçalho estragado pelo OCR
+  // deixaria de existir, sem nenhum erro na tela.
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.respostas.confirmarImportacao = { ok: true, importadas: 2, ignoradas: 0 };
+  const cabecalho = {
+    turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origem: 'CABECALHO', turmas: ['ADS41'], aviso: ''
+  };
+
+  abrirPasso2(cena, cabecalho);
+  cena.elemento('botao-confirmar').click();
+  let corpo = JSON.parse(requisicoesDe(cena, 'confirmarImportacao')[0].corpo);
+  igual(corpo.dados.turmaCabecalho, 'ADS41', 'como veio');
+
+  cena.js.reiniciarImportacao();
+  igual(cena.elemento('turma-cabecalho').value, '', 'reiniciar tem de limpar o campo');
+  abrirPasso2(cena, cabecalho);
+  cena.digitar('turma-cabecalho', ' ads 42 ');
+  cena.elemento('botao-confirmar').click();
+  corpo = JSON.parse(requisicoesDe(cena, 'confirmarImportacao')[1].corpo);
+  igual(corpo.dados.turmaCabecalho, 'ads 42', 'mexido: vai como digitado, aparado');
+
+  cena.js.reiniciarImportacao();
+  abrirPasso2(cena, cabecalho);
+  cena.digitar('turma-cabecalho', '');
+  cena.elemento('botao-confirmar').click();
+  corpo = JSON.parse(requisicoesDe(cena, 'confirmarImportacao')[2].corpo);
+  igual(corpo.dados.turmaCabecalho, '', 'apagado: vazio EXPLÍCITO, e não ausente');
+  verdadeiro(Object.prototype.hasOwnProperty.call(corpo.dados, 'turmaCabecalho'));
+});
+
+teste('o passo 3 diz com que turma o lote ficou', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.respostas.confirmarImportacao = {
+    ok: true, importadas: 2, ignoradas: 0,
+    cabecalho: { turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origem: 'INFORMADA', linhasDaTurma: 2, preenchidas: 1 }
+  };
+  abrirPasso2(cena, null);
+  cena.elemento('botao-confirmar').click();
+
+  const tela = cena.texto('pos-revisao');
+  verdadeiro(tela.indexOf('ADS41') !== -1, tela);
+  verdadeiro(tela.indexOf('informada por você') !== -1, 'a origem tem de ser dita: ' + tela);
+  verdadeiro(tela.indexOf('1 sem turma no arquivo receberam') !== -1, tela);
+  verdadeiro(cena.elemento('botao-reconciliar-pos'), 'o passo seguinte continua onde estava');
+
+  // Sem turma, o passo 3 diz que a conferência não existe para este arquivo.
+  const outra = abrirPainel({ semear: cadastroBase });
+  outra.respostas.confirmarImportacao = {
+    ok: true, importadas: 2, ignoradas: 0,
+    cabecalho: { turma: '', turmaBruta: '', semestre: '', origem: '', linhasDaTurma: 0, preenchidas: 0 }
+  };
+  abrirPasso2(outra, null);
+  outra.elemento('botao-confirmar').click();
+  verdadeiro(outra.texto('pos-revisao').indexOf('sem turma do relatório') !== -1, outra.texto('pos-revisao'));
+});
+
+teste('a aba Importações mostra a turma, e rotula a que foi informada ou deduzida', () => {
+  // Mutação que derruba: rotular pela presença de `turma_origem` em vez de pelo
+  // valor — o lote lido do cabeçalho ganharia "(linhas)" e o professor
+  // desconfiaria do caso normal.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      const base = { tipo: 'PDF', linhas: '2', importado_em: '01/08/2026', importado_por: 'coord@exemplo.com', status: 'ATUALIZOU' };
+      api.inserir('lotes', Object.assign({}, base, {
+        lote_id: 'L1', arquivo: 'cabecalho.pdf', criado_em: '20260801T090000000Z',
+        turma_cabecalho: 'ADS41', turma_origem: 'CABECALHO', semestre_cabecalho: '2026/2', linhas_da_turma: '2'
+      }), 'L1');
+      api.inserir('lotes', Object.assign({}, base, {
+        lote_id: 'L2', arquivo: 'informada.pdf', criado_em: '20260802T090000000Z',
+        turma_cabecalho: 'ADS42', turma_origem: 'INFORMADA', semestre_cabecalho: '', linhas_da_turma: '0'
+      }), 'L2');
+      api.inserir('lotes', Object.assign({}, base, {
+        lote_id: 'L3', arquivo: 'maioria.csv', criado_em: '20260803T090000000Z',
+        turma_cabecalho: 'ADS43', turma_origem: 'MAIORIA', semestre_cabecalho: '', linhas_da_turma: '5'
+      }), 'L3');
+      api.inserir('lotes', Object.assign({}, base, {
+        lote_id: 'L0', arquivo: 'antigo.csv', criado_em: '20260701T090000000Z'
+      }), 'L0');
+    }
+  });
+  cena.js.trocarAba('lotes');
+
+  const html = cena.html('conteudo-lotes');
+  verdadeiro(html.indexOf('<th>Turma</th>') !== -1, 'a coluna não existe');
+  const linhaDe = (arquivo) => {
+    const i = html.indexOf(arquivo);
+    return html.slice(i, html.indexOf('</tr>', i));
+  };
+  verdadeiro(/ADS41/.test(linhaDe('cabecalho.pdf')) && !/\(linhas\)|\(informada\)/.test(linhaDe('cabecalho.pdf')),
+    'lida do cabeçalho vai sem rótulo: ' + linhaDe('cabecalho.pdf'));
+  verdadeiro(/2026\/2/.test(linhaDe('cabecalho.pdf')), 'o semestre acompanha');
+  verdadeiro(/ADS42.*\(informada\)/.test(linhaDe('informada.pdf')), linhaDe('informada.pdf'));
+  verdadeiro(/ADS43.*\(linhas\)/.test(linhaDe('maioria.csv')), linhaDe('maioria.csv'));
+  verdadeiro(/—/.test(linhaDe('antigo.csv')) && !/undefined/.test(linhaDe('antigo.csv')),
+    'lote sem cabeçalho fica vazio, e não "undefined": ' + linhaDe('antigo.csv'));
+});
+
 // ==================================================== A aba Auditório
 //
 // O QUE ESTE BLOCO PROTEGE, e por que ele é clicado e não conferido por regex.

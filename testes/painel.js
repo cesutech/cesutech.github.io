@@ -1286,6 +1286,51 @@ teste('a importação de verdade grava lotes que este painel consegue ordenar', 
   igual(r.itens[0].importado_por, 'coordenacao@exemplo.com');
 });
 
+teste('a turma do relatório gravada por registrarLote_ é a que listarLotes devolve', () => {
+  // O outro lado do mesmo contrato: `registrarLote_` grava `turma_cabecalho`,
+  // `turma_origem`, `semestre_cabecalho` e `linhas_da_turma`; a aba Importações
+  // lê `turma`, `turma_origem`, `semestre` e `linhas_da_turma`. Mutação que
+  // derruba: renomear um campo de um lado só — a coluna "Turma" ficaria vazia
+  // em todo lote, sem erro nenhum.
+  const amb = criarAmbiente({
+    arquivos: ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
+      '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '07_Auth.gs',
+      '07b_LinkPorEmail.gs',
+      '09_Projetos.gs', '10_Painel.gs'],
+    usuario: 'coordenacao@exemplo.com'
+  });
+  const token = amb.api.criarSessao_('coordenacao@exemplo.com');
+  const base = {
+    tipo: 'CSV', gravados: 10, previstos: 10, quem: 'coordenacao@exemplo.com',
+    mapeamento: { nome: 0 }, substituirPedido: false, falhou: false
+  };
+
+  amb.api.registrarLote_(Object.assign({}, base, {
+    loteId: '20260701T090000000Z_aaa', arquivo: 'sem-cabecalho.csv', quando: '2026-07-01 09:00:00'
+  }));
+  amb.api.registrarLote_(Object.assign({}, base, {
+    loteId: '20260801T090000000Z_bbb', arquivo: 'ads41.csv', quando: '2026-08-01 09:00:00',
+    cabecalho: {
+      turma: 'ADS41', turmaBruta: 'ADS 41', semestre: '2026/2', origem: 'CABECALHO',
+      turmas: ['ADS41'], linhasDaTurma: 9, preenchidas: 1
+    }
+  }));
+
+  const r = amb.api.listarLotes({ token: token });
+  igual(r.ok, true);
+  igual(r.itens[0].arquivo, 'ads41.csv');
+  igual(r.itens[0].turma, 'ADS41');
+  igual(r.itens[0].turma_origem, 'CABECALHO');
+  igual(r.itens[0].semestre, '2026/2');
+  igual(r.itens[0].linhas_da_turma, '9');
+
+  // Lote sem cabeçalho (anterior a 21/09, ou reconstituído à mão): campos
+  // vazios, e não `undefined` — a tela concatena, e "undefined" apareceria.
+  igual(r.itens[1].turma, '');
+  igual(r.itens[1].turma_origem, '');
+  igual(r.itens[1].semestre, '');
+});
+
 // ------------------------------------------------------------ Orçamento
 
 grupo('orçamento de leitura — o número do cabeçalho, medido');
