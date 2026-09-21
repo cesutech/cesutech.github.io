@@ -413,6 +413,15 @@
       <!-- Exportar grava: cada exportação deixa uma linha na trilha de auditoria. -->
       <button class="btn" id="botao-exportar" data-gravando="Gerando o arquivo..."
               onclick="aoGravar(this, baixarCsv)">Exportar CSV</button>
+      <!--
+        Incluir quem NÃO se inscreveu, escolhendo o projeto dentro da janela — a
+        segunda porta do mesmo formulário (ver `abrirInclusaoDeAluno`). A primeira
+        fica na lista de inscritos de um projeto, e é onde ninguém procura quem
+        ainda não está em projeto nenhum: a coordenação abria a ficha de quem
+        veio só da lista oficial em Editar, achava o projeto desabilitado, e não
+        tinha por onde seguir.
+      -->
+      <button class="btn" id="botao-incluir-aluno" onclick="abrirInclusaoDeAluno()">Incluir aluno</button>
     </div>
 
     <div id="conteudo-alunos" class="carregando">Carregando...</div>
@@ -4443,6 +4452,8 @@
           // Incluir alguém que NÃO se inscreveu — ver `abrirInclusaoDeAluno`. Vive
           // nesta janela porque é aqui que a coordenação está olhando a lista e
           // percebe quem falta; e é daqui que ela volta a olhar depois de incluir.
+          // A outra porta do mesmo formulário fica na barra da aba Alunos, para
+          // quem ainda não está em projeto nenhum.
           '<button class="btn btn--pequeno btn--primario" id="insc-proj-incluir" ' +
           'onclick="abrirInclusaoDeAluno(\'' + escapar(id) + '\')">Incluir aluno</button>') +
         '<div id="insc-proj-tabela"></div>';
@@ -4582,14 +4593,27 @@
   // ------------------------------------------------ Incluir aluno no projeto
 
   /**
-   * O que a janela "Incluir aluno" sabe enquanto está aberta: de que projeto é.
+   * O que a janela "Incluir aluno" sabe enquanto está aberta: de que projeto é,
+   * por onde entrou e o que a lista oficial disse da matrícula.
+   *
+   *   projetoId/projetoNome  o projeto — fixo quando a janela veio da lista de
+   *                          inscritos dele, escolhido no select quando veio da
+   *                          aba Alunos ('' enquanto ninguém escolhe);
+   *   daLista                veio da lista de inscritos do projeto, e é para ela
+   *                          que volta (ver `abrirInclusaoDeAluno`);
+   *   jaEm                   as inscrições da matrícula consultada, como
+   *                          `buscarMatriculado` as mandou — guardadas porque a
+   *                          marca "(este projeto)" é calculada contra o projeto
+   *                          da janela, e na aba Alunos ele pode ser trocado
+   *                          DEPOIS da consulta (ver `desenharJaEmDaInclusao_`).
    *
    * Fica aqui pelo mesmo motivo de `ALUNO_EDICAO`: o Incluir precisa saber para
-   * onde voltar depois de gravar. Zera em `fecharModal()` e em
+   * onde ir depois de gravar. Zera em `fecharModal()` e em
    * `voltarParaInscritos()`, com os outros estados de janela — e é um objeto
    * NOVO a cada abertura: é pela identidade dele que a resposta de um Incluir
    * descobre se a janela que o clicou ainda é a que está aberta (ver
-   * `incluirInscricaoUI`).
+   * `incluirInscricaoUI`). Trocar o projeto no select muda o campo, não o
+   * objeto: a janela continua a mesma.
    */
   var INCLUSAO = null;
 
@@ -4597,62 +4621,126 @@
   var CURSO_OUTRO = '__outro__';
 
   /**
-   * Troca o corpo da janela de Inscritos pelo formulário de inclusão.
+   * Abre o formulário "Incluir aluno" — por uma de DUAS portas, e o formulário é
+   * um só.
    *
-   * POR QUE AQUI, e não na aba Alunos: a coordenação percebe quem falta olhando
-   * a lista do projeto, e é para essa lista que ela quer voltar depois — com o
-   * aluno nela. A janela é UMA (`#modal-fundo`), então o formulário ocupa o
-   * corpo dela e o "Voltar" reabre a lista pelo mesmo `verInscritosProjeto`.
+   * COM `id`, veio da lista de inscritos do projeto: a coordenação percebe quem
+   * falta olhando a lista, e é para essa lista que ela quer voltar depois — com
+   * o aluno nela. A janela é UMA (`#modal-fundo`), então o formulário ocupa o
+   * corpo dela, o projeto já está decidido (não há select), e o "Voltar" reabre
+   * a lista pelo mesmo `verInscritosProjeto`.
    *
-   * O select de curso e fase tem a MESMA fonte do formulário público: os
-   * rótulos das disciplinas ativas (`cursosFasesAtivos_`, 12_Disciplinas.gs) —
-   * aqui lidos de `DISCIPLINAS`, que a aba Disciplinas já guarda, e buscados
-   * pela mesma `listarDisciplinas` quando a aba ainda não foi aberta. Buscar
-   * ANTES de desenhar, e não desenhar e preencher depois, é o que `abrirEdicaoAluno`
-   * faz: o select nasce inteiro, e o que está na tela é o que se lê. A aba não é
-   * marcada como pronta — o que se carregou aqui foi a lista, não a tela dela.
+   * SEM `id`, veio da aba Alunos — pelo botão da barra ou pelo "Incluir num
+   * projeto" da janela Editar de quem veio só da lista oficial. Aqui não há
+   * lista para onde voltar: o primeiro campo é o select de projeto, o "Cancelar"
+   * fecha a janela, e o sucesso fecha a janela e roda o Atualizar da aba — o
+   * cruzamento é o que faz a ficha aparecer com o projeto, e pedir à coordenação
+   * que clicasse em Atualizar depois de Incluir seria mandá-la fazer o que a
+   * tela sabe fazer sozinha. A porta nasceu de um beco: a ficha de quem só está
+   * na lista oficial abre em Editar com o projeto desabilitado (ele não tem
+   * inscrição para migrar), e a outra porta fica dentro da lista de um projeto —
+   * onde ninguém procura quem ainda não está em projeto nenhum.
+   *
+   * `matricula` é a do "Incluir num projeto": vai na marcação do campo, e a
+   * consulta à lista oficial é disparada assim que o formulário existe — nome,
+   * e-mail e curso chegam preenchidos, como se a coordenação tivesse saído do
+   * campo. Vai na marcação, e não escrita depois, pelo motivo de `modalTemTrabalho`:
+   * o que a janela desenhou não é trabalho de ninguém.
+   *
+   * Os dois selects têm a MESMA fonte das telas de onde vêm: o de curso e fase,
+   * os rótulos das disciplinas ativas (`cursosFasesAtivos_`, 12_Disciplinas.gs),
+   * lidos de `DISCIPLINAS`; o de projeto, `PROJETOS`, com a ocupação de agora.
+   * As duas listas são buscadas pelas mesmas chamadas das abas delas quando a
+   * aba ainda não foi aberta — em paralelo, porque cada ida ao Apps Script custa
+   * segundos e as duas não dependem uma da outra — e ANTES de desenhar, que é o
+   * que `abrirEdicaoAluno` faz: o select nasce inteiro, e o que está na tela é o
+   * que se lê. Nenhuma das abas é marcada como pronta: o que se carregou aqui
+   * foi a lista, não a tela dela.
    *
    * O que este formulário NÃO pede, de propósito: ciência e consentimento. A
    * coordenação não consente pelo aluno; os campos vão em branco (10_Painel.gs).
    */
-  function abrirInclusaoDeAluno(id) {
-    var p = PROJETOS.filter(function (x) { return String(x.id) === String(id); })[0];
-    if (!p) return;
+  function abrirInclusaoDeAluno(id, matricula) {
+    var p = id ? PROJETOS.filter(function (x) { return String(x.id) === String(id); })[0] : null;
+    if (id && !p) return;
 
-    INCLUSAO = { projetoId: String(p.id), projetoNome: String(p.nome || '') };
+    INCLUSAO = {
+      projetoId: p ? String(p.id) : '',
+      projetoNome: p ? String(p.nome || '') : '',
+      daLista: Boolean(p),
+      jaEm: []
+    };
+    // A janela agora é do Incluir: o que a Editar tinha carregado não vale mais,
+    // e o formulário nasce sem trabalho de ninguém — o que estava digitado na
+    // busca da lista de inscritos, ou na Editar, morreu com a tela que o tinha.
+    ALUNO_EDICAO = null;
+    MODAL_COM_TRABALHO = false;
+    document.getElementById('modal-fundo').classList.remove('oculto');
     janelaLarga(false);
-    document.getElementById('modal-titulo').textContent = 'Incluir aluno em ' + p.nome;
+    document.getElementById('modal-titulo').textContent = tituloDaInclusao_();
     document.getElementById('mensagem-modal').innerHTML = '';
     document.getElementById('modal-corpo').innerHTML = '<div class="carregando">Carregando...</div>';
     document.getElementById('modal-rodape').innerHTML = '';
 
     var desenhar = function () {
-      document.getElementById('modal-corpo').innerHTML = corpoDaInclusao(p);
+      document.getElementById('modal-corpo').innerHTML = corpoDaInclusao(p, matricula);
       document.getElementById('modal-rodape').innerHTML =
-        '<button class="btn" onclick="voltarParaInscritos()">Voltar</button>' +
+        (p
+          ? '<button class="btn" onclick="voltarParaInscritos()">Voltar</button>'
+          : '<button class="btn" onclick="fecharModal()">Cancelar</button>') +
         '<button class="btn btn--primario" id="modal-salvar" data-gravando="Incluindo..." ' +
         'onclick="aoGravar(this, incluirInscricaoUI)">Incluir</button>';
+      if (matricula) buscarMatriculadoUI();
     };
 
-    if (DISCIPLINAS.length) { desenhar(); return; }
+    // Quais listas faltam, decidido ANTES de pedir qualquer uma: cada resposta
+    // desconta uma, e a última desenha. Contar enquanto se pede não serve — uma
+    // resposta que chegasse antes do segundo pedido zeraria a conta e
+    // desenharia o formulário pela metade, e depois de novo.
+    var buscarDisciplinas = !DISCIPLINAS.length;
+    var buscarProjetos = !p && !PROJETOS.length;
+    var faltam = Number(buscarDisciplinas) + Number(buscarProjetos);
+    if (!faltam) { desenhar(); return; }
+    var chegou = function () { if (--faltam === 0) desenhar(); };
 
-    chamar('listarDisciplinas', {}, function (r) {
-      if (!r) return;                       // chamar() já explicou o motivo
-      // Sem a lista, o select fica só com "não informado" e "Outro": o
-      // formulário continua servindo, e a coordenação digita.
-      if (r.ok) { DISCIPLINAS = r.itens; DISCIPLINAS_AVISO = r.aviso || ''; }
-      desenhar();
-    });
+    if (buscarDisciplinas) {
+      chamar('listarDisciplinas', {}, function (r) {
+        if (!r) return;                       // chamar() já explicou o motivo
+        // Sem a lista, o select fica só com "não informado" e "Outro": o
+        // formulário continua servindo, e a coordenação digita.
+        if (r.ok) { DISCIPLINAS = r.itens; DISCIPLINAS_AVISO = r.aviso || ''; }
+        chegou();
+      });
+    }
+    if (buscarProjetos) {
+      chamar('painelProjetos', {}, function (r) {
+        if (!r) return;                       // chamar() já explicou o motivo
+        // Sem a lista, o select fica só com "escolha o projeto", e o Incluir
+        // recusa antes de mandar: não há como incluir em projeto nenhum.
+        if (r.ok) { PROJETOS = r.itens; VAGAS_PADRAO = r.vagasPadrao; }
+        chegou();
+      });
+    }
   }
 
-  function corpoDaInclusao(p) {
-    var campo = function (id, rotulo, tipo, dica, extra) {
+  /** "Incluir aluno em X" — ou só "Incluir aluno", enquanto ninguém escolheu o X. */
+  function tituloDaInclusao_() {
+    return 'Incluir aluno' + (INCLUSAO && INCLUSAO.projetoNome ? ' em ' + INCLUSAO.projetoNome : '');
+  }
+
+  function corpoDaInclusao(p, matricula) {
+    var campo = function (id, rotulo, tipo, dica, extra, valor) {
       return '<div class="campo"><label for="' + id + '">' + rotulo +
         (dica ? ' <span class="dica">' + dica + '</span>' : '') + '</label>' +
-        '<input type="' + (tipo || 'text') + '" id="' + id + '" value=""' + (extra || '') + '></div>';
+        '<input type="' + (tipo || 'text') + '" id="' + id + '" value="' + escapar(valor || '') + '"' +
+        (extra || '') + '></div>';
     };
 
-    var ocupacao = INSCRITOS_PROJETO && INSCRITOS_PROJETO.ok
+    // A ocupação de hoje vem da lista que está atrás do formulário — e só quando
+    // ela está: `INSCRITOS_PROJETO` é a última lista aberta, e pela aba Alunos
+    // ela seria a de um projeto que ninguém escolheu. Ali o número vai no
+    // rótulo de cada opção do select.
+    var ocupacao = p && INSCRITOS_PROJETO && INSCRITOS_PROJETO.ok
       ? INSCRITOS_PROJETO.ocupam + ' ocupando vaga' +
         (INSCRITOS_PROJETO.vagas > 0 ? ' de ' + INSCRITOS_PROJETO.vagas : ' (vagas ilimitadas)')
       : '';
@@ -4660,12 +4748,25 @@
     var html = '<div class="aviso aviso--info pequeno">Inclusão pela coordenação: passa por fora ' +
       'do período de inscrição, do interruptor do formulário e do teto de vagas (com confirmação). ' +
       'A coordenação não consente pelo aluno — ciência e aviso de privacidade ficam em branco na ' +
-      'inscrição. A ficha em <strong>Alunos</strong> atualiza no próximo <strong>Atualizar</strong> ' +
-      'daquela aba.' + (ocupacao ? '<br>Hoje: <strong>' + escapar(ocupacao) + '</strong>.' : '') + '</div>';
+      'inscrição. ' +
+      (p
+        ? 'A ficha em <strong>Alunos</strong> atualiza no próximo <strong>Atualizar</strong> daquela aba.'
+        : 'Ao incluir, a aba <strong>Alunos</strong> é atualizada — a ficha aparece com o projeto.') +
+      (ocupacao ? '<br>Hoje: <strong>' + escapar(ocupacao) + '</strong>.' : '') + '</div>';
+
+    // O select de projeto é o PRIMEIRO campo, e só existe quando o projeto não
+    // veio decidido: quem entrou pela lista de um projeto já o escolheu ao abrir
+    // a lista, e um select ali seria um convite a incluir em outro por engano.
+    if (!p) {
+      html += '<div class="campo"><label for="inc-projeto">Projeto *' +
+        ' <span class="dica">— com a ocupação de agora, como na aba Projetos</span></label>' +
+        '<select id="inc-projeto" onchange="escolherProjetoDaInclusao()">' +
+        opcoesDeProjetoParaInclusao() + '</select></div>';
+    }
 
     html += campo('inc-matricula', 'Matrícula *', 'text',
       '— ao sair do campo, a lista oficial preenche o resto',
-      ' onblur="buscarMatriculadoUI()" autocomplete="off"') +
+      ' onblur="buscarMatriculadoUI()" autocomplete="off"', matricula) +
       '<p class="pequeno texto-fraco" id="inc-lista"></p>' +
       '<div id="inc-ja-em"></div>';
 
@@ -4706,6 +4807,40 @@
     });
     html += '<option value="' + CURSO_OUTRO + '">Outro (digitar)</option>';
     return html;
+  }
+
+  /**
+   * As opções do select de projeto: "escolha" na frente, e um item por projeto
+   * de `PROJETOS`, com o MESMO rótulo do select da migração (`selectDeProjetos`)
+   * — nome, ocupação e situação. Vêm todos, inclusive os fechados e inativos: a
+   * inclusão é ação de coordenação e passa por fora dessas travas de propósito,
+   * como a migração; o que a tela faz é dizer a situação de cada um.
+   */
+  function opcoesDeProjetoParaInclusao() {
+    var html = '<option value="" selected>— escolha o projeto —</option>';
+    PROJETOS.forEach(function (p) {
+      html += '<option value="' + escapar(p.id) + '">' + escapar(rotuloDeProjetoNoSelect(p)) + '</option>';
+    });
+    return html;
+  }
+
+  /**
+   * O `onchange` do select de projeto: o projeto escolhido passa a ser o da
+   * janela — no estado, no título e no aviso de já-inscrito, que marca "(este
+   * projeto)" e fala da fila DESTE projeto. Redesenhar o aviso aqui, com o que a
+   * consulta já trouxe, é o que impede a frase de ficar velha quando a
+   * coordenação digita a matrícula antes de escolher o projeto — ou troca de
+   * projeto depois: sem isto, quem está na fila do projeto recém-escolhido leria
+   * "use Alunos → Editar → Projeto" quando o Incluir vai, na verdade, promover.
+   */
+  function escolherProjetoDaInclusao() {
+    var select = document.getElementById('inc-projeto');
+    if (!INCLUSAO || !select) return;
+    var p = PROJETOS.filter(function (x) { return String(x.id) === String(select.value); })[0];
+    INCLUSAO.projetoId = p ? String(p.id) : '';
+    INCLUSAO.projetoNome = p ? String(p.nome || '') : '';
+    document.getElementById('modal-titulo').textContent = tituloDaInclusao_();
+    desenharJaEmDaInclusao_();
   }
 
   function alternarCursoOutro() {
@@ -4759,7 +4894,9 @@
    * contar. Não importa QUAL janela perguntou: a resposta é a ficha de uma
    * matrícula, e a marca "(este projeto)" é calculada contra a janela que está
    * aberta AGORA — a resposta certa para o campo certo é certa em qualquer
-   * janela.
+   * janela. E é recalculada quando o projeto da janela muda (o select da aba
+   * Alunos), a partir do que ficou em `INCLUSAO.jaEm` — ver
+   * `desenharJaEmDaInclusao_`.
    */
   function buscarMatriculadoUI() {
     var matricula = campoTexto_('inc-matricula');
@@ -4769,6 +4906,7 @@
     lista.className = 'pequeno texto-fraco';
     lista.textContent = '';
     jaEm.innerHTML = '';
+    if (INCLUSAO) INCLUSAO.jaEm = [];
     if (!matricula) return;
 
     chamar('buscarMatriculado', { matricula: matricula }, function (r) {
@@ -4796,22 +4934,41 @@
         lista.textContent = 'Não está na lista oficial importada — a inscrição entra marcada como não conferida.';
       }
 
-      var inscricoes = r.ja_em || [];
-      if (inscricoes.length) {
-        var daqui = function (i) { return String(i.projeto_id) === INCLUSAO.projetoId; };
-        var nomes = inscricoes.map(function (i) {
-          return '<strong>' + escapar(i.projeto_nome || i.projeto_id) + '</strong>' +
-            (daqui(i) ? ' (este projeto)' : '') +
-            (i.em_espera ? ' (em espera)' : '');
-        });
-        var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
-        jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
-          (naFilaDaqui
-            ? '. Está na fila de espera deste projeto: Incluir dá a vaga à inscrição que já existe ' +
-              '(mesmo protocolo), sem criar outra — o que você digitar abaixo não é gravado nela.'
-            : '. Se a intenção é mover, use Alunos → Editar → Projeto.') + '</div>';
-      }
+      INCLUSAO.jaEm = r.ja_em || [];
+      desenharJaEmDaInclusao_();
     });
+  }
+
+  /**
+   * O aviso de já-inscrito, calculado contra o projeto da janela AGORA.
+   *
+   * Lê `INCLUSAO.jaEm` (o que a última consulta trouxe) e `INCLUSAO.projetoId`
+   * (o que a janela tem hoje), e é chamado dos dois lugares em que um dos dois
+   * muda: a resposta da lista oficial e a troca do projeto no select. Sem
+   * projeto escolhido, ninguém é "(este projeto)" — e a frase da fila, que só
+   * vale para a fila DESTE projeto, não aparece.
+   */
+  function desenharJaEmDaInclusao_() {
+    var jaEm = document.getElementById('inc-ja-em');
+    if (!INCLUSAO || !jaEm) return;
+
+    var inscricoes = INCLUSAO.jaEm || [];
+    if (!inscricoes.length) { jaEm.innerHTML = ''; return; }
+
+    // Sem projeto escolhido, `projetoId` é '' e nenhuma inscrição casa — não
+    // precisa de guarda própria.
+    var daqui = function (i) { return String(i.projeto_id) === INCLUSAO.projetoId; };
+    var nomes = inscricoes.map(function (i) {
+      return '<strong>' + escapar(i.projeto_nome || i.projeto_id) + '</strong>' +
+        (daqui(i) ? ' (este projeto)' : '') +
+        (i.em_espera ? ' (em espera)' : '');
+    });
+    var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
+    jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
+      (naFilaDaqui
+        ? '. Está na fila de espera deste projeto: Incluir dá a vaga à inscrição que já existe ' +
+          '(mesmo protocolo), sem criar outra — o que você digitar abaixo não é gravado nela.'
+        : '. Se a intenção é mover, use Alunos → Editar → Projeto.') + '</div>';
   }
 
   function escolherCursoPelaTurma(turma) {
@@ -4836,24 +4993,35 @@
    * destrava antes de entregar a resposta, e travá-lo outra vez é o que impede o
    * clique duplo enquanto a confirmação viaja.
    *
+   * Sem projeto escolhido (o select da aba Alunos ainda em "escolha"), recusa
+   * ANTES de mandar: o servidor recusaria do mesmo jeito, mas uma ida ao Apps
+   * Script para ouvir "projeto não encontrado" é uma ida a mais e uma frase
+   * pior. Ninguém adota o botão, e `aoGravar` o devolve.
+   *
    * Erro deixa o formulário como está — quem errou o e-mail não redigita o
-   * resto. Sucesso reabre a lista do projeto, com o aluno nela, e avisa dentro
-   * da janela: é para onde os olhos voltaram.
+   * resto. Sucesso depende da porta (ver `abrirInclusaoDeAluno`): pela lista do
+   * projeto, reabre a lista com o aluno nela e avisa dentro da janela, que é
+   * para onde os olhos voltaram; pela aba Alunos, fecha a janela e roda o
+   * Atualizar da aba com o relato na frente — o cruzamento é o que põe o
+   * projeto na ficha, e a faixa do painel é onde os olhos ficam.
    *
    * E A JANELA PODE JÁ NÃO ESTAR LÁ quando a resposta chega: o Incluir trava,
-   * mas o Voltar, o × e o fundo não, e a escrita leva segundos. A guarda aqui é
-   * a IDENTIDADE de `INCLUSAO` — em `buscarMatriculadoUI` basta a existência,
-   * porque a ficha de uma matrícula serve a qualquer janela; o desfecho de um
-   * Incluir é de UM clique, numa janela — e ela decide o que fazer com cada
-   * desfecho. Pergunta do teto ou recusa: nada foi gravado e a coordenação
-   * abandonou o formulário, então a resposta morre calada (uma pergunta sobre um
-   * formulário que não existe não tem resposta possível). Sucesso: FOI gravado,
-   * e isso ela precisa saber onde quer que esteja — `avisar` escreve na janela
-   * aberta ou no topo da página —, e a lista de inscritos que reabriu ANTES da
-   * resposta não tem o aluno, então é redesenhada.
+   * mas o Voltar, o Cancelar, o × e o fundo não, e a escrita leva segundos. A
+   * guarda aqui é a IDENTIDADE de `INCLUSAO` — em `buscarMatriculadoUI` basta a
+   * existência, porque a ficha de uma matrícula serve a qualquer janela; o
+   * desfecho de um Incluir é de UM clique, numa janela — e ela decide o que
+   * fazer com cada desfecho. Pergunta do teto ou recusa: nada foi gravado e a
+   * coordenação abandonou o formulário, então a resposta morre calada (uma
+   * pergunta sobre um formulário que não existe não tem resposta possível).
+   * Sucesso: FOI gravado, e isso ela precisa saber onde quer que esteja —
+   * `avisar` escreve na janela aberta ou no topo da página —, e a tela que
+   * ficou para trás não tem o aluno: a lista de inscritos que reabriu ANTES da
+   * resposta é redesenhada, e a aba Alunos é atualizada de qualquer jeito. O que
+   * o sucesso tardio NUNCA faz é reabrir a janela que a coordenação fechou.
    */
   function incluirInscricaoUI(confirmarTeto) {
     if (!INCLUSAO) return;
+    if (!INCLUSAO.projetoId) { avisar('erro', 'Escolha o projeto.'); return; }
 
     var janela = INCLUSAO;
     var payload = {
@@ -4883,12 +5051,20 @@
       }
 
       var projetoId = janela.projetoId;
-      var texto = r.mensagem + (r.aviso ? ' ' + r.aviso : '') +
-        ' A ficha em Alunos atualiza no próximo Atualizar daquela aba.';
+      var tipo = r.aviso ? 'atencao' : 'sucesso';
+      var texto = r.mensagem + (r.aviso ? ' ' + r.aviso : '');
 
-      if (aindaAqui) voltarParaInscritos();
-      else if (janelaMostraInscritosDe_(projetoId)) verInscritosProjeto(projetoId);
-      avisar(r.aviso ? 'atencao' : 'sucesso', texto);
+      if (janela.daLista) {
+        if (aindaAqui) voltarParaInscritos();
+        else if (janelaMostraInscritosDe_(projetoId)) verInscritosProjeto(projetoId);
+        avisar(tipo, texto + ' A ficha em Alunos atualiza no próximo Atualizar daquela aba.');
+      } else {
+        // O relato vai DENTRO do Atualizar, e não numa faixa antes dele: a
+        // faixa do cruzamento apagaria o protocolo segundos depois de ele
+        // aparecer (ver `atualizarAlunosUI`).
+        if (aindaAqui) fecharModal();
+        atualizarAlunosUI({ tipo: tipo, texto: texto });
+      }
 
       // A tabela atrás da janela ainda diz a ocupação de antes — e é dela que a
       // próxima inclusão lê o projeto. Uma consulta mais uma agregação por
@@ -6185,7 +6361,8 @@
    * um desenho de tela só. Virar de página nunca cruza: paginação não é pedido de
    * dado novo, e cada cruzamento custa milhares de leituras.
    */
-  function carregarAlunos(pagina, cruzar) {
+  /** `relato` só vem com `cruzar`, e vai para `contarReconciliacao` — ver `atualizarAlunosUI`. */
+  function carregarAlunos(pagina, cruzar, relato) {
     var el = document.getElementById('conteudo-alunos');
     el.className = 'carregando';
     el.textContent = cruzar ? 'Cruzando os dados e recarregando...' : 'Carregando...';
@@ -6213,7 +6390,7 @@
       // cruzamento pode ter rodado e a lista falhar por outro motivo (pedir uma
       // página além do teto, por exemplo), e engolir o que aconteceu com os dados
       // por causa disso seria esconder a metade cara da operação.
-      if (r.reconciliacao) contarReconciliacao(r.reconciliacao);
+      if (r.reconciliacao) contarReconciliacao(r.reconciliacao, relato);
 
       if (!r.ok) { el.textContent = r.erro || 'Erro ao carregar.'; return; }
       el.className = '';
@@ -6299,9 +6476,26 @@
     });
   }
 
-  function atualizarAlunosUI() {
-    avisar('info', 'Cruzando inscrições com a lista oficial... pode levar alguns segundos.');
-    carregarAlunos(1, true);
+  /**
+   * O botão Atualizar — e o que uma gravação chama quando o cruzamento é a
+   * consequência dela.
+   *
+   * `relato` (`{ tipo, texto }`, opcional) é o que aconteceu ANTES: o "Incluído.
+   * Protocolo X." do Incluir pela aba Alunos. Ele vai na frente das DUAS faixas
+   * — a de espera e a do resultado —, porque a faixa é uma só e a segunda apaga
+   * a primeira: um `avisar('sucesso')` antes desta função durava exatamente o
+   * tempo do cruzamento, e o protocolo de uma inclusão (e o amarelo de
+   * "matrícula fora da lista oficial") sumiria segundos depois de aparecer.
+   *
+   * A faixa de espera nunca é verde, mesmo com relato verde: verde se apaga
+   * sozinho em 6 segundos (`avisar`), e o apagamento cairia em cima do resultado
+   * do cruzamento — inclusive do "não cruzei" que este botão existe para dizer.
+   */
+  function atualizarAlunosUI(relato) {
+    avisar(relato && relato.tipo === 'atencao' ? 'atencao' : 'info',
+      (relato ? relato.texto + ' ' : '') +
+      'Cruzando inscrições com a lista oficial... pode levar alguns segundos.');
+    carregarAlunos(1, true, relato);
   }
 
   /**
@@ -6311,18 +6505,26 @@
    * para ver quem chegou, o servidor decide (com razão) não cruzar por causa do
    * orçamento de leitura, a lista recarrega igual, e ele conclui que ninguém se
    * inscreveu. O motivo vem pronto do servidor, com o número na frente.
+   *
+   * Com `antes` (o relato de `atualizarAlunosUI`), ele vai na frente da frase, e
+   * a COR é a pior das duas: o amarelo de quem gravou com ressalva não vira
+   * verde porque o cruzamento correu bem — o mesmo princípio de `relatar`.
    */
-  function contarReconciliacao(r) {
+  function contarReconciliacao(r, antes) {
+    var prefixo = antes ? antes.texto + ' ' : '';
+    var cor = function (tipo) {
+      return antes && antes.tipo === 'atencao' && tipo !== 'erro' ? 'atencao' : tipo;
+    };
     if (r.rodou && r.resumo) {
       var s = r.resumo;
-      avisar(s.aviso ? 'atencao' : 'sucesso',
-        (s.aviso ? s.aviso + ' ' : '') + 'Dados cruzados: ' + s.confirmado + ' confirmados, ' +
+      avisar(cor(s.aviso ? 'atencao' : 'sucesso'),
+        prefixo + (s.aviso ? s.aviso + ' ' : '') + 'Dados cruzados: ' + s.confirmado + ' confirmados, ' +
         s.so_inscrito + ' só inscritos, ' + s.so_matriculado + ' só matriculados, ' +
         s.divergencia + ' divergências.');
       return;
     }
-    if (r.erro) { avisar('erro', r.motivo || r.erro); return; }
-    if (r.motivo) avisar('info', r.motivo);
+    if (r.erro) { avisar('erro', prefixo + (r.motivo || r.erro)); return; }
+    if (r.motivo) avisar(cor('info'), prefixo + r.motivo);
   }
 
   // ------------------------------------------------------------ Editar aluno
@@ -6400,8 +6602,19 @@
       'ela não duraria até amanhã.</div>';
 
     if (!inscricao) {
+      // O beco: sem inscrição não há projeto para migrar, e este aviso era o fim
+      // da linha para quem queria pôr o aluno num projeto. O botão abre o
+      // "Incluir aluno" pela porta da aba Alunos (com o select de projeto), com
+      // a matrícula da lista oficial já no campo e a ficha já consultada — e
+      // fecha esta janela: quem clicou aqui já disse o que quer, e o que estava
+      // sendo editado (nome oficial, turma) não é o que ele veio fazer.
       html += '<div class="aviso aviso--atencao pequeno">Este aluno veio <strong>só da lista oficial</strong>: ' +
-        'ele não se inscreveu. Matrícula, nome digitado e projeto não existem para editar.</div>';
+        'ele não se inscreveu. Matrícula, nome digitado e projeto não existem para editar.' +
+        (oficial && oficial.matricula
+          ? ' <button class="btn btn--pequeno" id="ed-incluir" onclick="abrirInclusaoDeAluno(\'\', \'' +
+            escapar(oficial.matricula) + '\')">Incluir num projeto</button>'
+          : '') +
+        '</div>';
     }
     if (!oficial) {
       html += '<div class="aviso aviso--atencao pequeno">Este aluno <strong>não está na lista oficial</strong> ' +
@@ -6437,22 +6650,38 @@
 
     var opcoes = (atual ? '' : '<option value="" selected>— sem projeto —</option>');
     lista.forEach(function (p) {
-      // Sem contagem, o rótulo diz o total e assume não saber o resto. "null/60"
-      // é o que sai de concatenar sem olhar, e "0/60" seria pior: quem migra
-      // aluno para um projeto lotado precisa não ser convidado a fazê-lo.
-      var ocupacao = semOcupacao(p)
-        ? (p.vagas > 0 ? p.vagas + ' vagas, ocupação não contada' : 'ilimitado')
-        : (p.vagas > 0 ? p.inscritos + '/' + p.vagas : p.inscritos + ' (ilimitado)');
-      var extra = (p.situacao !== 'ABERTO' ? ' · ' + rotuloSituacao(p.situacao) : '') +
-                  (p.acimaDoTeto ? ' · acima do teto' : '');
       opcoes += '<option value="' + escapar(p.id) + '"' + (String(p.id) === String(atual) ? ' selected' : '') +
-        '>' + escapar(p.nome + ' — ' + ocupacao + extra) + '</option>';
+        '>' + escapar(rotuloDeProjetoNoSelect(p)) + '</option>';
     });
 
     return '<div class="campo"><label for="ed-projeto">Projeto' +
       ' <span class="dica">— migrar conta a vaga de verdade, e o teto não bloqueia a coordenação: ' +
       'um projeto de 60 vagas pode ficar com 61, e a tela vai mostrar 61</span></label>' +
       '<select id="ed-projeto"' + (r.inscricao ? '' : ' disabled') + '>' + opcoes + '</select></div>';
+  }
+
+  /**
+   * "Nome — 12/60 · Esgotado · acima do teto": o rótulo de um projeto num select
+   * de escolha — o da migração (Editar) e o do Incluir pela aba Alunos, que têm
+   * de dizer a mesma coisa sobre o mesmo projeto.
+   *
+   * Sem contagem, o rótulo diz o total e assume não saber o resto. "null/60" é o
+   * que sai de concatenar sem olhar, e "0/60" seria pior: quem manda aluno para
+   * um projeto lotado precisa não ser convidado a fazê-lo.
+   *
+   * `acimaDoTeto` vem pronto de `projetosParaMigracao_` e não vem de
+   * `painelProjetos`; quando falta, é a mesma conta feita aqui.
+   */
+  function rotuloDeProjetoNoSelect(p) {
+    var ocupacao = semOcupacao(p)
+      ? (p.vagas > 0 ? p.vagas + ' vagas, ocupação não contada' : 'ilimitado')
+      : (p.vagas > 0 ? p.inscritos + '/' + p.vagas : p.inscritos + ' (ilimitado)');
+    var acimaDoTeto = p.acimaDoTeto === undefined
+      ? (!semOcupacao(p) && p.vagas > 0 && p.inscritos > p.vagas)
+      : p.acimaDoTeto;
+    var extra = (p.situacao !== 'ABERTO' ? ' · ' + rotuloSituacao(p.situacao) : '') +
+                (acimaDoTeto ? ' · acima do teto' : '');
+    return p.nome + ' — ' + ocupacao + extra;
   }
 
   function salvarEdicaoAluno() {
