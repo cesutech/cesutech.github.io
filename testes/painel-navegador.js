@@ -4679,11 +4679,10 @@ teste('o botão está na barra da janela de inscritos, e o clique troca a lista 
   igual(botaoSalvar(cena).textContent, 'Incluir');
   verdadeiro(janelaAberta(cena));
 
-  // A janela avisa o que passa por fora e o que fica em branco.
-  const texto = cena.texto('modal-corpo');
-  verdadeiro(texto.indexOf('passa por fora') !== -1, texto);
-  verdadeiro(texto.indexOf('não consente pelo aluno') !== -1, texto);
-  verdadeiro(/Hoje: 2 ocupando vaga de 2/.test(texto), 'a ocupação de agora não está na janela: ' + texto);
+  // Sem balão de explicação no topo (21/09): o formulário começa nos campos.
+  // Mutação que derruba: devolver o `aviso--info` de abertura ao corpo.
+  igual(cena.html('modal-corpo').indexOf('aviso--info'), -1,
+    'voltou o balão de explicação no topo do formulário');
 });
 
 teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais "Outro" — e SÓ as ativas', () => {
@@ -5333,8 +5332,7 @@ teste('o botão está na barra da aba Alunos, e abre a janela com o select de pr
 
   const texto = cena.texto('modal-corpo');
   igual(texto.indexOf('Hoje:'), -1, 'a ocupação da última lista aberta vazou para o formulário da aba: ' + texto);
-  verdadeiro(texto.indexOf('a aba Alunos é atualizada') !== -1, 'o aviso não diz o que acontece ao incluir: ' + texto);
-  igual(texto.indexOf('próximo Atualizar'), -1, 'o aviso manda clicar em Atualizar, e é a tela quem vai fazer isso');
+  igual(texto.indexOf('próximo Atualizar'), -1, 'o formulário manda clicar em Atualizar, e é a tela quem vai fazer isso');
   verdadeiro(!cena.documento.getElementById('modal-caixa').classList.contains('modal--largo'),
     'o formulário herdou a largura da lista');
 });
@@ -5506,10 +5504,6 @@ teste('o cruzamento recusado pelo orçamento do dia: a janela fecha, a faixa diz
   cena.ambiente.propriedades.set('painel_reconciliacao', JSON.stringify(marca));
 
   abrirInclusaoPelaAba(cena);
-  const aviso = cena.texto('modal-corpo');
-  verdadeiro(aviso.indexOf('a ficha ganha o projeto quando o cruzamento roda') !== -1,
-    'o aviso não condiciona a ficha ao cruzamento: ' + aviso);
-  igual(aviso.indexOf('a ficha aparece com o projeto'), -1, 'o aviso promete o que o servidor pode recusar: ' + aviso);
   escolherProjeto(cena, 'p1');
   sairDaMatricula(cena, '9110001');
   const atualizacoes = chamadasDe(cena, 'atualizarAlunos').length;
@@ -5841,8 +5835,6 @@ teste('pela lista do projeto nada mudou: sem select, o projeto no título, a ocu
 
   verdadeiro(!cena.documento.getElementById('inc-projeto'), 'o select de projeto apareceu pela lista do projeto');
   igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Lotado');
-  verdadeiro(/Hoje: 2 ocupando vaga de 2/.test(cena.texto('modal-corpo')));
-  verdadeiro(cena.texto('modal-corpo').indexOf('próximo Atualizar') !== -1, cena.texto('modal-corpo'));
   const rodape = cena.html('modal-rodape');
   verdadeiro(/voltarParaInscritos\(\)">Voltar</.test(rodape), rodape);
   igual(rodape.indexOf('fecharModal'), -1, 'o rodapé da lista ganhou o Cancelar da aba');
