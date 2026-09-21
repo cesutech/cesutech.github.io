@@ -38,6 +38,10 @@
     // sem `maxlength` e sem conta de tamanho local: quem decide é o servidor, na
     // conferência e no envio. Nunca se barra o aluno por falta de configuração.
     matriculaDigitos: null,
+    // O período geral de inscrição, como veio de `?api=config` — ver
+    // `absorverJanela`. Nasce SEM_JANELA, que é "o site de sempre".
+    janela: janelaVazia(),
+    relogioJanela: null,
     timerEspera: null,
     avisarAoSair: null,
     matricula: { estado: 'vazio', valor: '', bloqueia: false },
@@ -167,6 +171,7 @@
     // é `null`, e `null` é "o servidor decide".
     var digitos = Number(d.matriculaDigitos);
     if (digitos > 0 && digitos === Math.floor(digitos)) ESTADO.matriculaDigitos = digitos;
+    absorverJanela(d.janela);
     return true;
   }
 
@@ -393,9 +398,14 @@
       return;
     }
 
+    // Com o período encerrado todo cartão fica apagado, o aberto inclusive: o
+    // que fecha é o semestre, não o projeto.
+    var encerrado = estadoDaJanela() === 'DEPOIS';
+
     ESTADO.projetos.forEach(function (p) {
       var cartao = document.createElement('article');
-      cartao.className = 'cartao-projeto' + (p.situacao !== 'ABERTO' ? ' cartao-projeto--indisponivel' : '');
+      cartao.className = 'cartao-projeto' +
+        (p.situacao !== 'ABERTO' || encerrado ? ' cartao-projeto--indisponivel' : '');
 
       var botao = document.createElement('button');
       botao.type = 'button';
@@ -459,7 +469,14 @@
     var selo = document.createElement('span');
     selo.className = 'selo-vagas';
 
-    if (p.situacao === 'ESGOTADO') {
+    // Depois do prazo NENHUM número de vaga aparece — nem restante, nem total:
+    // "12 vagas restantes" num semestre encerrado é convite para procurar a
+    // coordenação pedindo a vaga que a tela disse que existe. Vem antes do
+    // esgotado, porque esgotado ou não, encerrou.
+    if (estadoDaJanela() === 'DEPOIS') {
+      selo.classList.add('selo-vagas--fechado');
+      selo.textContent = 'Encerradas';
+    } else if (p.situacao === 'ESGOTADO') {
       selo.classList.add('selo-vagas--esgotado');
       selo.textContent = 'Esgotado';
     } else if (p.situacao === 'FECHADO') {
@@ -480,6 +497,235 @@
       selo.textContent = p.restantes + (p.restantes === 1 ? ' vaga restante' : ' vagas restantes');
     }
     return selo;
+  }
+
+  // ------------------------------------------------- Período de inscrição
+
+  /**
+   * O período GERAL de inscrição (pedido do Prof. Mário, 19/09, item 5), como
+   * `?api=config` o manda em `janela`: { estado, inicio, fim, agora }. Três
+   * coisas na tela dependem dele — a faixa acima da lista, o selo e o botão de
+   * cada projeto —, e as três perguntam a `estadoDaJanela()`, que é UMA função
+   * para as três não discordarem.
+   *
+   * O RELÓGIO É O DO SERVIDOR. `janela.agora` é o "agora" de lá, e o que fica
+   * guardado é o deslocamento entre ele e `Date.now()` no instante em que a
+   * resposta chegou: dali em diante, "agora" é `Date.now() + deslocamento`.
+   * Celular com a hora errada mostraria "faltam 3 dias" quando faltam 2 — e,
+   * pior, abriria o botão antes da hora ou o fecharia depois. O `agora` chega
+   * até 30 s velho (é o cache da rota, 08_Api.gs) e o deslocamento carrega esses
+   * segundos junto: um contador de dias e horas não sente, e no zero quem decide
+   * é o servidor de qualquer jeito.
+   *
+   * Os carimbos são lidos com `Date.UTC` como régua NEUTRA: início, fim e agora
+   * estão no mesmo fuso (o do servidor), e o que interessa é a diferença entre
+   * eles, não o instante absoluto. `new Date('2026-10-01 08:00')` leria a hora
+   * no fuso do aluno, ou não leria nada, dependendo do navegador. Nenhum dos
+   * três vira Date.
+   *
+   * Servidor de versão anterior não manda `janela`: é SEM_JANELA, e o site fica
+   * como era — nunca se esconde vaga nem botão por FALTA de dado. Limite que o
+   * servidor mandou e este lado não consegue ler é tratado como vazio, o mesmo
+   * que o servidor faz com chave torta (`limiteDaJanela_`, 04_Inscricoes.gs).
+   */
+  function janelaVazia() {
+    return {
+      estado: 'SEM_JANELA', inicio: '', fim: '',
+      inicioMs: null, fimMs: null,
+      // null = sem relógio do servidor: a faixa mostra o estado que ele disse e
+      // fica parada, sem contador. Não acontece com o servidor de hoje.
+      deslocamentoMs: null,
+      // O estado que a tela está mostrando — é contra ele que o tique descobre
+      // a virada — e o texto que a faixa tem, para não reescrever o que não mudou.
+      estadoVisto: 'SEM_JANELA', textoDesenhado: null
+    };
+  }
+
+  function absorverJanela(j) {
+    var nova = janelaVazia();
+    if (j && j.estado) {
+      nova.estado = j.estado;
+      nova.inicio = j.inicio || '';
+      nova.fim = j.fim || '';
+      nova.inicioMs = instanteDe(nova.inicio);
+      nova.fimMs = instanteDe(nova.fim);
+      var agoraServidor = instanteDe(j.agora);
+      nova.deslocamentoMs = agoraServidor === null ? null : agoraServidor - Date.now();
+    }
+
+    var anterior = ESTADO.janela.estadoVisto;
+    ESTADO.janela = nova;
+    nova.estadoVisto = estadoDaJanela();
+
+    ligarRelogioDaJanela();
+    // A segunda resposta do config (`renovarConfig`) pode chegar com a tela já
+    // desenhada num estado que a virada deixou para trás.
+    if (nova.estadoVisto !== anterior) redesenharPelaJanela();
+    else desenharFaixa();
+  }
+
+  /** 'yyyy-MM-dd HH:mm' ou 'yyyy-MM-dd HH:mm:ss' -> ms na régua neutra, ou null. */
+  function instanteDe(texto) {
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(String(texto || '').trim());
+    if (!m) return null;
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4]), Number(m[5]), Number(m[6] || 0));
+  }
+
+  function agoraDoServidorMs() {
+    return Date.now() + ESTADO.janela.deslocamentoMs;
+  }
+
+  /**
+   * ANTES, ABERTA, DEPOIS ou SEM_JANELA — AGORA, pelo relógio do servidor. É a
+   * mesma conta de `janelaDeInscricao_` (04_Inscricoes.gs), refeita a cada
+   * pergunta: é ela que faz a faixa virar sozinha quando o contador zera.
+   */
+  function estadoDaJanela() {
+    var j = ESTADO.janela;
+    if (j.deslocamentoMs === null) return j.estado;
+
+    var t = agoraDoServidorMs();
+    if (j.inicioMs !== null && t < j.inicioMs) return 'ANTES';
+    if (j.fimMs !== null && t >= j.fimMs) return 'DEPOIS';
+    return (j.inicioMs === null && j.fimMs === null) ? 'SEM_JANELA' : 'ABERTA';
+  }
+
+  /** Dá para se inscrever neste projeto agora? O projeto E a janela. */
+  function inscricaoPossivel(p) {
+    var estado = estadoDaJanela();
+    return p.situacao === 'ABERTO' && estado !== 'ANTES' && estado !== 'DEPOIS';
+  }
+
+  /** O que o contador está contando: o início antes dele, o fim durante — ou null. */
+  function limiteADecorrer() {
+    var j = ESTADO.janela;
+    if (j.deslocamentoMs === null) return null;
+    var estado = estadoDaJanela();
+    if (estado === 'ANTES') return j.inicioMs;
+    if (estado === 'ABERTA') return j.fimMs;
+    return null;
+  }
+
+  /**
+   * Um tique por segundo enquanto houver o que contar, e nenhum quando não há.
+   *
+   * Por que um por segundo, e não um por minuto que acelera no fim: o passo
+   * variável obriga a rearmar o temporizador a cada tique e vira uma segunda
+   * máquina de estados — para poupar 59 comparações de número por minuto. O
+   * tique custa comparar dois números; o texto só é reescrito quando muda
+   * (`desenharFaixa`), o que é uma vez por minuto até os últimos dez minutos,
+   * quando o contador passa a mostrar segundos. Aba em segundo plano recebe
+   * tiques espaçados pelo navegador; o contador se corrige no primeiro tique
+   * de volta.
+   *
+   * O tique também é quem VIRA a faixa sozinha — ANTES→ABERTA, ABERTA→DEPOIS —
+   * sem esperar ninguém recarregar. É conforto, e só: o formulário que estava
+   * aberto no instante da virada continua aberto, o envio vai ao servidor, e é
+   * ele quem recusa com a data (`recusaPelaJanela_`, 04_Inscricoes.gs). Nenhum
+   * bloqueio local que o servidor não faria.
+   */
+  function ligarRelogioDaJanela() {
+    if (limiteADecorrer() === null) {
+      if (ESTADO.relogioJanela) clearInterval(ESTADO.relogioJanela);
+      ESTADO.relogioJanela = null;
+      return;
+    }
+    if (!ESTADO.relogioJanela) ESTADO.relogioJanela = setInterval(tiqueDaJanela, 1000);
+  }
+
+  function tiqueDaJanela() {
+    var estado = estadoDaJanela();
+    if (estado !== ESTADO.janela.estadoVisto) {
+      ESTADO.janela.estadoVisto = estado;
+      redesenharPelaJanela();
+      ligarRelogioDaJanela();
+      return;
+    }
+    desenharFaixa();
+  }
+
+  function redesenharPelaJanela() {
+    desenharFaixa();
+    // A lista só se redesenha se já está na tela: na carga, o config chega
+    // antes de `?api=projetos`, e desenhar a lista vazia aqui escreveria
+    // "Nenhum projeto disponível" — a mensagem de sistema VAZIO — enquanto os
+    // projetos ainda estão a caminho.
+    if (ESTADO.projetos.length) renderizarLista();
+    // Só o cartão; o formulário aberto não é tocado — ver `aplicarProjetosNaTela`.
+    if (ESTADO.projetoAtual) renderizarCartaoVagas(ESTADO.projetoAtual);
+  }
+
+  /**
+   * A faixa acima da lista, no estado de agora. Reescreve só quando o texto
+   * muda: o tique é por segundo, o texto muda por minuto.
+   *
+   * ABERTA sem fim não tem faixa — não há prazo a contar, e "inscrições
+   * abertas" sem data é o que a lista inteira já diz.
+   */
+  function desenharFaixa() {
+    var j = ESTADO.janela;
+    var estado = estadoDaJanela();
+    var titulo = '', contador = '', tom = '';
+
+    if (estado === 'ANTES') {
+      titulo = 'As inscrições abrem em ' + dataCurta(j.inicio);
+      contador = tempoQueFalta(j.inicioMs);
+      tom = 'aviso--atencao';
+    } else if (estado === 'ABERTA' && j.fim) {
+      titulo = 'Inscrições abertas até ' + dataCurta(j.fim);
+      contador = tempoQueFalta(j.fimMs);
+      tom = 'aviso--sucesso';
+    } else if (estado === 'DEPOIS') {
+      titulo = 'Inscrições encerradas';
+      contador = 'O prazo terminou em ' + dataCurta(j.fim) + '.';
+      tom = 'aviso--erro';
+    }
+
+    var chave = tom + '|' + titulo + '|' + contador;
+    if (chave === j.textoDesenhado) return;
+    j.textoDesenhado = chave;
+
+    document.getElementById('faixa-janela').className =
+      'faixa-janela' + (titulo ? ' aviso ' + tom : ' oculto');
+    texto('faixa-janela-titulo', titulo);
+    texto('faixa-janela-contador', contador);
+  }
+
+  /** 'yyyy-MM-dd HH:mm' -> 'dd/mm às HH:mm'. O ano fica de fora: é este semestre. */
+  function dataCurta(limite) {
+    return limite.slice(8, 10) + '/' + limite.slice(5, 7) + ' às ' + limite.slice(11, 16);
+  }
+
+  /**
+   * "faltam 2 dias, 5 horas e 12 minutos" — só as unidades que não são zero, e
+   * os segundos só nos últimos dez minutos, que é quando um minuto parado na
+   * tela parece relógio travado. Arredonda para CIMA: com meio segundo sobrando
+   * ainda "falta 1 segundo", e o zero só chega quando o zero chegou — e aí a
+   * faixa já virou.
+   */
+  function tempoQueFalta(limiteMs) {
+    if (limiteMs === null || ESTADO.janela.deslocamentoMs === null) return '';
+    var s = Math.ceil((limiteMs - agoraDoServidorMs()) / 1000);
+    if (s <= 0) return '';
+
+    var partes = [];
+    var dias = Math.floor(s / 86400);
+    var horas = Math.floor((s % 86400) / 3600);
+    var minutos = Math.floor((s % 3600) / 60);
+    if (dias) partes.push(unidades(dias, 'dia', 'dias'));
+    if (horas) partes.push(unidades(horas, 'hora', 'horas'));
+    if (minutos) partes.push(unidades(minutos, 'minuto', 'minutos'));
+    if (s < 600 && s % 60) partes.push(unidades(s % 60, 'segundo', 'segundos'));
+
+    var frase = partes.length > 1
+      ? partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1]
+      : partes[0];
+    return (partes.length === 1 && frase.indexOf('1 ') === 0 ? 'falta ' : 'faltam ') + frase;
+  }
+
+  function unidades(n, uma, varias) {
+    return n + ' ' + (n === 1 ? uma : varias);
   }
 
   // ---------------------------------------------------------------- Detalhe
@@ -578,7 +824,14 @@
     var cartao = document.getElementById('cartao-vagas');
     cartao.innerHTML = '';
 
-    if (p.vagas > 0 && temOcupacao(p)) {
+    // Encerrado o período, número nenhum — é a regra do selo (`seloVagas`),
+    // no cartão. Antes de abrir, os números aparecem: o aluno escolhe o projeto
+    // agora e se inscreve na hora certa.
+    var janela = estadoDaJanela();
+
+    if (janela === 'DEPOIS') {
+      // Nada de vaga.
+    } else if (p.vagas > 0 && temOcupacao(p)) {
       var ocupadas = Math.min(p.inscritos, p.vagas);
       var perc = Math.round(ocupadas / p.vagas * 100);
 
@@ -622,25 +875,47 @@
       return;
     }
 
+    // O período encerrado vem antes do esgotado e do fechado: esgotado ou não,
+    // encerrou — e a data é a informação que sobra para o aluno.
+    if (janela === 'DEPOIS') {
+      cartao.appendChild(blocoSemBotao('Inscrições encerradas',
+        'O prazo de inscrição terminou em ' + dataCurta(ESTADO.janela.fim) + '.'));
+      return;
+    }
+
     if (p.situacao === 'ABERTO') {
+      // Antes de abrir, o botão está lá — desligado — e o motivo embaixo dele:
+      // o aluno vê que a inscrição É por aqui, e quando.
+      if (janela === 'ANTES') {
+        cartao.appendChild(botaoInscrever(true));
+        var quando = document.createElement('p');
+        quando.className = 'vagas-nota vagas-nota--abaixo';
+        quando.textContent = 'As inscrições abrem em ' + dataCurta(ESTADO.janela.inicio) + '.';
+        cartao.appendChild(quando);
+        return;
+      }
       cartao.appendChild(botaoInscrever());
       return;
     }
 
     // Sem botão: no lugar dele, a mensagem em destaque.
+    cartao.appendChild(blocoSemBotao(
+      p.situacao === 'ESGOTADO' ? 'Inscrições esgotadas' : 'Inscrições encerradas',
+      p.situacao === 'ESGOTADO'
+        ? ESTADO.textoEsgotado
+        : 'Este projeto não está recebendo novas inscrições no momento.'));
+  }
+
+  function blocoSemBotao(tituloTexto, detalheTexto) {
     var aviso = document.createElement('div');
     aviso.className = 'aviso-esgotado';
 
     var titulo = document.createElement('strong');
-    titulo.textContent = p.situacao === 'ESGOTADO'
-      ? 'Inscrições esgotadas'
-      : 'Inscrições encerradas';
+    titulo.textContent = tituloTexto;
     aviso.appendChild(titulo);
 
     var detalhe = document.createElement('span');
-    detalhe.textContent = p.situacao === 'ESGOTADO'
-      ? ESTADO.textoEsgotado
-      : 'Este projeto não está recebendo novas inscrições no momento.';
+    detalhe.textContent = detalheTexto;
     aviso.appendChild(detalhe);
 
     var voltar = document.createElement('button');
@@ -650,14 +925,24 @@
     voltar.addEventListener('click', function () { mostrarLista(false); });
     aviso.appendChild(voltar);
 
-    cartao.appendChild(aviso);
+    return aviso;
   }
 
-  function botaoInscrever() {
+  /**
+   * `desligado` é o botão de antes da janela abrir: `disabled`, e SEM ouvinte
+   * de clique — não há o que abrir, e o formulário que abrisse morreria no
+   * servidor de qualquer jeito. Quando a janela abre, o cartão é redesenhado e
+   * o botão volta inteiro (`tiqueDaJanela`).
+   */
+  function botaoInscrever(desligado) {
     var botao = document.createElement('button');
     botao.type = 'button';
     botao.className = 'btn btn--primario btn--bloco btn--grande';
     botao.textContent = 'Quero me inscrever';
+    if (desligado) {
+      botao.disabled = true;
+      return botao;
+    }
     botao.addEventListener('click', abrirFormulario);
     return botao;
   }
@@ -699,7 +984,7 @@
     voltar.addEventListener('click', function () { mostrarLista(false); });
     bloco.appendChild(voltar);
 
-    if (p.situacao === 'ABERTO') {
+    if (inscricaoPossivel(p)) {
       var outra = document.createElement('button');
       outra.type = 'button';
       outra.className = 'ligacao-discreta';

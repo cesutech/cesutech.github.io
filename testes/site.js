@@ -41,7 +41,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { teste, grupo, igual, verdadeiro, resultado } = require('./apoio');
-const { siteCarregado, acharClicavel, PROJETOS_PADRAO } = require('./dom-falso');
+const { abrirSite, siteCarregado, acharClicavel, PROJETOS_PADRAO } = require('./dom-falso');
 
 const PASTA_SITE = path.join(__dirname, '..', 'docs');
 const APP = fs.readFileSync(path.join(PASTA_SITE, 'assets', 'app.js'), 'utf8');
@@ -1337,12 +1337,350 @@ async function rodar() {
     igual(corpo.matricula, '09110001');
   });
 
+  // ================= o período de inscrição (pedido do Prof. Mário, 19/09, item 5)
+
+  /**
+   * "Contador de tempo restante; não exibir vagas restantes após o prazo —
+   * mensagem 'encerrado'." O servidor manda `janela` em `?api=config` com o
+   * `agora` DELE, e é a partir dele que o site conta. Por isso toda cena deste
+   * bloco abre com o relógio do NAVEGADOR quatro dias atrasado
+   * (`RELOGIO_ATRASADO`): é o celular com a hora errada, e tudo que o contador
+   * mostrar certo, mostrou pelo relógio do servidor. A mutação "usar
+   * `Date.now()` cru" faz o mesmo contador dizer seis dias onde faltam dois.
+   *
+   * O que se prova: os quatro estados desenham o que devem; a virada no zero
+   * acontece sozinha; o formulário aberto na virada NÃO é fechado — o envio vai
+   * ao servidor e é a recusa dele que aparece; e config sem `janela` é o site
+   * de hoje, sem esconder nada por falta de dado.
+   */
+  grupo('o período de inscrição — a faixa, o selo e o botão');
+
+  /** O servidor de hoje: `?api=config` com a janela. `agora` é o DELE. */
+  function configComJanela(janela) {
+    return configCom({
+      janela: Object.assign({ estado: 'ABERTA', inicio: '', fim: '', agora: '2026-10-05 10:00:00' }, janela)
+    });
+  }
+
+  /** O navegador abre em 01/10 às 10:00 — quatro dias antes do `agora` do servidor. */
+  const RELOGIO_ATRASADO = Date.UTC(2026, 9, 1, 10, 0, 0);
+
+  async function siteNaJanela(janela, opcoes) {
+    return siteCarregado(Object.assign({
+      respostaConfig: configComJanela(janela), instante: RELOGIO_ATRASADO
+    }, opcoes || {}));
+  }
+
+  /** O botão de inscrever do cartão, com ou sem ouvinte — `acharClicavel` só acha com. */
+  function botaoDoCartao(cena) {
+    let achado = null;
+    (function descer(el) {
+      el.filhos.forEach((f) => {
+        if (achado) return;
+        if (f.tagName === 'BUTTON' && f.textContent === 'Quero me inscrever') achado = f;
+        else descer(f);
+      });
+    })(cena.el('cartao-vagas'));
+    return achado;
+  }
+
+  // ---- servidor velho: sem `janela` ----
+
+  const semJanela = await siteCarregado({ respostaConfig: configCom(), instante: RELOGIO_ATRASADO });
+  semJanela.entrarNoProjeto(0);
+  await semJanela.assentar();
+
+  teste('config sem `janela` — servidor de versão anterior — é o site de hoje', () => {
+    igual(semJanela.visivel('faixa-janela'), false, 'apareceu uma faixa sem o servidor ter mandado janela');
+    verdadeiro(contem(semJanela.texto('grade-projetos'), '50 vagas restantes'), 'as vagas sumiram sem dado nenhum');
+    verdadeiro(contem(semJanela.texto('cartao-vagas'), '10 de 60'));
+    verdadeiro(acharClicavel(semJanela.el('cartao-vagas'), 'Quero me inscrever'), 'o botão sumiu sem dado nenhum');
+    igual(semJanela.intervalosVivos(), 0, 'há um contador rodando sem nada para contar');
+  });
+
+  // ---- ANTES ----
+
+  const antes = await siteNaJanela({ estado: 'ANTES', inicio: '2026-10-07 15:12' });
+
+  teste('ANTES: a faixa diz quando abre e quanto falta — pelo relógio do SERVIDOR', () => {
+    verdadeiro(antes.visivel('faixa-janela'));
+    verdadeiro(contem(antes.el('faixa-janela').className, 'aviso--atencao'), antes.el('faixa-janela').className);
+    igual(antes.texto('faixa-janela-titulo'), 'As inscrições abrem em 07/10 às 15:12');
+    // Do servidor (05/10 10:00) até 07/10 15:12: 2 dias, 5 horas e 12 minutos.
+    // Pelo relógio do navegador, atrasado, seriam 6 dias.
+    igual(antes.texto('faixa-janela-contador'), 'faltam 2 dias, 5 horas e 12 minutos');
+  });
+
+  teste('ANTES: a faixa mostra a data como dd/mm às HH:mm, e nunca o carimbo do servidor', () => {
+    const titulo = antes.texto('faixa-janela-titulo');
+    verdadeiro(/\b\d{2}\/\d{2} às \d{2}:\d{2}$/.test(titulo), titulo);
+    igual(contem(titulo, '2026-10'), false, 'o carimbo bruto vazou para a tela: ' + titulo);
+  });
+
+  antes.entrarNoProjeto(0);
+  await antes.assentar();
+
+  teste('ANTES: os cartões mostram as vagas, e o botão existe desligado, com o motivo', () => {
+    verdadeiro(contem(antes.texto('grade-projetos'), '50 vagas restantes'), 'antes de abrir as vagas continuam à mostra');
+    verdadeiro(contem(antes.texto('cartao-vagas'), '10 de 60'));
+
+    const botao = botaoDoCartao(antes);
+    verdadeiro(botao, 'o botão sumiu — antes de abrir ele fica desligado, não some');
+    igual(botao.disabled, true, 'O BOTÃO ESTÁ LIGADO ANTES DE A JANELA ABRIR');
+    igual(acharClicavel(antes.el('cartao-vagas'), 'Quero me inscrever'), null,
+      'o botão desligado tem ouvinte de clique: abriria o formulário');
+    verdadeiro(contem(antes.texto('cartao-vagas'), 'As inscrições abrem em 07/10 às 15:12'),
+      'o motivo não está escrito no cartão: ' + antes.texto('cartao-vagas'));
+  });
+
+  // A mesma cena com o navegador NA HORA do servidor tem de mostrar o mesmo
+  // número: se os dois diferem, o contador está lendo `Date.now()` cru.
+  const naHora = await siteNaJanela({ estado: 'ANTES', inicio: '2026-10-07 15:12' },
+    { instante: Date.UTC(2026, 9, 5, 10, 0, 0) });
+
+  teste('o contador conta a partir do `agora` do servidor, não do relógio do aluno', () => {
+    igual(naHora.texto('faixa-janela-contador'), antes.texto('faixa-janela-contador'));
+    igual(naHora.texto('faixa-janela-contador'), 'faltam 2 dias, 5 horas e 12 minutos');
+  });
+
+  // ---- ABERTA com fim ----
+
+  const aberta = await siteNaJanela({ estado: 'ABERTA', inicio: '2026-10-01 08:00', fim: '2026-10-30 18:00' });
+
+  teste('ABERTA com fim: a faixa diz até quando e quanto falta', () => {
+    verdadeiro(contem(aberta.el('faixa-janela').className, 'aviso--sucesso'), aberta.el('faixa-janela').className);
+    igual(aberta.texto('faixa-janela-titulo'), 'Inscrições abertas até 30/10 às 18:00');
+    igual(aberta.texto('faixa-janela-contador'), 'faltam 25 dias e 8 horas');
+  });
+
+  aberta.entrarNoProjeto(0);
+  await aberta.assentar();
+  await inscrever(aberta);
+
+  teste('ABERTA: tudo como hoje — vagas, botão, e a inscrição sai', () => {
+    verdadeiro(contem(aberta.texto('grade-projetos'), '50 vagas restantes'));
+    igual(aberta.pedidosPost().length, 1, 'a inscrição não saiu com a janela aberta');
+    verdadeiro(aberta.visivel('painel-sucesso'));
+  });
+
+  const soInicio = await siteNaJanela({ estado: 'ABERTA', inicio: '2026-10-01 08:00' });
+
+  teste('ABERTA sem fim não tem faixa nem contador: não há prazo a contar', () => {
+    igual(soInicio.visivel('faixa-janela'), false);
+    igual(soInicio.intervalosVivos(), 0);
+  });
+
+  // ---- DEPOIS ----
+
+  const depois = await siteNaJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00' });
+
+  teste('DEPOIS: a faixa diz encerradas, com a data', () => {
+    verdadeiro(contem(depois.el('faixa-janela').className, 'aviso--erro'), depois.el('faixa-janela').className);
+    igual(depois.texto('faixa-janela-titulo'), 'Inscrições encerradas');
+    igual(depois.texto('faixa-janela-contador'), 'O prazo terminou em 03/10 às 18:00.');
+    igual(depois.intervalosVivos(), 0, 'há um contador rodando depois do fim');
+  });
+
+  teste('DEPOIS: nenhum cartão mostra vaga — o selo vira "Encerradas"', () => {
+    const lista = depois.texto('grade-projetos');
+    verdadeiro(contem(lista, 'Encerradas'), lista);
+    igual(contem(lista, 'vagas restantes') || contem(lista, 'vaga restante'), false,
+      'VAGAS RESTANTES DEPOIS DO PRAZO: ' + lista);
+    igual(contem(lista, 'no total'), false, 'o total também é número de vaga: ' + lista);
+    depois.cartoes().forEach((cartao) => {
+      verdadeiro(contem(cartao.className, 'cartao-projeto--indisponivel'), 'cartão aberto num semestre encerrado');
+    });
+  });
+
+  depois.entrarNoProjeto(0);
+  await depois.assentar();
+
+  teste('DEPOIS: o detalhe diz encerrado, sem números e sem botão', () => {
+    const cartao = depois.texto('cartao-vagas');
+    igual(contem(cartao, 'de 60'), false, 'a ocupação apareceu depois do prazo: ' + cartao);
+    igual(contem(cartao, 'no total'), false, cartao);
+    igual(botaoDoCartao(depois), null, 'o botão continua no cartão depois do prazo');
+    verdadeiro(contem(cartao, 'Inscrições encerradas'), cartao);
+    verdadeiro(contem(cartao, 'terminou em 03/10 às 18:00'), cartao);
+    verdadeiro(acharClicavel(depois.el('cartao-vagas'), 'Ver outros projetos'), 'sem saída para a lista');
+  });
+
+  const depoisSemContagem = await siteNaJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00' }, {
+    projetos: PROJETOS_PADRAO.map((p) => Object.assign({}, p, { inscritos: null, restantes: null }))
+  });
+
+  teste('DEPOIS com a ocupação não contada: nem "60 vagas no total" aparece', () => {
+    igual(contem(depoisSemContagem.texto('grade-projetos'), 'no total'), false);
+    depoisSemContagem.entrarNoProjeto(0);
+    igual(contem(depoisSemContagem.texto('cartao-vagas'), 'no total'), false);
+  });
+
+  const depoisEsgotado = await siteNaJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00' }, {
+    projetos: [Object.assign({}, PROJETOS_PADRAO[0], { situacao: 'ESGOTADO', inscritos: 60, restantes: 0 })]
+  });
+  depoisEsgotado.entrarNoProjeto(0);
+  await depoisEsgotado.assentar();
+
+  teste('DEPOIS vence o esgotado: encerrou, esgotado ou não', () => {
+    verdadeiro(contem(depoisEsgotado.texto('grade-projetos'), 'Encerradas'));
+    igual(contem(depoisEsgotado.texto('grade-projetos'), 'Esgotado'), false);
+    verdadeiro(contem(depoisEsgotado.texto('cartao-vagas'), 'Inscrições encerradas'));
+    igual(contem(depoisEsgotado.texto('cartao-vagas'), 'esgotadas'), false);
+  });
+
+  const jaInscritoDepois = await siteNaJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00' }, {
+    armazenamento: { 'cesutech.inscricoes': JSON.stringify({ ARTE: 'PROTO-1' }) }
+  });
+  jaInscritoDepois.entrarNoProjeto(0);
+  await jaInscritoDepois.assentar();
+
+  teste('DEPOIS, quem já se inscreveu continua vendo que está inscrito — mas sem "fazer outra"', () => {
+    verdadeiro(contem(jaInscritoDepois.texto('cartao-vagas'), 'Você já está inscrito'));
+    igual(acharClicavel(jaInscritoDepois.el('cartao-vagas'), 'Não foi você'), null,
+      'a saída do computador compartilhado abriria um formulário que o servidor vai recusar');
+  });
+
+  // O config chega ANTES da lista, e com a lista fora do ar: redesenhar a lista
+  // vazia por causa da janela escreveria "Nenhum projeto disponível" — a
+  // mensagem de sistema VAZIO para um sistema fora do ar, o defeito de
+  // `carregarTudo`, por uma porta nova.
+  const listaForaDoAr = abrirSite({
+    respostaConfig: configComJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00' }),
+    instante: RELOGIO_ATRASADO
+  });
+  listaForaDoAr.projetosFalham = true;
+  listaForaDoAr.carregar();
+  await listaForaDoAr.assentar();
+
+  teste('a janela não desenha a lista que ainda não chegou: fora do ar não vira "nenhum projeto"', () => {
+    igual(contem(listaForaDoAr.texto('grade-projetos'), 'Nenhum projeto disponível'), false,
+      listaForaDoAr.texto('grade-projetos'));
+    verdadeiro(contem(listaForaDoAr.texto('carregando-projetos'), 'Não conseguimos falar com o servidor'));
+    igual(listaForaDoAr.texto('faixa-janela-titulo'), 'Inscrições encerradas', 'a faixa, essa aparece');
+  });
+
+  // ---- a virada, sozinha ----
+
+  const virando = await siteNaJanela({ estado: 'ABERTA', fim: '2026-10-05 10:12' });
+  virando.entrarNoProjeto(0);
+  await virando.assentar();
+  const aoAbrir = virando.texto('faixa-janela-contador');
+  const contadorVivo = virando.intervalosVivos();
+
+  await virando.avancarRelogio(121000);
+  virando.tique();
+  const aosDoisMinutos = virando.texto('faixa-janela-contador');
+
+  await virando.avancarRelogio(9 * 60000 + 58000);
+  virando.tique();
+  const aUmSegundo = virando.texto('faixa-janela-contador');
+  const botaoAntesDaVirada = acharClicavel(virando.el('cartao-vagas'), 'Quero me inscrever');
+
+  teste('o contador anda com o tique, e mostra segundos nos últimos dez minutos', () => {
+    igual(aoAbrir, 'faltam 12 minutos');
+    igual(contadorVivo, 1, 'o contador não está rodando');
+    igual(aosDoisMinutos, 'faltam 9 minutos e 59 segundos');
+    igual(aUmSegundo, 'falta 1 segundo');
+  });
+
+  await virando.avancarRelogio(1000);
+  virando.tique();
+
+  teste('ABERTA→DEPOIS: no zero a faixa vira sozinha, e os cartões e o detalhe vão junto', () => {
+    verdadeiro(botaoAntesDaVirada, 'antes da virada o botão está lá');
+    igual(virando.texto('faixa-janela-titulo'), 'Inscrições encerradas');
+    igual(virando.texto('faixa-janela-contador'), 'O prazo terminou em 05/10 às 10:12.');
+    verdadeiro(contem(virando.texto('grade-projetos'), 'Encerradas'), virando.texto('grade-projetos'));
+    igual(contem(virando.texto('grade-projetos'), 'vagas restantes'), false);
+    igual(botaoDoCartao(virando), null, 'o botão sobreviveu à virada');
+    verdadeiro(contem(virando.texto('cartao-vagas'), 'Inscrições encerradas'));
+    igual(virando.pedidosDe('api=config').length, 1, 'a virada pediu o config de novo — ela é local');
+    igual(virando.intervalosVivos(), 0, 'depois do fim não há mais o que contar');
+  });
+
+  const abrindo = await siteNaJanela({ estado: 'ANTES', inicio: '2026-10-05 10:01', fim: '2026-10-30 18:00' });
+  abrindo.entrarNoProjeto(0);
+  await abrindo.assentar();
+  const desligadoAntes = botaoDoCartao(abrindo).disabled;
+  await abrindo.avancarRelogio(60000);
+  abrindo.tique();
+
+  teste('ANTES→ABERTA: o botão liga sozinho quando chega a hora', () => {
+    igual(desligadoAntes, true, 'antes da hora o botão já estava ligado');
+    igual(abrindo.texto('faixa-janela-titulo'), 'Inscrições abertas até 30/10 às 18:00');
+    verdadeiro(contem(abrindo.el('faixa-janela').className, 'aviso--sucesso'));
+    igual(botaoDoCartao(abrindo).disabled, false, 'a janela abriu e o botão continua desligado');
+    igual(contem(abrindo.texto('cartao-vagas'), 'abrem em'), false, 'o motivo de esperar ficou no cartão');
+
+    abrindo.clicarNoCartaoDeVagas('Quero me inscrever');
+    verdadeiro(abrindo.visivel('area-formulario'), 'o botão ligado não abre o formulário');
+  });
+
+  const abrindoSemFim = await siteNaJanela({ estado: 'ANTES', inicio: '2026-10-05 10:01' });
+  await abrindoSemFim.avancarRelogio(60000);
+  abrindoSemFim.tique();
+
+  teste('ANTES→ABERTA sem fim: a faixa some e o contador para', () => {
+    igual(abrindoSemFim.visivel('faixa-janela'), false);
+    igual(abrindoSemFim.intervalosVivos(), 0);
+    verdadeiro(contem(abrindoSemFim.texto('grade-projetos'), '50 vagas restantes'));
+  });
+
+  // ---- o formulário aberto no instante do encerramento ----
+
+  const noLimite = await siteNaJanela({ estado: 'ABERTA', fim: '2026-10-05 10:01' }, {
+    respostaEnvio: { ok: false, erro: 'As inscrições encerraram em 05/10/2026 às 10:01.' }
+  });
+  noLimite.entrarNoProjeto(0);
+  await noLimite.assentar();
+  prepararFormulario(noLimite);
+  await noLimite.avancarRelogio(61000);
+  noLimite.tique();
+
+  teste('o formulário aberto na virada continua aberto — nada de bloqueio local', () => {
+    verdadeiro(contem(noLimite.texto('cartao-vagas'), 'Inscrições encerradas'), 'o cartão não virou');
+    verdadeiro(noLimite.visivel('area-formulario'), 'A VIRADA FECHOU O FORMULÁRIO que o aluno estava preenchendo');
+  });
+
+  noLimite.sairDoCampoMatricula();
+  await noLimite.assentar();
+  noLimite.enviarFormulario();
+  await noLimite.assentar();
+
+  teste('o envio vai ao servidor, e é a recusa DELE, com a data, que aparece', () => {
+    igual(noLimite.pedidosPost().length, 1, 'o site barrou o envio por conta própria');
+    verdadeiro(noLimite.visivel('erro-geral'));
+    igual(noLimite.texto('erro-geral'), 'As inscrições encerraram em 05/10/2026 às 10:01.');
+    igual(noLimite.visivel('painel-sucesso'), false);
+    verdadeiro(noLimite.visivel('area-formulario'), 'o formulário sumiu como se o projeto tivesse lotado');
+  });
+
+  // ---- o que a tela faz sem relógio do servidor ----
+
+  const semRelogio = await siteNaJanela({ estado: 'DEPOIS', fim: '2026-10-03 18:00', agora: '' });
+
+  teste('`agora` ilegível: a faixa mostra o estado que o servidor disse, parada e sem contador', () => {
+    igual(semRelogio.texto('faixa-janela-titulo'), 'Inscrições encerradas');
+    igual(contem(semRelogio.texto('grade-projetos'), 'vagas restantes'), false);
+    igual(semRelogio.intervalosVivos(), 0);
+  });
+
+  teste('a mesma pergunta decide a faixa, o selo e o cartão — e é a conta do servidor', () => {
+    verdadeiro((APP.match(/estadoDaJanela\(\)/g) || []).length >= 4,
+      'a faixa, a lista, o selo e o cartão precisam perguntar à mesma função');
+    verdadeiro(/agoraDoServidorMs\(\)/.test(APP) && !/Date\.now\(\)\s*[<>]=?\s*\w+\.(inicio|fim)Ms/.test(APP),
+      'o estado está sendo decidido com Date.now() cru, e não com o relógio do servidor');
+    verdadeiro(/aria-live="polite"[^>]*>/.test(/<strong id="faixa-janela-titulo"[^>]*>/.exec(HTML)[0]),
+      'o título da faixa deixou de ser anunciado ao leitor de tela');
+  });
+
   // ==================================================== estilos e acessibilidade
 
   grupo('o que o CSS precisa ter para nada disso ficar sem estilo');
 
   teste('as classes novas existem no estilos.css', () => {
-    ['.ja-inscrito', '.ligacao-discreta', '.sucesso-projeto', '.vagas-nota'].forEach((classe) => {
+    ['.ja-inscrito', '.ligacao-discreta', '.sucesso-projeto', '.vagas-nota',
+      '.faixa-janela', '.faixa-janela__contador', '.vagas-nota--abaixo'].forEach((classe) => {
       verdadeiro(contem(CSS, classe), classe + ' não tem estilo');
     });
   });

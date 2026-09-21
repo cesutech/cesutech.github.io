@@ -64,6 +64,22 @@
           com a URL <code>/exec</code> do Apps Script.
         </div>
 
+        <!--
+          O período geral de inscrição (pedido do Prof. Mário, 19/09, item 5):
+          "as inscrições abrem em...", "abertas até..." ou "encerradas", com o
+          tempo que falta. Nasce escondida e só aparece quando o servidor manda
+          uma janela (`janela` em ?api=config) — sem ela, o site é o de sempre.
+
+          O `aria-live` está no TÍTULO, e não na faixa: o título muda só quando
+          o estado vira, e isso vale um anúncio; o contador muda a cada minuto,
+          e anunciar "faltam 2 dias, 5 horas e 11 minutos" sessenta vezes por
+          hora é o que faria um leitor de tela ser desligado.
+        -->
+        <div id="faixa-janela" class="faixa-janela oculto">
+          <strong id="faixa-janela-titulo" role="status" aria-live="polite"></strong>
+          <span id="faixa-janela-contador" class="faixa-janela__contador"></span>
+        </div>
+
         <div id="carregando-projetos" class="carregando">Carregando projetos...</div>
         <div class="grade-projetos" id="grade-projetos"></div>
       </div>
