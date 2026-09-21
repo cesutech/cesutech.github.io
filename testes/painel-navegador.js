@@ -4682,11 +4682,27 @@ teste('o botão está na barra da janela de inscritos, e o clique troca a lista 
   verdadeiro(/Hoje: 2 ocupando vaga de 2/.test(texto), 'a ocupação de agora não está na janela: ' + texto);
 });
 
-teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais "Outro"', () => {
+teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais "Outro" — e SÓ as ativas', () => {
   // Mutação que derruba: montar o select de `PROJETOS`, de `cursos_fases` ou de
   // uma lista escrita à mão — o rótulo gravado deixaria de casar com a aba
-  // Disciplinas, que cruza por igualdade.
-  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  // Disciplinas, que cruza por igualdade. E tirar o `if (!d.ativo) return;` de
+  // `opcoesDeCursoParaInclusao`: a migração só produz disciplinas ATIVAS, então
+  // a comparação com `cursosFasesAtivos_` era verde com o filtro fora — por
+  // isso uma é inativada aqui, antes de a janela abrir. Uma disciplina inativa
+  // é de semestre encerrado, e oferecê-la gravaria um rótulo que a aba
+  // Disciplinas já não cruza.
+  let encerrada = '';
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      // Pelo mesmo `disciplinaDe_` do servidor: o rótulo não é campo gravado,
+      // é derivado de turma e curso, e é o rótulo que o select oferece.
+      const escolhida = api.listar('disciplinas', {}).itens.map(api.disciplinaDe_).filter((d) => d.ativo && !d.coringa)[0];
+      api.atualizar('disciplinas', escolhida.id, { ativo: 'NAO' });
+      encerrada = escolhida.rotulo;
+    }
+  });
+  verdadeiro(encerrada, 'o cenário devia ter inativado uma disciplina');
   abrirInclusao(cena, 'p2');
 
   const opcoes = cena.documento.getElementById('inc-curso').opcoes;
@@ -4697,6 +4713,9 @@ teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais 
   const doSite = cena.api.cursosFasesAtivos_();
   igual(rotulos, doSite, 'o select não é a lista que o site mostra ao aluno');
   verdadeiro(rotulos.length >= 10, 'a migração devia ter produzido a lista inteira');
+  igual(rotulos.indexOf(encerrada), -1, 'a disciplina inativa está no select: ' + encerrada);
+  verdadeiro(cena.api.listar('disciplinas', {}).itens.map(cena.api.disciplinaDe_).some((d) => d.rotulo === encerrada && !d.ativo),
+    'a inativa continua no banco — o select é que a peneira');
 });
 
 teste('sem a aba Disciplinas aberta, a janela busca a lista pela mesma chamada dela — uma vez', () => {
@@ -4790,11 +4809,15 @@ teste('matrícula já inscrita: o aviso amarelo nomeia o projeto e ensina a move
   igual(aviso.indexOf('(este projeto)'), -1, 'o homônimo foi marcado como este projeto: ' + aviso);
 });
 
-teste('matrícula na FILA DE ESPERA deste projeto: o aviso diz "(em espera)" e aponta a promoção, e o Incluir é recusado apontando o mesmo caminho', () => {
-  // Mutação que derruba: `ja_em` sem a marca de espera (a tela diria "já
-  // inscrito" para quem NÃO ocupa vaga), ou o servidor tratar o 409 da fila
-  // como "já está inscrito" — a coordenação confirmaria estourar o teto e
-  // leria uma recusa que não a leva a lugar nenhum.
+teste('matrícula na FILA DE ESPERA deste projeto: o aviso diz "(em espera)" e que o Incluir promove — e o clique, confirmado o teto, PROMOVE: a lista reabre com ela ocupando vaga', () => {
+  // O cenário A da sonda que achou o beco, clicado até o fim: projeto 2/2, a
+  // Ana na fila; a primeira versão recusava mandando ao Auditório, e lá a
+  // promoção recusava por "vagas preenchidas". Mutação que derruba: `ja_em` sem
+  // a marca de espera (a tela diria "já inscrito" para quem NÃO ocupa vaga); o
+  // aviso ou a resposta voltarem a apontar "Auditório → Fila de espera →
+  // Promover" (o beco); o servidor tratar o 409 da fila como "já está
+  // inscrito"; ou a tela não reabrir a lista no sucesso da promoção (é o mesmo
+  // `ok: true`, e a lista é o lugar onde a coordenação vê a aluna entrar).
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
@@ -4810,19 +4833,36 @@ teste('matrícula na FILA DE ESPERA deste projeto: o aviso diz "(em espera)" e a
 
   const aviso = cena.texto('inc-ja-em');
   verdadeiro(aviso.indexOf('Lotado (este projeto) (em espera)') !== -1, aviso);
-  verdadeiro(aviso.indexOf('Auditório → Fila de espera → Promover') !== -1, aviso);
+  verdadeiro(aviso.indexOf('Incluir dá a vaga à inscrição que já existe') !== -1, aviso);
+  igual(aviso.indexOf('Auditório'), -1, 'o aviso mandou ao Auditório — é o beco: lá a promoção recusa projeto cheio');
   igual(aviso.indexOf('Alunos → Editar'), -1, 'mover não é o caminho para quem está na fila daqui');
+  const protocolo = Object.keys(cena.documentos('inscricoes'))
+    .filter((id) => cena.documentos('inscricoes')[id].matricula === '9110001')[0];
 
   cena.respostaConfirm = true;
   botaoSalvar(cena).click();
-  igual(cena.confirmacoes.length, 1, 'o teto pergunta antes — 2/2');
-  const erro = cena.texto('mensagem-modal');
-  verdadeiro(erro.indexOf('FILA DE ESPERA') !== -1, erro);
-  verdadeiro(erro.indexOf('Auditório → Fila de espera → Promover') !== -1, erro);
-  igual(erro.indexOf('já está inscrito'), -1, erro);
-  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Lotado', 'o formulário se perdeu');
-  igual(cena.api.contarInscritos_('p2'), 2, 'a fila virou vaga por fora do Auditório');
-  igual(Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0].em_espera, 'SIM');
+  igual(cena.confirmacoes, ['Este projeto está com 2/2. Incluir deixa 3/2. Continuar?'], 'o teto pergunta antes, como na inclusão comum');
+
+  // Promovida: a lista reabre com a Ana OCUPANDO vaga, e a faixa diz de onde ela veio.
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Lotado', 'o sucesso da promoção não reabriu a lista');
+  const lista = cena.texto('insc-proj-tabela');
+  verdadeiro(/Ana Silva/.test(lista) && /9110001/.test(lista), 'a aluna promovida não está na lista: ' + lista);
+  verdadeiro(/3 de 3 na lista/.test(lista), lista);
+  igual(lista.indexOf('espera'), -1, 'a lista ainda a mostra como fila: ' + lista);
+  const faixa = cena.texto('mensagem-modal');
+  verdadeiro(faixa.indexOf('Promovido da fila de espera. Protocolo ' + protocolo + '. Lotado ficou 3/2.') !== -1, faixa);
+  igual(faixa.indexOf('Auditório'), -1, faixa);
+  verdadeiro(/aviso--sucesso/.test(cena.html('mensagem-modal')), 'a promoção deu certo e não veio em verde');
+
+  igual(cena.api.contarInscritos_('p2'), 3, 'a promoção não virou vaga');
+  const todos = cena.documentos('inscricoes');
+  const ids = Object.keys(todos).filter((id) => todos[id].matricula === '9110001');
+  igual(ids, [protocolo], 'o protocolo tinha de ser o existente, e um só — a promoção criou uma segunda inscrição?');
+  igual(todos[protocolo].em_espera, undefined, 'a marca de fila ficou no documento');
+  igual(todos[protocolo].espera_de, undefined);
+  igual(todos[protocolo].origem, 'SITE', 'a inscrição continua sendo a do aluno, não uma da coordenação');
+  verdadeiro(/Lotado 2 3 \/ 2/.test(cena.texto('conteudo-projetos')),
+    'a aba Projetos não mostra 3 / 2: ' + cena.texto('conteudo-projetos'));
 });
 
 teste('a resposta da lista oficial chega DEPOIS do Voltar (ou do fechar): morre calada, sem "defeito do painel"', () => {
@@ -4853,10 +4893,14 @@ teste('a resposta da lista oficial chega DEPOIS do Voltar (ou do fechar): morre 
   verdadeiro(!cena.documento.getElementById('inc-nome'), 'o formulário voltou para a tela');
 
   // A mesma resposta chegando depois do × (fecharModal): nada na página. O
-  // corpo da janela fechada ainda tem os campos — o × só a esconde —, então
-  // aqui é `INCLUSAO` nulo quem segura, e a resposta traz um projeto de
-  // propósito: é ao marcar "(este projeto)" que o callback leria
-  // `INCLUSAO.projetoId`.
+  // corpo da janela fechada ainda tem os campos — o × só a esconde —, e é a
+  // guarda `!INCLUSAO` do callback que devolve cedo, porque `fecharModal` zera
+  // `INCLUSAO`; a resposta traz um projeto de propósito, porque é ao marcar
+  // "(este projeto)" que o callback leria `INCLUSAO.projetoId`. O que este
+  // caso NÃO prova: o `INCLUSAO = null` de `fecharModal` — sem ele, o callback
+  // escreveria nos campos escondidos sem estourar, e a página ficaria igual.
+  // Quem prova essa linha é o Incluir tardio depois do ×, no teste dele: lá a
+  // janela fechada REABRIA com a lista.
   cena.respostas.buscarMatriculado = (corpo, c) => {
     c.js.fecharModal();
     return { ok: true, encontrado: true, nome: 'Ana Silva', email: '', telefone: '', curso: 'ADS', turma: 'ADS11',
@@ -4956,6 +5000,13 @@ teste('sucesso reabre a lista do projeto com o aluno nela, e a tabela atrás mos
   const cena = abrirPainel({ semear: cadastroParaIncluir, usuario: '' });
   abrirInclusao(cena, 'p1');
   sairDaMatricula(cena, '9110001');
+  // O WhatsApp é CORRIGIDO por cima do que a lista oficial preencheu, e as
+  // observações são digitadas: é o valor DA TELA que tem de viajar. Mutação
+  // que derruba: `whatsapp: ''` ou `observacoes: ''` no payload de
+  // `incluirInscricaoUI` — a suíte era verde com os dois campos mudos, porque
+  // nenhum teste lia o documento gravado além de origem, operador e curso.
+  cena.digitar('inc-whatsapp', '(48) 98888-7777');
+  cena.digitar('inc-observacoes', 'chegou pela coordenação, sem formulário');
 
   botaoSalvar(cena).click();
 
@@ -4977,6 +5028,13 @@ teste('sucesso reabre a lista do projeto com o aluno nela, e a tabela atrás mos
   igual(doc.origem, 'COORDENACAO');
   igual(doc.incluido_por, 'coord@exemplo.com', 'quem incluiu tem de ser a sessão, não usuarioAtual() (anonimo)');
   verdadeiro(/^ADS11 - /.test(doc.curso_fase), 'o curso escolhido pela turma não viajou: ' + doc.curso_fase);
+  igual(doc.whatsapp, '48988887777', 'o WhatsApp corrigido na tela não chegou ao documento');
+  igual(doc.observacoes, 'chegou pela coordenação, sem formulário', 'as observações digitadas não chegaram ao documento');
+  const envio = chamadasDe(cena, 'incluirInscricao')[0].args[0];
+  igual(envio.whatsapp, '(48) 98888-7777', 'o payload não levou o WhatsApp da tela');
+  igual(envio.observacoes, 'chegou pela coordenação, sem formulário');
+  igual(envio.nome, 'Ana Silva');
+  igual(envio.email, 'ana@exemplo.com');
 });
 
 teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a tela diz isso em vez de "defeito do painel"', () => {
@@ -5010,6 +5068,29 @@ teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a 
   verdadeiro(/9110001/.test(cena.texto('insc-proj-tabela')), 'a lista reaberta ficou sem a aluna incluída');
   verdadeiro(/2 de 2 na lista/.test(cena.texto('insc-proj-tabela')), cena.texto('insc-proj-tabela'));
 
+  // O sucesso chegando depois do × (fecharModal): a janela FICA fechada, e o
+  // aviso vai para o topo da página — a coordenação precisa saber que gravou,
+  // onde quer que esteja. Mutação que derruba: tirar o `INCLUSAO = null` de
+  // `fecharModal()` — `aindaAqui` continuaria verdadeiro, `voltarParaInscritos`
+  // reabriria a janela com a lista, e a coordenação veria uma janela que
+  // fechou segundos antes voltar sozinha. (O caso do × no teste do blur não
+  // pega essa mutação: lá os campos escondidos absorvem a escrita sem estrago.)
+  cena.respostas.incluirInscricao = (corpo, c) => {
+    delete c.respostas.incluirInscricao;
+    c.js.fecharModal();                                                                        // ela fechou no ×...
+    return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
+  };
+  abrirInclusao(cena, 'p1');
+  preencherInclusao(cena, { matricula: '9110003', nome: 'Carla Terceira', email: 'carla@exemplo.com' });
+  botaoSalvar(cena).click();
+
+  verdadeiro(!janelaAberta(cena), 'a janela fechada reabriu sozinha com a resposta tardia');
+  igual(cena.texto('mensagem-modal'), '', 'o aviso foi escrito numa janela que não está na tela');
+  const global = cena.texto('mensagem-global');
+  verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 3\/10\./.test(global), 'o topo da página não diz que gravou: ' + global);
+  igual(Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110003' && i.origem === 'COORDENACAO').length, 1);
+  cena.documento.getElementById('mensagem-global').innerHTML = '';
+
   // E a recusa chegando depois do Voltar morre calada: nada foi gravado, e o
   // formulário de que ela fala já não existe.
   cena.respostas.incluirInscricao = (corpo, c) => {
@@ -5021,6 +5102,49 @@ teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a 
   botaoSalvar(cena).click();
   igual(cena.documento.getElementById('modal-titulo').textContent, 'Inscritos em Origem');
   igual(cena.texto('mensagem-modal'), '', 'o erro de um formulário abandonado apareceu na lista');
+
+  // E a PERGUNTA DO TETO chegando depois do Voltar morre calada — e é o mais
+  // grave dos três desfechos, porque o "sim" reenvia `confirmar_teto: true`
+  // lendo os CAMPOS DA TELA, que já podem ser de OUTRO formulário. Encenado
+  // como o pior caso: enquanto a pergunta de "Lotado" viaja, a coordenação
+  // volta, fecha, e abre o Incluir de "Origem" com o Bruno. Mutação que
+  // derruba: tirar o `if (!aindaAqui) return;` do ramo `precisa_confirmar` —
+  // a pergunta "2/2 → 3/2" aparecia em cima do formulário do Bruno, e o "sim"
+  // mandava ESSE formulário com `confirmar_teto: true`: o Bruno entrava em
+  // Origem, com o teto confirmado, sem ninguém ter sido perguntado sobre
+  // Origem nem sobre o Bruno.
+  let enviosDaEncenacao = 0;
+  cena.respostas.incluirInscricao = (corpo, c) => {
+    enviosDaEncenacao++;
+    if (enviosDaEncenacao > 1) return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+    c.js.voltarParaInscritos();
+    c.js.fecharModal();
+    abrirInclusao(c, 'p1');
+    preencherInclusao(c, { matricula: '9220002', nome: 'Bruno Souza', email: 'bruno@exemplo.com' });
+    return { ok: false, precisa_confirmar: true, inscritos: 2, vagas: 2, erro: 'Este projeto está com 2/2. Incluir deixa 3/2.' };
+  };
+  cena.respostaConfirm = true;
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+  // Pela REDE, e não por `cena.chamadas`: a resposta encenada não chega ao
+  // `.gs`, e o que se quer contar é o que SAIU do painel.
+  const enviosPelaRede = () => cena.requisicoesHttp
+    .map((q) => JSON.parse(q.corpo)).filter((c) => c.fn === 'incluirInscricao');
+  const enviosAntes = enviosPelaRede().length;
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, [], 'perguntou o teto de um formulário que já não existe');
+  const envios = enviosPelaRede();
+  igual(envios.length, enviosAntes + 1, 'reenviou com confirmar_teto sem ninguém ter sido perguntado');
+  igual(envios[envios.length - 1].dados.projeto_id, 'p2');
+  igual(envios[envios.length - 1].dados.confirmar_teto, undefined, 'o único envio tinha de ser a primeira pergunta, sem confirmação');
+  // O formulário do Bruno continua na tela, intacto e NÃO enviado.
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Incluir aluno em Origem');
+  igual(cena.documento.getElementById('inc-matricula').value, '9220002', 'o formulário novo foi mexido');
+  verdadeiro(!botaoSalvar(cena).disabled, 'o Incluir do formulário novo ficou travado pela resposta do velho');
+  igual(Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9220002' && i.projeto_id === 'p1' && i.origem === 'COORDENACAO').length, 0,
+    'o Bruno entrou em Origem pela resposta tardia de Lotado');
+  igual(cena.api.contarInscritos_('p2'), 2, 'Lotado ganhou alguém sem confirmação');
 });
 
 teste('o aviso do servidor chega junto, em amarelo — matrícula fora da lista e projeto repetido', () => {

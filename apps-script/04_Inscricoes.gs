@@ -458,8 +458,8 @@ function outrosProjetosDe_(dados) {
  * nome: a janela "Incluir aluno" marca "(este projeto)" pelo ID — o nome é
  * desnormalizado na escrita, e um projeto renomeado depois da inscrição, ou
  * dois homônimos, deixariam a marca errada — e diz "(em espera)" quando a
- * pessoa está na FILA deste projeto, porque aí incluir não é o caminho:
- * promover é (Auditório → Fila de espera). `outrosProjetosDe_` continua
+ * pessoa está na FILA deste projeto, porque aí o Incluir promove a inscrição
+ * que existe em vez de criar outra (`incluirInscricao`). `outrosProjetosDe_` continua
  * devolvendo nomes, que é o que `submeterInscricao` lê desde o primeiro
  * semestre; separar a leitura da consulta é o que deixa os dois chamadores
  * compartilharem o filtro sem um mudar o contrato do outro.

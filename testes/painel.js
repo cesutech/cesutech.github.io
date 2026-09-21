@@ -2402,13 +2402,20 @@ teste('o envelope público NÃO tem como pedir o que só a coordenação grava: 
     'string vazia na ciência, sem projeto, tem de continuar sendo NAO');
 });
 
-teste('passa por fora: janela encerrada, cadastro_aberto=NAO e projeto ESGOTADO — e a resposta diz 3/2', () => {
+teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado e projeto ESGOTADO — e a resposta diz 3/2', () => {
   // Mutação que derruba: qualquer `recusaPelaJanela_()`, `config('cadastro_aberto')`
   // ou `reservarVaga` dentro de `incluirInscricao` — a coordenação ficaria
-  // trancada do lado de fora junto com o público, que é o defeito relatado.
+  // trancada do lado de fora junto com o público, que é o defeito relatado. E
+  // `verificarAntiAbuso_(payload)` antes de gravar (o item j do cabeçalho): o
+  // teto por hora é zerado aqui e o honeypot vai preenchido, que é o que um
+  // robô faria — a guarda recusaria a coordenação com "Estamos recebendo muitas
+  // inscrições agora", no auditório, na hora em que ela precisa incluir; e
+  // cada inclusão gastaria uma escrita em PropertiesService (`throttle_*`) que
+  // é do formulário público, não desta porta.
   const amb = cenarioInclusao();
   amb.api.gravarConfig('cadastro_aberto', 'NAO');
   amb.api.gravarConfig('inscricoes_fim', '2020-01-01 00:00');
+  amb.api.gravarConfig('limite_inscricoes_hora', '0');
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
   igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
@@ -2421,13 +2428,16 @@ teste('passa por fora: janela encerrada, cadastro_aberto=NAO e projeto ESGOTADO 
   });
   igual(publico.ok, false, 'o formulário devia estar fechado');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true, website: 'robo' }));
   igual(r.ok, true, r.erro);
   igual(r.inscritos, 3, 'o contador tem de dizer 3, e não arredondar para 2');
   igual(r.vagas, 2);
   igual(r.situacao, 'ESGOTADO');
   verdadeiro(r.mensagem.indexOf('Robótica ficou 3/2') !== -1, r.mensagem);
   igual(amb.api.contarInscritos_('p2'), 3, 'a vaga conta de verdade, sem contador gravado');
+  igual([...amb.propriedades.keys()].filter((k) => k.indexOf('throttle_') === 0), [],
+    'a inclusão gastou o contador por hora do formulário público');
+  igual(linhasDoLog(amb, 'BLOQUEIO').length, 0, 'a coordenação foi tratada como robô');
 
   const p2 = chamar(amb, 'painelProjetos').itens.filter((p) => p.id === 'p2')[0];
   igual(p2.inscritos, 3, 'o painel arredondou a ocupação para o teto');
@@ -2488,41 +2498,145 @@ teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, com o protocolo e
   igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 1);
 });
 
-teste('na FILA DE ESPERA deste projeto: a recusa aponta a promoção — uma leitura a mais, nenhuma escrita além da tentativa', () => {
-  // Mutação que derruba: tratar todo 409 como "já está inscrito" (é o que a
-  // primeira versão fazia) — a coordenação confirmava estourar o teto e lia uma
-  // recusa FALSA no sentido que importa: a pessoa NÃO ocupa vaga, e o caminho
-  // certo é Auditório → Fila de espera → Promover. Ou fazer a leitura ANTES da
-  // escrita, para todo mundo — a duplicata deixaria de ser descoberta pelo 409.
+/**
+ * A fila de espera deste projeto, para os dois cenários em que a coordenação
+ * PRECISA da porta por fora — e em que o caminho que a primeira versão apontava
+ * (Auditório → Fila de espera → Promover) recusa: `promoverDaEspera` respeita o
+ * teto e a situação do projeto, e quem está na fila está lá PORQUE o projeto
+ * encheu; depois do prazo, ele está FECHADO. Era um beco sem saída provado por
+ * sonda: incluir recusava mandando promover, e promover recusava com "as vagas
+ * do projeto já estão preenchidas" / "o projeto está fechado".
+ */
+function cenarioDaFila(extraDoProjeto, ocupam) {
   const amb = cenarioInclusao();
   amb.api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
-  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
-  const fila = inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com', em_espera: 'SIM' });
-  igual(amb.api.contarInscritos_('p2'), 2, 'quem espera não ocupa vaga');
+  if (extraDoProjeto) amb.api.atualizar('projetos', 'p2', extraDoProjeto);
+  if (ocupam) {
+    inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
+    inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
+  }
+  // A inscrição da fila é a do ALUNO, pelo site: origem SITE, aceites dados,
+  // curso e fase dele. É o que a promoção tem de preservar campo por campo.
+  amb.fila = inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    curso_fase: 'ADS - ADS11', whatsapp: '48988887777', em_espera: 'SIM'
+  });
+  amb.fila.criado_em = amb.api.ler('inscricoes', amb.fila.id).criado_em;
+  igual(amb.api.contarInscritos_('p2'), ocupam ? 2 : 0, 'quem espera não ocupa vaga');
+  igual(amb.api.contarEmEspera_('p2'), 1);
+  return amb;
+}
+
+/** O documento promovido é o de sempre, campo por campo — e sem as marcas. */
+function conferirPromovida(amb, r) {
+  igual(r.ok, true, r.erro);
+  igual(r.id, amb.fila.id, 'o protocolo tem de ser o EXISTENTE — não nasce documento');
+  igual(r.promovida_da_fila, true);
+  igual(r.precisa_confirmar, undefined);
+  verdadeiro(/^Promovido da fila de espera\. Protocolo /.test(r.mensagem), r.mensagem);
+
+  const docs = inscricoesGravadas(amb).filter((i) => i.matricula === '9110001' && i.projeto_id === 'p2');
+  igual(docs.length, 1, 'a promoção criou uma segunda inscrição');
+  const doc = docs[0];
+  igual(doc.em_espera, undefined, 'a marca tem de ser APAGADA, não zerada — é o espelho de promoverDentroDoLock_');
+  igual(doc.espera_de, undefined);
+  igual(doc.origem, 'SITE', 'a inscrição continua sendo a do aluno');
+  igual(doc.incluido_por, undefined, 'promover não reescreve o documento com o que a coordenação digitou');
+  igual(doc.curso_fase, 'ADS - ADS11');
+  igual(doc.whatsapp, '48988887777');
+  igual(doc.declara_ciencia, 'SIM', 'os aceites do aluno não podem virar "não perguntado"');
+  igual(doc.consentimento_lgpd, 'SIM');
+  igual(doc.criado_em, amb.fila.criado_em, 'a chegada na fila é a data que a inscrição guarda');
+  igual(amb.api.contarEmEspera_('p2'), 0, 'a fila deste projeto tinha de ficar vazia');
+  igual(chamar(amb, 'filaDeEspera').fila.length, 0, 'a aba Auditório ainda mostra a pessoa na fila');
+}
+
+teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto pergunta e não escreve NADA; com confirmar_teto PROMOVE a inscrição que existe', () => {
+  // Mutação que derruba: tratar todo 409 como "já está inscrito" (a primeira
+  // versão), ou mandar a coordenação ao Auditório (a segunda — `promoverDaEspera`
+  // recusa em projeto cheio, e este cenário É o projeto cheio); gravar
+  // `em_espera: 'NAO'` em vez de apagar (`undefined` abaixo); usar `atualizar`
+  // só com as duas chaves (a máscara não apaga campo — e mandar o documento
+  // pela metade a `escreverEmLote` apagaria o resto, que `curso_fase` e
+  // `declara_ciencia` vigiam); ou promover ANTES da pergunta do teto (a
+  // primeira chamada escreveria).
+  const amb = cenarioDaFila(null, true);
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
-  igual(r.ok, false);
-  igual(r.em_espera, true);
-  verdadeiro(r.erro.indexOf('FILA DE ESPERA') !== -1, r.erro);
-  verdadeiro(r.erro.indexOf(fila.id) !== -1, 'a recusa não trouxe o protocolo: ' + r.erro);
-  verdadeiro(r.erro.indexOf('Auditório → Fila de espera → Promover') !== -1, r.erro);
-  igual(r.erro.indexOf('já está inscrito'), -1, 'a recusa da fila não pode ser a da vaga');
-
-  igual(gravacoes(amb.falso).length, 1, 'só a tentativa recusada pelo 409 — nem log, nem segunda inscrição');
-  igual(leiturasForaDaConfig(amb.falso).length, 3, 'o projeto, a lista oficial e a inscrição recusada — e só no ramo do 409');
-  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 0);
-  const doc = inscricoesGravadas(amb).filter((i) => i.matricula === '9110001')[0];
-  igual(doc.em_espera, 'SIM', 'a inscrição em espera foi mexida');
+  // Sem confirmar_teto: a pergunta de sempre, e ZERO escritas — nem a tentativa.
+  const pergunta = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  igual(pergunta.ok, false);
+  igual(pergunta.precisa_confirmar, true);
+  igual(pergunta.erro, 'Este projeto está com 2/2. Incluir deixa 3/2.');
+  igual(gravacoes(amb.falso).length, 0, 'perguntar não pode custar escrita nenhuma');
+  igual(inscricoesGravadas(amb).filter((i) => i.matricula === '9110001')[0].em_espera, 'SIM', 'perguntou e promoveu');
   igual(amb.api.contarInscritos_('p2'), 2);
-
-  // E a duplicata que OCUPA vaga continua com a recusa de sempre, sem a leitura
-  // dizer outra coisa.
   amb.zerar();
-  const vaga = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', matricula: '9110101', confirmar_teto: true }));
-  igual(vaga.em_espera, undefined);
-  verdadeiro(/já está inscrito neste projeto\. Protocolo: /.test(vaga.erro), vaga.erro);
+
+  // Com confirmar_teto: a promoção, e o projeto fica 3/2.
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  conferirPromovida(amb, r);
+  igual(r.inscritos, 3);
+  igual(r.vagas, 2);
+  igual(r.situacao, 'ESGOTADO');
+  igual(r.matricula_conferida, 'NAO', 'a marca é a do DOCUMENTO promovido, que o aluno gravou sem conferência');
+  igual(r.aviso, '', 'não pode avisar "entrou marcada como não conferida" sobre um documento que não foi reescrito');
+  verdadeiro(/Robótica ficou 3\/2\./.test(r.mensagem), r.mensagem);
+  igual(amb.api.contarInscritos_('p2'), 3, 'a promoção não contou como vaga');
+
+  // O custo: a tentativa recusada pelo 409, UMA escrita (o commit da promoção)
+  // e o log. Leituras: o projeto, a lista oficial e a inscrição recusada.
+  igual(gravacoes(amb.falso).length, 3, 'a promoção é UMA escrita, além da tentativa e do log');
+  igual(leiturasForaDaConfig(amb.falso).length, 3);
+  igual(gravacoes(amb.falso).filter((q) => q.url.indexOf(':commit') !== -1).length, 1,
+    'a promoção tem de ser o mesmo commit de promoverDentroDoLock_ — o documento inteiro, de uma vez');
+
+  const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
+  igual(linhas.length, 1);
+  igual(linhas[0].entidade_id, amb.fila.id);
+  igual(linhas[0].detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO (promovida da fila)');
+
+  // Promovida, a pessoa OCUPA vaga: o Incluir de novo é a duplicata comum.
+  amb.zerar();
+  const deNovo = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  igual(deNovo.ok, false);
+  igual(deNovo.promovida_da_fila, undefined);
+  verdadeiro(/já está inscrito neste projeto\. Protocolo: /.test(deNovo.erro), deNovo.erro);
+  igual(gravacoes(amb.falso).length, 1, 'a duplicata comum continua custando só a tentativa');
+});
+
+teste('cenário B — projeto FECHADO (inscrições encerradas) com vaga e a matrícula na fila: promove sem perguntar, por fora da situação', () => {
+  // Mutação que derruba: recusar por `situacaoDe_` (é o que `promoverDaEspera`
+  // faz, e é o beco: depois do prazo todo projeto está fechado), ou perguntar
+  // o teto com vaga sobrando.
+  const amb = cenarioDaFila({ inscricoes_abertas: 'NAO', vagas: '5' }, false);
+  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'FECHADO');
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  conferirPromovida(amb, r);
+  igual(r.inscritos, 1);
+  igual(r.vagas, 5);
+  igual(r.situacao, 'FECHADO');
+  igual(amb.api.contarInscritos_('p2'), 1);
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe,
+    'por coordenacao@exemplo.com no projeto Robótica (1/5) (promovida da fila)');
+});
+
+teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscrição nova, avisa o outro projeto, e a fila fica onde está', () => {
+  // A chave de dedup leva o projeto: a fila de p2 não é o 409 de p1. Mutação
+  // que derruba: promover qualquer inscrição em espera da pessoa, e não a da
+  // chave recusada.
+  const amb = cenarioDaFila(null, true);
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p1' }));
+  igual(r.ok, true, r.erro);
+  igual(r.promovida_da_fila, false);
+  verdadeiro(/^Incluído\. Protocolo /.test(r.mensagem), r.mensagem);
+  verdadeiro(r.aviso.indexOf('Robótica') !== -1, r.aviso);
+  igual(inscricoesGravadas(amb).filter((i) => i.projeto_id === 'p2' && i.matricula === '9110001')[0].em_espera, 'SIM',
+    'a fila de Robótica foi mexida por uma inclusão em R+ Cidades');
+  igual(amb.api.contarInscritos_('p1'), 1);
+  igual(amb.api.contarInscritos_('p2'), 2);
 });
 
 teste('formato inválido recusa ANTES de ler qualquer coisa — a régua é a do formulário', () => {

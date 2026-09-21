@@ -36,7 +36,8 @@
  *                              sem `confirmar_teto`) + 1 leitura de ponto + 1
  *                              consulta + 1 escrita + 1 agregação, mais o log;
  *                              duplicada: para na escrita recusada + 1 leitura
- *                              de ponto (fila de espera ou vaga?)
+ *                              de ponto (fila de espera ou vaga?) — e a fila
+ *                              é promovida: + 1 escrita, a agregação e o log
  *   listarAlunos (consulta) .. 1 agregação + `tamanho` leituras por página, mais
  *                              1 leitura de ponto (os cursos) SÓ quando a tela
  *                              ainda não tem a lista — e a página N custa
@@ -125,9 +126,11 @@
  * depois — existe teste que compara as duas.
  *
  * `incluirInscricao` CRIA uma inscrição — é a única função fora de
- * 04_Inscricoes.gs que chama `gravarInscricao`, e ela escreve só na FONTE: a
- * ficha em `alunos` nasce no cruzamento seguinte, que roda sozinho no próximo
- * Atualizar da aba Alunos (ver `reconciliarSeValerAPena_`).
+ * 04_Inscricoes.gs que chama `gravarInscricao` — ou PROMOVE a que já está na
+ * fila de espera do projeto, como `promoverDentroDoLock_` (13_Auditorio.gs).
+ * Nos dois casos escreve só na FONTE: a ficha em `alunos` nasce no cruzamento
+ * seguinte, que roda sozinho no próximo Atualizar da aba Alunos (ver
+ * `reconciliarSeValerAPena_`).
  *
  * -------------------------------------------------- Suposições sobre `alunos`
  *
@@ -707,10 +710,11 @@ function inscritosDoProjeto(payload) {
  * em_espera }` em vez do nome. O id é o que a janela usa para marcar "(este
  * projeto)" — o nome é desnormalizado na escrita, e um projeto renomeado ou
  * dois homônimos deixariam a marca errada — e `em_espera` é o que a faz dizer
- * "(em espera)": quem está na FILA deste projeto não se inclui, se promove
- * (Auditório → Fila de espera), e a coordenação precisa saber disso ANTES de
- * preencher o formulário, não pela recusa depois. Sem `projeto_id` no pedido, a
- * consulta devolve TODOS os projetos da pessoa, inclusive o desta janela.
+ * "(em espera)": quem está na FILA deste projeto não ganha uma inscrição nova
+ * no Incluir, ganha a vaga na que já tem (`incluirInscricao` promove), e a
+ * coordenação precisa saber ANTES de preencher o formulário que o que ela
+ * digitar ali não vai para o documento. Sem `projeto_id` no pedido, a consulta
+ * devolve TODOS os projetos da pessoa, inclusive o desta janela.
  *
  * A régua da matrícula é `erroFormatoMatricula_`, a mesma das outras três portas
  * (formulário, `?api=matricula`, `editarAluno`): vazia ou fora do formato recusa
@@ -812,14 +816,31 @@ function buscarMatriculado(payload) {
  * decide), mas entra marcado — o "?" da lista de inscritos continua dizendo a
  * verdade, e a resposta avisa.
  *
- * O 409 tem DOIS significados, e a recusa precisa dizer qual: a chave de dedup é
- * a mesma para quem está na FILA DE ESPERA do projeto (`vagas_excedentes_em_espera`
+ * O 409 tem DOIS significados, e só um deles é recusa: a chave de dedup é a
+ * mesma para quem está na FILA DE ESPERA do projeto (`vagas_excedentes_em_espera`
  * em SIM), e "já está inscrito" seria falso no sentido que importa — a pessoa
- * NÃO ocupa vaga, e a coordenação acabou de confirmar estourar o teto para
- * incluí-la. Por isso, e SÓ nesse ramo, uma leitura de ponto da inscrição
- * recusada: em espera, a resposta aponta o caminho certo, que é promover
- * (Auditório → Fila de espera), não incluir de novo. Custa uma leitura a mais
- * na duplicata, que é o caso raro; no caminho feliz não custa nada.
+ * NÃO ocupa vaga. Por isso, e SÓ nesse ramo, uma leitura de ponto da inscrição
+ * recusada: em espera, a inscrição que já existe é PROMOVIDA aqui mesmo — as
+ * duas marcas de fila saem do documento e ele é reescrito inteiro, que é
+ * exatamente o que `promoverDentroDoLock_` (13_Auditorio.gs) faz, numa escrita
+ * só e sem o lock, pela conta acima. Mandar a coordenação ao Auditório era um
+ * beco: `promoverDaEspera` respeita o teto e a situação do projeto, e quem está
+ * na fila está na fila PORQUE o projeto encheu — e depois do prazo ele está
+ * FECHADO. Os dois estados em que a coordenação precisa da porta por fora eram
+ * os dois em que o caminho apontado recusava. A resposta é a de uma inclusão,
+ * com o protocolo EXISTENTE (não nasce documento) e a contagem de depois; a
+ * trilha diz "(promovida da fila)". Nada do que a coordenação digitou
+ * sobrescreve a inscrição do aluno: ela ganha a vaga como está — o mesmo que a
+ * promoção pelo Auditório. Custa uma leitura a mais na duplicata, que é o caso
+ * raro; no caminho feliz não custa nada.
+ *
+ * O teto PERGUNTA ANTES de saber se é fila: a dedup é o 409, e não uma leitura
+ * prévia, então a pergunta do teto ("2/2, incluir deixa 3/2") sai sem saber que
+ * a resposta será uma promoção. A conta é a mesma — promover também deixa 3/2
+ * —, e a coordenação já leu "(em espera)" no aviso amarelo antes de clicar
+ * (`buscarMatriculado`). Uma leitura de ponto antes do teto, para nomear a fila
+ * na pergunta, custaria uma leitura em TODA inclusão para melhorar a frase do
+ * caso raro.
  *
  * Outro projeto da mesma pessoa NÃO recusa, e avisa nomeando-o: é a semântica do
  * modo NAO de `aluno_projeto_unico`, o padrão. Se a intenção era MOVER, o caminho
@@ -844,7 +865,8 @@ function buscarMatriculado(payload) {
  * projeto) + 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto
  * (a lista oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a
  * ocupação de depois) + o log. Duplicada: para na escrita recusada, mais 1
- * leitura de ponto para saber se é fila de espera ou vaga.
+ * leitura de ponto para saber se é fila de espera ou vaga — e, na fila, mais 1
+ * escrita (a promoção) e a agregação e o log de sempre.
  */
 function incluirInscricao(payload) {
   try {
@@ -912,22 +934,30 @@ function incluirInscricao(payload) {
     };
 
     var gravacao = gravarInscricao(dados, { incluido_por: quem });
+    var promovida = null;
     if (gravacao.duplicada) {
       // A única leitura deste ramo, e o motivo está no cabeçalho: a chave é a
-      // mesma para quem está na fila, e a fila não se inclui — se promove.
+      // mesma para quem está na fila — e a fila não se inclui, se promove, AQUI.
       var recusada = ler(INSCRICOES_COLECAO, gravacao.id);
-      if (recusada && String(recusada.em_espera).toUpperCase() === 'SIM') {
+      if (!recusada || String(recusada.em_espera).toUpperCase() !== 'SIM') {
         return {
           ok: false,
-          em_espera: true,
-          erro: 'Este aluno está na FILA DE ESPERA deste projeto (protocolo ' + gravacao.id +
-                '), sem ocupar vaga. Para dar a vaga a ele, use Auditório → Fila de espera → Promover.'
+          erro: 'Este aluno já está inscrito neste projeto. Protocolo: ' + gravacao.id + '.'
         };
       }
-      return {
-        ok: false,
-        erro: 'Este aluno já está inscrito neste projeto. Protocolo: ' + gravacao.id + '.'
-      };
+
+      // O espelho de `promoverDentroDoLock_` (13_Auditorio.gs), campo por
+      // campo: as marcas são APAGADAS, e não zeradas — o documento de quem
+      // ocupa vaga não tem esses campos, e `em_espera: NAO` gravado seria uma
+      // terceira forma de documento que a primeira consulta "tem o campo?"
+      // leria errado. E é o documento LIDO que volta inteiro, porque
+      // `escreverEmLote` substitui: mandar só as duas chaves apagaria o resto
+      // da inscrição. O que a coordenação digitou no formulário NÃO entra —
+      // a inscrição é a do aluno, e ganha a vaga como está.
+      delete recusada.em_espera;
+      delete recusada.espera_de;
+      escreverEmLote(INSCRICOES_COLECAO, [recusada]);
+      promovida = recusada;
     }
 
     // A ocupação é contada UMA vez, depois da escrita, e serve às duas pontas — a
@@ -936,13 +966,23 @@ function incluirInscricao(payload) {
     // tela dizer 62.
     var inscritos = contarInscritos_(projetoId);
 
+    // "(promovida da fila)" na mesma linha, e não numa ação própria: a pergunta
+    // que a trilha responde é "quem pôs esta pessoa neste projeto", e a resposta
+    // é a mesma — a coordenação, por esta porta. O que muda é que o documento já
+    // existia, e a linha diz isso.
     registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
       'por ' + quem + ' no projeto ' + projetoNome + ' (' + inscritos +
       (vagas > 0 ? '/' + vagas : ' inscritos, vagas ilimitadas') + ')' +
-      (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : ''));
+      (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : '') +
+      (promovida ? ' (promovida da fila)' : ''));
+
+    // A marca de conferência é a do DOCUMENTO: a inscrição promovida não foi
+    // reescrita com o que a coordenação digitou, e a resposta não pode dizer
+    // "entrou marcada como não conferida" sobre uma marca que não foi gravada.
+    var conferida = promovida ? String(promovida.matricula_conferida || 'NAO') : (conhecida ? 'SIM' : 'NAO');
 
     var avisos = [];
-    if (!conhecida) {
+    if (!conhecida && !promovida) {
       avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
         ' não está na lista oficial importada: a inscrição entrou marcada como não conferida.');
     }
@@ -958,14 +998,16 @@ function incluirInscricao(payload) {
     return {
       ok: true,
       id: gravacao.id,
+      promovida_da_fila: Boolean(promovida),
       projeto_nome: projetoNome,
       inscritos: inscritos,
       vagas: vagas,
       situacao: situacaoDe_(projeto, inscritos),
-      matricula_conferida: conhecida ? 'SIM' : 'NAO',
+      matricula_conferida: conferida,
       aviso: avisos.join(' '),
       reconciliacao_pendente: true,
-      mensagem: 'Incluído. Protocolo ' + gravacao.id + '. ' + projetoNome + ' ficou ' + inscritos +
+      mensagem: (promovida ? 'Promovido da fila de espera. ' : 'Incluído. ') +
+                'Protocolo ' + gravacao.id + '. ' + projetoNome + ' ficou ' + inscritos +
                 (vagas > 0 ? '/' + vagas : ' inscrito(s)') + '.'
     };
   } catch (err) {

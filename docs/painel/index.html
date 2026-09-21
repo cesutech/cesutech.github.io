@@ -4758,8 +4758,11 @@
    * em_espera }`, de `inscricoesEmOutrosProjetos_`). A deste projeto aparece
    * marcada — pelo ID, porque o nome gravado na inscrição é o da época e dois
    * projetos podem se chamar igual — e a que está na FILA diz "(em espera)": a
-   * coordenação descobre antes de clicar que o caminho não é incluir, é
-   * promover pelo Auditório.
+   * coordenação descobre antes de clicar que o Incluir vai PROMOVER a inscrição
+   * que já existe (`incluirInscricao`, 10_Painel.gs), e que nome, e-mail e o
+   * resto do formulário não vão para o documento. Mandar ao Auditório, como a
+   * primeira versão fazia, era um beco: lá a promoção respeita o teto e a
+   * situação, e quem está na fila está lá porque o projeto encheu.
    *
    * A RESPOSTA CHEGA DEPOIS, e a janela pode não estar mais lá. O `blur` dispara
    * no mousedown, ANTES do clique em Voltar, no × ou no fundo — e a resposta do
@@ -4822,8 +4825,8 @@
         var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
         jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
           (naFilaDaqui
-            ? '. Quem está na fila de espera deste projeto não se inclui de novo: para dar a vaga, use ' +
-              'Auditório → Fila de espera → Promover.'
+            ? '. Está na fila de espera deste projeto: Incluir dá a vaga à inscrição que já existe ' +
+              '(mesmo protocolo), sem criar outra — o que você digitar abaixo não é gravado nela.'
             : '. Se a intenção é mover, use Alunos → Editar → Projeto.') + '</div>';
       }
     });
