@@ -4737,30 +4737,13 @@
         (extra || '') + '></div>';
     };
 
-    // A ocupação de hoje vem da lista que está atrás do formulário — e só quando
-    // ela está: `INSCRITOS_PROJETO` é a última lista aberta, e pela aba Alunos
-    // ela seria a de um projeto que ninguém escolheu. Ali o número vai no
-    // rótulo de cada opção do select.
-    var ocupacao = p && INSCRITOS_PROJETO && INSCRITOS_PROJETO.ok
-      ? INSCRITOS_PROJETO.ocupam + ' ocupando vaga' +
-        (INSCRITOS_PROJETO.vagas > 0 ? ' de ' + INSCRITOS_PROJETO.vagas : ' (vagas ilimitadas)')
-      : '';
-
-    var html = '<div class="aviso aviso--info pequeno">Inclusão pela coordenação: passa por fora ' +
-      'do período de inscrição, do interruptor do formulário e do teto de vagas (com confirmação). ' +
-      'A coordenação não consente pelo aluno — ciência e aviso de privacidade ficam em branco na ' +
-      'inscrição. ' +
-      // Pela aba, o aviso promete só o que a tela faz: rodar o Atualizar. A
-      // ficha ganha o projeto quando o CRUZAMENTO roda, e ele tem freio de
-      // orçamento por dia (PAINEL_ORCAMENTO_RECONCILIACAO, 10_Painel.gs) — no
-      // tamanho real do cadastro, a terceira inclusão do dia já pode cair nele.
-      // "A ficha aparece com o projeto" seria uma promessa que o servidor pode
-      // recusar; quem diz se cruzou é a faixa do painel, depois de incluir.
-      (p
-        ? 'A ficha em <strong>Alunos</strong> atualiza no próximo <strong>Atualizar</strong> daquela aba.'
-        : 'Ao incluir, a aba <strong>Alunos</strong> é atualizada: a ficha ganha o projeto quando o ' +
-          'cruzamento roda, e a faixa do painel diz se rodou — ou por que não.') +
-      (ocupacao ? '<br>Hoje: <strong>' + escapar(ocupacao) + '</strong>.' : '') + '</div>';
+    // Sem balão de explicação no topo (pedido do Jonathan, 21/09): o formulário
+    // se explica pelos rótulos, e o que passa por fora (período, interruptor,
+    // teto com confirmação, aceites em branco) está no cabeçalho de
+    // `incluirInscricao` (10_Painel.gs), para quem mantém — não para quem opera
+    // todo dia. O que a inclusão fez, e se o cruzamento rodou, a faixa diz
+    // DEPOIS de incluir, que é quando importa.
+    var html = '';
 
     // O select de projeto é o PRIMEIRO campo, e só existe quando o projeto não
     // veio decidido: quem entrou pela lista de um projeto já o escolheu ao abrir
