@@ -570,6 +570,11 @@ function funcoesDoPainel_() {
     detalheAluno: detalheAluno,
     resolverAluno: resolverAluno,
     editarAluno: editarAluno,
+    // As duas do "Incluir aluno" (21/09): a consulta que preenche a janela e a
+    // gravação que passa por fora da janela de inscrição e do teto — com
+    // `exigirAdmin` e confirmação, como toda escrita de coordenação daqui.
+    buscarMatriculado: buscarMatriculado,
+    incluirInscricao: incluirInscricao,
     exportarCsv: exportarCsv,
     listarLotes: listarLotes,
     listarLog: listarLog,

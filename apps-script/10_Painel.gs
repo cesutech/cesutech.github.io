@@ -30,6 +30,11 @@
  *   inscritosDoProjeto ....... 1 leitura de ponto + 1 consulta de até
  *                              PAINEL_MAX_INSCRITOS_PROJETO documentos (61 num
  *                              projeto lotado de 60 vagas)
+ *   buscarMatriculado ........ 1 leitura de ponto + 1 consulta (as inscrições
+ *                              de UMA pessoa); zero escritas
+ *   incluirInscricao ......... 1 leitura de ponto + 1 agregação (o teto, só
+ *                              sem `confirmar_teto`) + 1 leitura de ponto + 1
+ *                              consulta + 1 escrita + 1 agregação, mais o log
  *   listarAlunos (consulta) .. 1 agregação + `tamanho` leituras por página, mais
  *                              1 leitura de ponto (os cursos) SÓ quando a tela
  *                              ainda não tem a lista — e a página N custa
@@ -116,6 +121,11 @@
  * PROJEÇÃO desses campos, com a mesma precedência que `montarAluno_` usa. Se as
  * duas divergirem, a tela mostra um valor até a próxima reconciliação e outro
  * depois — existe teste que compara as duas.
+ *
+ * `incluirInscricao` CRIA uma inscrição — é a única função fora de
+ * 04_Inscricoes.gs que chama `gravarInscricao`, e ela escreve só na FONTE: a
+ * ficha em `alunos` nasce no cruzamento seguinte, que roda sozinho no próximo
+ * Atualizar da aba Alunos (ver `reconciliarSeValerAPena_`).
  *
  * -------------------------------------------------- Suposições sobre `alunos`
  *
@@ -669,6 +679,312 @@ function inscritosDoProjeto(payload) {
     console.error('inscritosDoProjeto: ' + err.message);
     return { ok: false, erro: err.message };
   }
+}
+
+// ------------------------------------------ Incluir aluno pela coordenação
+
+/**
+ * A ficha de uma matrícula na lista oficial, para a janela "Incluir aluno"
+ * preencher o formulário ao sair do campo.
+ *
+ * DEVOLVE DADO DO ALUNO A PARTIR DA MATRÍCULA — exatamente o que
+ * `matriculaConhecida` (04_Inscricoes.gs) e `?api=matricula` (08_Api.gs) se
+ * recusam a fazer. A diferença não é de gosto, é de QUEM pergunta: lá o
+ * consulente é anônimo, e uma matrícula quase sequencial viraria um oráculo da
+ * lista inteira; aqui é a coordenação autenticada (`exigirAdmin`), que já enxerga
+ * a lista importada inteira na aba Alunos e no CSV. Não há nada aqui que ela não
+ * tenha a um clique — só está no lugar em que ela precisa, na hora em que
+ * precisa, para não redigitar o que a secretaria já mandou.
+ *
+ * Custo: 1 leitura de ponto (a lista oficial, pelo id = matrícula normalizada,
+ * que é o contrato de `matriculaConhecida`) + 1 consulta de igualdade
+ * (`outrosProjetosDe_`, a mesma que o formulário público faz). Zero escritas.
+ *
+ * `ja_em` sai de `outrosProjetosDe_` com o contrato REAL dela: uma lista de
+ * NOMES de projeto, sem id e sem marca de espera — é o que o formulário público
+ * lê desde o primeiro semestre, e mudar o retorno para servir a esta tela
+ * mexeria no caminho do aluno. Sem `projeto_id` no pedido, ela devolve TODOS os
+ * projetos da pessoa, inclusive o desta janela: "já está neste projeto" é
+ * notícia que a coordenação quer ANTES de clicar, e não só como recusa depois.
+ *
+ * A régua da matrícula é `erroFormatoMatricula_`, a mesma das outras três portas
+ * (formulário, `?api=matricula`, `editarAluno`): vazia ou fora do formato recusa
+ * ANTES de qualquer leitura.
+ */
+function buscarMatriculado(payload) {
+  try {
+    exigirAdmin(payload && payload.token);
+    payload = payload || {};
+
+    var matricula = normalizarMatricula(payload.matricula);
+    if (!matricula) return { ok: false, erro: 'Informe a matrícula.' };
+    var formato = erroFormatoMatricula_(payload.matricula);
+    if (formato) return { ok: false, erro: formato };
+
+    var oficial = ler(MATRICULADOS_COLECAO, matricula);
+
+    return {
+      ok: true,
+      encontrado: oficial !== null,
+      nome: oficial ? String(oficial.nome || '') : '',
+      email: oficial ? String(oficial.email || '') : '',
+      telefone: oficial ? formatarTelefone(oficial.telefone) : '',
+      curso: oficial ? String(oficial.curso || '') : '',
+      turma: oficial ? String(oficial.turma || '') : '',
+      ja_em: outrosProjetosDe_({ matricula: matricula })
+    };
+  } catch (err) {
+    return { ok: false, erro: err.message };
+  }
+}
+
+/**
+ * Inclui um aluno num projeto pela mão da coordenação — por fora da janela, do
+ * teto e do formulário.
+ *
+ * --------------------------------------------------------- O caso que a criou
+ *
+ * 21/09: o coordenador precisava incluir um aluno num projeto e não tinha por
+ * onde. A única gravação de inscrição era `submeterInscricao` (04_Inscricoes.gs),
+ * que é o formulário público: respeita `cadastro_aberto`, a janela
+ * `inscricoes_inicio`/`inscricoes_fim`, o anti-abuso e o teto de vagas. Com a
+ * janela FECHADA — o estado de produção naquele dia — nem a coordenação
+ * conseguia incluir ninguém, nem por fora. `editarAluno` migra quem JÁ tem
+ * inscrição; quem nunca se inscreveu não tinha porta.
+ *
+ * ------------------------------------------- O que passa por fora, e por quê
+ *
+ * Cada trava do formulário público existe para o ALUNO ANÔNIMO, e nenhuma delas
+ * faz sentido para uma pessoa identificada com o cadastro na frente:
+ *
+ *   a janela e `cadastro_aberto` .... fecham o formulário para o público. A
+ *                                     coordenação inclui DEPOIS do prazo — é o
+ *                                     caso que criou a função;
+ *   `verificarAntiAbuso_` ........... honeypot, tempo de preenchimento e teto por
+ *                                     hora, contra robô. Aqui há sessão e nome;
+ *   o teto de vagas ................. não bloqueia, COM CONFIRMAÇÃO: projeto
+ *                                     cheio devolve `precisa_confirmar` sem
+ *                                     gravar, e o segundo envio, com
+ *                                     `confirmar_teto: true`, grava. É a
+ *                                     migração de `editarAluno` com uma pergunta
+ *                                     a mais, porque lá a coordenação lê "2/2 ·
+ *                                     Esgotado" no select antes de escolher, e
+ *                                     aqui o número só existe depois de perguntar
+ *                                     ao banco. INATIVO e FECHADO não perguntam
+ *                                     nada: a situação do projeto é do público;
+ *   o lock .......................... NÃO é tomado, pela mesma conta de
+ *                                     `editarAluno` e de `removerProjeto`:
+ *                                     `getScriptLock` é global, e pegá-lo poria o
+ *                                     clique da coordenação atrás da fila inteira
+ *                                     do auditório. O pior que a corrida faz é uma
+ *                                     vaga a mais num projeto onde a coordenação
+ *                                     acabou de decidir estourar o teto de
+ *                                     propósito;
+ *   `declara_ciencia`,
+ *   `autoriza_imagem` e
+ *   `consentimento_lgpd` ............ NÃO são exigidos nem preenchidos: a
+ *                                     coordenação não consente pelo aluno. Os três
+ *                                     vão VAZIOS ('') — e não 'NAO', que seria
+ *                                     afirmar que o aluno recusou (ver
+ *                                     `consentimento_`, 04_Inscricoes.gs). A ficha
+ *                                     omite o campo vazio, e é assim que "não
+ *                                     perguntado" se distingue de "não aceitou".
+ *
+ * O formulário público NÃO muda em nada: `submeterInscricao` continua com todas
+ * as travas, e `gravarInscricao` continua gravando o mesmo documento de sempre —
+ * o único campo novo (`incluido_por`) só existe em quem entrou por aqui.
+ *
+ * ------------------------------------------------------ O que NÃO passa por fora
+ *
+ * A régua da matrícula é `erroFormatoMatricula_`, a MESMA do formulário, de
+ * `?api=matricula` e de `editarAluno` — uma quarta régua aqui seria a que
+ * envelhece sozinha. A dedup é a do banco: o id do documento é `chaveDedup_`, e o
+ * 409 recusa a mesma pessoa no mesmo projeto sem leitura prévia e sem escrita a
+ * mais — nem no log. E `matricula_conferida` é decidido por `matriculaConhecida`,
+ * como no formulário: quem não está na lista oficial ENTRA (a coordenação
+ * decide), mas entra marcado — o "?" da lista de inscritos continua dizendo a
+ * verdade, e a resposta avisa.
+ *
+ * Outro projeto da mesma pessoa NÃO recusa, e avisa nomeando-o: é a semântica do
+ * modo NAO de `aluno_projeto_unico`, o padrão. Se a intenção era MOVER, o caminho
+ * é Alunos → Editar → Projeto, e o aviso diz isso — incluir de novo deixaria a
+ * pessoa em dois projetos.
+ *
+ * ---------------------------------------------------------------- E depois
+ *
+ * A ficha em `alunos` NÃO muda aqui: `alunos` é derivada, e o cruzamento roda
+ * sozinho no próximo Atualizar da aba Alunos, porque a contagem de inscrições
+ * mudou (`reconciliarSeValerAPena_`, freio 1). Chamar `reconciliar()` daqui
+ * custaria as três coleções inteiras por inclusão — o preço que `editarAluno` só
+ * paga quando a CHAVE da pessoa muda. A resposta carrega
+ * `reconciliacao_pendente: true` para a tela dizer isso em vez de a coordenação
+ * abrir Alunos e não achar quem acabou de incluir.
+ *
+ * O log guarda ids, o e-mail de quem operou e o NOME DO PROJETO — nunca nome,
+ * e-mail, telefone ou matrícula do aluno (a regra de `registrarEdicao_`: dado
+ * pessoal já está na ficha, a um clique, e repeti-lo na trilha é espalhá-lo).
+ *
+ * Custo: 0 leituras quando o formato recusa; senão 1 leitura de ponto (o
+ * projeto) + 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto
+ * (a lista oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a
+ * ocupação de depois) + o log. Duplicada: para na escrita recusada.
+ */
+function incluirInscricao(payload) {
+  try {
+    exigirAdmin(payload && payload.token);
+    payload = payload || {};
+
+    // Quem operou: a sessão sabe (07_Auth.gs), e `usuarioAtual()` é o que
+    // `registrar` gravaria sozinho — no GitHub Pages ele vem vazio, e por isso o
+    // e-mail da sessão entra no DETALHE da linha.
+    var quem = emailDaSessao_(payload.token) || usuarioAtual();
+
+    // Formato antes de qualquer leitura: pedido malformado não custa cota. É a
+    // ordem de `editarAluno` e de `resolverAluno`.
+    var erros = conferirFormatoDaInclusao_(payload);
+    if (erros.length) return { ok: false, erro: erros.join(' ') };
+
+    var projetoId = String(payload.projeto_id || '').trim();
+    var projeto = projetoPorId(projetoId);
+    if (!projeto) return { ok: false, erro: 'Projeto não encontrado. Recarregue a lista.' };
+
+    var vagas = Number(projeto.vagas || 0);
+    var projetoNome = String(projeto.nome || '');
+
+    // Só o teto pergunta, e só UMA vez: o segundo envio traz `confirmar_teto` e
+    // pula a contagem de antes. A de depois é feita de qualquer jeito — é ela que
+    // vai para a resposta e para o log. 0 vagas é ilimitado, e não pergunta.
+    if (payload.confirmar_teto !== true && vagas > 0) {
+      var antes = contarInscritos_(projetoId);
+      if (antes >= vagas) {
+        return {
+          ok: false,
+          precisa_confirmar: true,
+          inscritos: antes,
+          vagas: vagas,
+          erro: 'Este projeto está com ' + antes + '/' + vagas + '. Incluir deixa ' +
+                (antes + 1) + '/' + vagas + '.'
+        };
+      }
+    }
+
+    // Uma leitura da lista oficial e uma consulta às inscrições da pessoa — as
+    // mesmas duas perguntas que `submeterInscricao` faz, na mesma ordem. As duas
+    // respostas viram AVISO aqui, e não recusa: quem decide é a coordenação.
+    var conhecida = matriculaConhecida(payload.matricula);
+    var jaEstaEm = outrosProjetosDe_({ matricula: payload.matricula, projeto_id: projetoId });
+
+    var dados = {
+      origem: 'COORDENACAO',
+      incluido_por: quem,
+      projeto_id: projetoId,
+      projeto_nome: projetoNome,
+      matricula: payload.matricula,
+      matricula_conferida: conhecida ? 'SIM' : 'NAO',
+      nome: payload.nome,
+      email: payload.email,
+      whatsapp: payload.whatsapp || '',
+      curso_fase: String(payload.curso_fase || '').trim(),
+      // O mesmo teto de `resolverAluno`: texto livre que o painel relê a cada
+      // listagem não carrega um romance colado sem querer.
+      observacoes: String(payload.observacoes || '').trim().slice(0, PAINEL_MAX_OBSERVACOES),
+      // Vazios de propósito — ver o cabeçalho: a coordenação não consente pelo
+      // aluno, e '' é o único valor que `consentimento_` NÃO traduz para 'NAO'.
+      declara_ciencia: '',
+      autoriza_imagem: '',
+      consentimento_lgpd: '',
+      // Ocupa vaga: a fila de espera é decisão de `reservarVaga`, que não roda
+      // aqui. Zerar é o mesmo cuidado de `submeterInscricao` com o campo.
+      em_espera: 'NAO'
+    };
+
+    var gravacao = gravarInscricao(dados);
+    if (gravacao.duplicada) {
+      return {
+        ok: false,
+        erro: 'Este aluno já está inscrito neste projeto. Protocolo: ' + gravacao.id + '.'
+      };
+    }
+
+    // A ocupação é contada UMA vez, depois da escrita, e serve às duas pontas — a
+    // linha do histórico e a frase que a coordenação lê. É a conta de
+    // `aplicarEdicao_`: contar duas vezes abriria a chance de o log dizer 61 e a
+    // tela dizer 62.
+    var inscritos = contarInscritos_(projetoId);
+
+    registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
+      'por ' + quem + ' no projeto ' + projetoNome + ' (' + inscritos +
+      (vagas > 0 ? '/' + vagas : ' inscritos, vagas ilimitadas') + ')' +
+      (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : ''));
+
+    var avisos = [];
+    if (!conhecida) {
+      avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
+        ' não está na lista oficial importada: a inscrição entrou marcada como não conferida.');
+    }
+    if (jaEstaEm.length) {
+      avisos.push('Este aluno também está inscrito em ' + jaEstaEm.join(', ') +
+        '. Se a intenção era mover, use Alunos → Editar → Projeto.');
+    }
+
+    // A inscrição que acabou de entrar muda "inscrições" e, no próximo cruzamento,
+    // os status — os mesmos números que `resolverAluno` já invalida.
+    invalidarCachePainel_();
+
+    return {
+      ok: true,
+      id: gravacao.id,
+      projeto_nome: projetoNome,
+      inscritos: inscritos,
+      vagas: vagas,
+      situacao: situacaoDe_(projeto, inscritos),
+      matricula_conferida: conhecida ? 'SIM' : 'NAO',
+      aviso: avisos.join(' '),
+      reconciliacao_pendente: true,
+      mensagem: 'Incluído. Protocolo ' + gravacao.id + '. ' + projetoNome + ' ficou ' + inscritos +
+                (vagas > 0 ? '/' + vagas : ' inscrito(s)') + '.'
+    };
+  } catch (err) {
+    console.error('incluirInscricao: ' + err.message);
+    return { ok: false, erro: err.message };
+  }
+}
+
+/**
+ * Conferências que não dependem do banco. Devolve a lista de recusas, vazia
+ * quando está tudo bem — o formato de `validarInscricao`, porque a tela junta
+ * as frases do mesmo jeito.
+ *
+ * O que é IGUAL ao formulário público, e por quê: a matrícula passa por
+ * `erroFormatoMatricula_` (a régua única), e o WhatsApp, quando vem, passa pela
+ * mesma medida de 10 ou 11 dígitos de `validarInscricao`. O que é DIFERENTE: o
+ * nome não é obrigado a ter duas palavras, e o motivo é o de
+ * `conferirFormatoDaEdicao_` — quem digita aqui é a coordenação, com o cadastro
+ * na frente, e recusar "Xu Li" seria o sistema achando que sabe mais que o
+ * humano sobre o nome de uma pessoa. `curso_fase` e `observacoes` são opcionais:
+ * o formulário exige curso e fase porque é o aluno que sabe a dele; a
+ * coordenação pode não saber, e "em branco" é mais honesto do que um chute.
+ */
+function conferirFormatoDaInclusao_(payload) {
+  var erros = [];
+
+  if (!formatarNome(payload.nome)) erros.push('Informe o nome.');
+  else if (String(payload.nome).trim().length > PAINEL_MAX_NOME) {
+    erros.push('O nome passou de ' + PAINEL_MAX_NOME + ' caracteres.');
+  }
+
+  if (!emailValido(payload.email)) erros.push('E-mail inválido.');
+
+  if (!normalizarMatricula(payload.matricula)) erros.push('Informe a matrícula.');
+  else {
+    var formato = erroFormatoMatricula_(payload.matricula);
+    if (formato) erros.push(formato);
+  }
+
+  var tel = normalizarTelefone(payload.whatsapp);
+  if (tel && (tel.length < 10 || tel.length > 11)) erros.push('WhatsApp inválido.');
+
+  return erros;
 }
 
 // ------------------------------------------------------------ Aba Alunos

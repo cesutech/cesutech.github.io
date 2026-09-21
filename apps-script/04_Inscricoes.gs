@@ -322,6 +322,22 @@ function chaveDedup_(dados) {
 }
 
 /**
+ * SIM, NAO ou '' — e o '' só existe para a coordenação.
+ *
+ * O formulário manda booleano (caixa marcada ou não) e o documento guarda
+ * 'SIM'/'NAO', como sempre guardou. `''` é um terceiro estado, "não perguntado",
+ * e quem o manda é `incluirInscricao` (10_Painel.gs): a coordenação não consente
+ * pelo aluno, e gravar 'NAO' ali afirmaria que o aluno RECUSOU — a ficha
+ * mostraria uma recusa que nunca aconteceu. Só a string vazia LITERAL vale como
+ * esse estado; `undefined`, `null` e `false` continuam sendo 'NAO', que é o que
+ * o caminho público grava desde sempre (e o site manda booleano, nunca texto).
+ */
+function consentimento_(valor) {
+  if (valor === '') return '';
+  return valor ? 'SIM' : 'NAO';
+}
+
+/**
  * Normaliza e grava uma inscrição, ignorando duplicatas.
  *
  * UMA requisição, sempre — inclusive quando a inscrição é duplicada, porque quem
@@ -348,11 +364,20 @@ function gravarInscricao(dados) {
     cpf: normalizarCpf(dados.cpf),
     data_nascimento: normalizarData(dados.data_nascimento),
     observacoes: String(dados.observacoes || '').trim(),
-    declara_ciencia: dados.declara_ciencia ? 'SIM' : 'NAO',
-    autoriza_imagem: dados.autoriza_imagem ? 'SIM' : 'NAO',
+    declara_ciencia: consentimento_(dados.declara_ciencia),
+    autoriza_imagem: consentimento_(dados.autoriza_imagem),
     consentimento_lgpd: dados.consentimento_lgpd || '',
     raw_json: dados.raw_json || JSON.stringify(dados)
   };
+
+  // Quem incluiu, quando foi a COORDENAÇÃO (`incluirInscricao`, 10_Painel.gs).
+  //
+  // Só existe no documento de quem entrou por lá — é a mesma decisão da fila de
+  // espera, logo abaixo: o caminho público não manda o campo, e continua
+  // gravando o documento de sempre, campo por campo. `origem: 'COORDENACAO'` já
+  // diz POR ONDE a inscrição entrou; este diz POR QUEM, que é o que a trilha
+  // precisa quando a pergunta for "quem pôs esta pessoa neste projeto".
+  if (dados.incluido_por) registro.incluido_por = String(dados.incluido_por);
 
   // ------------------------------------------------------------ Fila de espera
   //

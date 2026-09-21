@@ -2320,17 +2320,26 @@ teste('a largura das listas é um MODIFICADOR — o formulário continua nos 780
 
 teste('só as DUAS janelas de lista alargam, e o fechamento é quem estreita', () => {
   // A varredura sai do próprio arquivo: quem chama `janelaLarga(true)` são as
-  // duas janelas de "Inscritos", e `janelaLarga(false)` mora num lugar só — o
-  // `fecharModal`, por onde TODA saída da janela passa.
+  // duas janelas de "Inscritos", e `janelaLarga(false)` mora no `fecharModal`,
+  // por onde TODA saída da janela passa — mais UM lugar, desde 21/09: o
+  // formulário "Incluir aluno" é desenhado DENTRO da janela de inscritos, sem
+  // fechá-la, e um formulário com 1180px de largura é o defeito que o teste da
+  // largura já descreve (campo largo separa o rótulo do que se digita). O Voltar
+  // dele reabre a lista por `verInscritosProjeto`, que alarga de novo.
   igual((PAGINA.match(/janelaLarga\(true\)/g) || []).length, 2,
     'uma terceira janela passou a alargar, ou uma das duas deixou de alargar');
-  igual((PAGINA.match(/janelaLarga\(false\)/g) || []).length, 1,
-    'a limpeza da largura deixou de ser feita num lugar só');
+  igual((PAGINA.match(/janelaLarga\(false\)/g) || []).length, 2,
+    'a limpeza da largura mora em dois lugares: o fecharModal e o formulário de inclusão');
 
   const fechar = /function fecharModal\(\)[\s\S]*?\n  \}/.exec(PAGINA);
   verdadeiro(fechar !== null, 'fecharModal sumiu do painel');
   verdadeiro(/janelaLarga\(false\)/.test(fechar[0]),
     'a janela larga deixou de ser estreitada ao fechar — o próximo formulário herda 1180px');
+
+  const inclusao = /function abrirInclusaoDeAluno\(id\)[\s\S]*?\n  \}/.exec(PAGINA);
+  verdadeiro(inclusao !== null, 'abrirInclusaoDeAluno sumiu do painel');
+  verdadeiro(/janelaLarga\(false\)/.test(inclusao[0]),
+    'o formulário de inclusão passou a herdar a largura da lista');
 });
 
 teste('exportar NÃO fala com o servidor — o dado já está no navegador', () => {
