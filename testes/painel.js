@@ -2623,6 +2623,34 @@ teste('cenário B — projeto FECHADO (inscrições encerradas) com vaga e a mat
     'por coordenacao@exemplo.com no projeto Robótica (1/5) (promovida da fila)');
 });
 
+teste('cenário C — matrícula da fila FORA da lista oficial: promover não avisa "entrou marcada como não conferida" e devolve a marca do DOCUMENTO', () => {
+  // A promoção não reescreve marca nenhuma: `matricula_conferida` é a que o
+  // documento já tinha quando entrou na fila (aqui SIM — a lista foi expurgada
+  // depois, o que é legítimo), e o aviso "entrou marcada como não conferida" fala
+  // de uma gravação que não aconteceu. Os cenários A e B usam a 9110001, que
+  // está na lista, e por isso nunca decidiam nada aqui. Mutação que derruba:
+  // tirar o `&& !promovida` do aviso (o amarelo aparece), ou responder
+  // `matricula_conferida` fixo em 'NAO' na promoção em vez de ler do documento.
+  const amb = cenarioDaFila(null, true);
+  igual(amb.api.matriculaConhecida('9110002'), false, 'o cenário exige uma matrícula fora da lista');
+  const naFila = inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com',
+    matricula_conferida: 'SIM', em_espera: 'SIM'
+  });
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+    projeto_id: 'p2', matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com', confirmar_teto: true
+  }));
+  igual(r.ok, true, r.erro);
+  igual(r.id, naFila.id);
+  igual(r.promovida_da_fila, true);
+  igual(r.aviso, '', 'avisou "não conferida" sobre um documento que não foi reescrito');
+  igual(r.matricula_conferida, 'SIM', 'a marca da resposta tem de ser a do documento, não a da lista de hoje');
+  igual(amb.api.ler('inscricoes', naFila.id).matricula_conferida, 'SIM');
+  igual(amb.api.ler('inscricoes', naFila.id).em_espera, undefined);
+});
+
 teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscrição nova, avisa o outro projeto, e a fila fica onde está', () => {
   // A chave de dedup leva o projeto: a fila de p2 não é o 409 de p1. Mutação
   // que derruba: promover qualquer inscrição em espera da pessoa, e não a da
