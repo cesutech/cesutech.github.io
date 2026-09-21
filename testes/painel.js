@@ -80,7 +80,9 @@ const MINHAS_FUNCOES = {
   listarLog: {},
   lerConfiguracoes: {},
   salvarConfiguracao: { chave: 'vagas_padrao', valor: '30' },
-  inscritosDoProjeto: { id: 'p1' }
+  inscritosDoProjeto: { id: 'p1' },
+  buscarMatriculado: { matricula: '9110001' },
+  incluirInscricao: { projeto_id: 'p1', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' }
 };
 
 // ------------------------------------------------------------ Apoio local
@@ -1653,7 +1655,13 @@ teste('SO_LEITURA só tem leitura, e toda função dela existe no servidor', () 
   // mais precisam da retentativa: a segunda lê DUAS coleções, é a mais lenta do
   // painel, e perder a resposta por um soluço de rede faria a coordenação clicar
   // de novo e pagar a conta inteira duas vezes.
-  igual(nomes.sort(), ['detalheAluno', 'filaDeEspera', 'inscricoesRecentes',
+  // `buscarMatriculado` entrou em 21/09 com a janela "Incluir aluno": uma
+  // leitura de ponto e uma consulta, sem escrita nem linha de log (há teste que
+  // conta as escritas). Roda ao SAIR do campo da matrícula — fora desta lista,
+  // cada Tab faria o painel esquecer as abas carregadas. A irmã dela,
+  // `incluirInscricao`, GRAVA e fica de fora (ver o teste das funções que
+  // escrevem, abaixo).
+  igual(nomes.sort(), ['buscarMatriculado', 'detalheAluno', 'filaDeEspera', 'inscricoesRecentes',
     'inscritosDaDisciplina', 'inscritosDoProjeto', 'lerConfiguracoes',
     'listarAdmins', 'listarAlunos', 'listarDisciplinas', 'listarLog', 'listarLotes',
     'matriculadosDaDisciplina', 'modoDeAcesso', 'painelEstatisticas', 'painelProjetos',
@@ -2199,6 +2207,678 @@ teste('migrar a mesma pessoa para onde ela já está é recusado pelo banco', ()
 
 // ================================================ Atualizar, e o freio do custo
 
+// ==================================================== Incluir aluno (21/09)
+//
+// O coordenador precisava incluir um aluno num projeto com a janela de inscrição
+// FECHADA, e não tinha por onde: a única gravação de inscrição era o formulário
+// público, com todas as travas dele. `incluirInscricao` é a porta da coordenação
+// — passa por fora da janela, do interruptor, do anti-abuso e do teto (com
+// confirmação), e NÃO passa por fora da régua da matrícula, da dedup do banco
+// nem da conferência contra a lista oficial. Cada teste diz qual mutação o
+// derruba: é o que separa um teste de uma afirmação.
+
+grupo('incluirInscricao — a porta da coordenação, por fora da janela e do teto');
+
+/**
+ * Um projeto de 60 vagas, uma matrícula na lista oficial, ninguém inscrito.
+ *
+ * `usuario: ''` é a REALIDADE do painel publicado: no GitHub Pages
+ * `Session.getActiveUser()` volta vazio e `usuarioAtual()` responde 'anonimo'
+ * (04_Log.gs). A sessão, essa sim, sabe quem é — e é dela que `incluirInscricao`
+ * tem de tirar o operador. Com o `usuario` do ambiente igual ao da sessão, a
+ * mutação `var quem = usuarioAtual()` passava em toda a suíte e gravaria
+ * `incluido_por: 'anonimo'` em produção sem nenhum teste vermelho.
+ */
+function cenarioInclusao() {
+  const amb = ambiente({ usuario: '' });
+  semearProjeto(amb.api, 'p1', 'R+ Cidades', 60);
+  semearProjeto(amb.api, 'p2', 'Robótica', 2);
+  semearMatriculado(amb.api, '9110001', 'Aluna Exemplo', 'ADS', 'ADS11');
+  return amb;
+}
+
+/** O payload que a janela manda, com o mínimo que o servidor exige. */
+function pedidoDeInclusao(extra) {
+  return Object.assign({
+    projeto_id: 'p1', matricula: '9110001', nome: 'aluna  exemplo',
+    email: 'Aluna@Exemplo.com', whatsapp: '(48) 99999-0000'
+  }, extra || {});
+}
+
+function inscricoesGravadas(amb) {
+  return amb.api.listar('inscricoes', {}).itens;
+}
+
+/**
+ * Só o que GRAVA documento: `escritas()` conta todo POST, e consulta e agregação
+ * também são POST (`:runQuery`, `:runAggregationQuery`). Aqui a pergunta é
+ * "escreveu no banco?", e a resposta não pode contar a pergunta ao banco.
+ */
+function gravacoes(falso) {
+  return falso.requisicoes.filter((r) =>
+    (r.metodo === 'POST' && r.url.indexOf(':run') === -1) || r.metodo === 'PATCH' || r.metodo === 'DELETE');
+}
+
+/**
+ * As requisições que NÃO são a leitura da configuração. A régua da matrícula lê
+ * `matricula_digitos` (uma leitura, que o cache da execução reaproveita) — é a
+ * mesma ressalva do teste de formato de `editarAluno`. O que continua proibido é
+ * tocar em projeto, inscrição ou lista oficial por um pedido malformado.
+ */
+function foraDaConfig(falso) {
+  return falso.requisicoes.filter((q) => q.metodo !== 'GET' || q.url.indexOf('/config/') === -1);
+}
+
+function leiturasForaDaConfig(falso) {
+  return foraDaConfig(falso).filter((q) => q.metodo === 'GET');
+}
+
+function linhasDoLog(amb, acao) {
+  return chamar(amb, 'listarLog').itens.filter((l) => l.acao === acao);
+}
+
+teste('o caminho feliz grava UMA inscrição com origem COORDENACAO e quem incluiu', () => {
+  // Mutação que derruba: `gravarInscricao` deixar de copiar
+  // `pelaCoordenacao.incluido_por` (o documento sairia sem quem incluiu),
+  // `incluirInscricao` mandar `origem: 'SITE'` (a inscrição da coordenação
+  // ficaria indistinguível da do aluno no CSV e na trilha), ou tirar o operador
+  // de `usuarioAtual()` em vez da sessão — aqui ele é 'anonimo', como no GitHub
+  // Pages — ou do payload, que é o que o `incluido_por` intruso abaixo tenta.
+  const amb = cenarioInclusao();
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ incluido_por: 'intruso@exemplo.com' }));
+  igual(r.ok, true, r.erro);
+
+  const gravadas = inscricoesGravadas(amb);
+  igual(gravadas.length, 1, 'era para haver exatamente uma inscrição');
+  const doc = gravadas[0];
+  igual(doc._id, r.id, 'o protocolo da resposta é o id do documento');
+  igual(doc._id, amb.api.chaveDedup_({ projeto_id: 'p1', matricula: '9110001' }),
+    'o id tem de ser a chave de dedup — é ela que o 409 do banco protege');
+  igual(doc.origem, 'COORDENACAO');
+  igual(doc.incluido_por, 'coordenacao@exemplo.com',
+    'quem incluiu vem da SESSÃO — não do payload (intruso@) nem de usuarioAtual() (anonimo)');
+  igual(doc.raw_json.indexOf('intruso'), -1, 'o campo intruso do payload foi copiado para o documento');
+  igual(doc.projeto_id, 'p1');
+  igual(doc.projeto_nome, 'R+ Cidades', 'o nome do projeto vem do documento do projeto, não do cliente');
+  igual(doc.matricula_conferida, 'SIM', 'a matrícula está na lista oficial');
+
+  // Normalizado pelas MESMAS funções do formulário: nome formatado, e-mail em
+  // caixa baixa, WhatsApp só dígitos.
+  igual(doc.nome, 'Aluna Exemplo');
+  igual(doc.email, 'aluna@exemplo.com');
+  igual(doc.whatsapp, '48999990000');
+
+  // Ocupa vaga: NENHUMA marca de espera no documento.
+  igual(doc.em_espera, undefined);
+  igual(doc.espera_de, undefined);
+
+  igual(r.projeto_nome, 'R+ Cidades');
+  igual(r.inscritos, 1);
+  igual(r.vagas, 60);
+  igual(r.situacao, 'ABERTO');
+  igual(r.matricula_conferida, 'SIM');
+  igual(r.aviso, '');
+  igual(r.reconciliacao_pendente, true);
+  verdadeiro(r.mensagem.indexOf('Protocolo ' + r.id) !== -1, r.mensagem);
+  verdadeiro(r.mensagem.indexOf('R+ Cidades ficou 1/60') !== -1, r.mensagem);
+});
+
+teste('a coordenação NÃO consente pelo aluno: os três campos de aceite vão VAZIOS', () => {
+  // Mutação que derruba: `gravarInscricao` deixar de zerar os aceites quando
+  // `pelaCoordenacao` vem — o documento afirmaria que o aluno RECUSOU a ciência
+  // e a imagem, sobre uma pergunta que ninguém lhe fez.
+  const amb = cenarioInclusao();
+  chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+
+  const doc = inscricoesGravadas(amb)[0];
+  igual(doc.declara_ciencia, '', 'não perguntado não é NAO');
+  igual(doc.autoriza_imagem, '', 'não perguntado não é NAO');
+  igual(doc.consentimento_lgpd, '', 'não perguntado não é NAO');
+});
+
+teste('e o caminho público continua gravando o documento de sempre — sem incluido_por, com SIM/NAO', () => {
+  // Mutação que derruba: `gravarInscricao` gravar `incluido_por: ''` em todo
+  // mundo, ou zerar os aceites sem olhar `pelaCoordenacao`. Os dois mudariam o
+  // documento que 300 alunos já têm no banco.
+  const amb = cenarioInclusao();
+  amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
+
+  const r = amb.api.submeterInscricao({
+    projeto_id: 'p1', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    curso_fase: 'ADS - ADS11', declara_ciencia: true, autoriza_imagem: false,
+    consentimento_lgpd: true, origem: 'SITE'
+  });
+  igual(r.ok, true, r.erro);
+
+  const doc = inscricoesGravadas(amb)[0];
+  igual(doc.incluido_por, undefined, 'o campo da coordenação vazou para o documento do aluno');
+  igual(doc.origem, 'SITE');
+  igual(doc.declara_ciencia, 'SIM');
+  igual(doc.autoriza_imagem, 'NAO', 'caixa desmarcada continua sendo NAO, como sempre foi');
+  igual(doc.consentimento_lgpd, 'SIM');
+});
+
+teste('o envelope público NÃO tem como pedir o que só a coordenação grava: "" vira NAO e incluido_por é ignorado', () => {
+  // Mutação que derruba: a primeira versão desta entrega — `gravarInscricao`
+  // reinterpretando a string vazia como "não perguntado" para TODO chamador, ou
+  // copiando `dados.incluido_por` quando vem. O site manda booleano, mas `doPost`
+  // atende qualquer cliente: um POST à mão com `autoriza_imagem: ''` deixava de
+  // gravar 'NAO', e a ficha mostrava "não perguntado" onde o aluno RECUSOU. O
+  // sinal da coordenação vive no segundo argumento de `gravarInscricao`, fora do
+  // payload — e é isso que este teste mede pelo caminho que o `doPost` percorre
+  // (`SITE_EXTERNO` + `tempoPreenchimento`, o que a guarda anti-abuso exige).
+  const amb = cenarioInclusao();
+  amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
+  amb.api.atualizar('projetos', 'p1', { validar_matricula: 'NAO' });
+
+  // Com projeto: `declara_ciencia` é exigido, então só `autoriza_imagem` cabe vazio.
+  const comProjeto = amb.api.submeterInscricao({
+    origem: 'SITE_EXTERNO', tempoPreenchimento: 9000,
+    projeto_id: 'p1', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    curso_fase: 'ADS - ADS11', declara_ciencia: true, autoriza_imagem: '', consentimento_lgpd: true,
+    incluido_por: 'intruso@exemplo.com'
+  });
+  igual(comProjeto.ok, true, comProjeto.erro);
+
+  // Sem projeto (o formulário interno): `validarInscricao` não exige a ciência,
+  // e os dois aceites podem chegar vazios. A mesma matrícula cabe: a chave de
+  // dedup leva o projeto, e "sem projeto" é outro endereço.
+  const semProjeto = amb.api.submeterInscricao({
+    origem: 'SITE_EXTERNO', tempoPreenchimento: 9000,
+    matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    declara_ciencia: '', autoriza_imagem: '', consentimento_lgpd: true
+  });
+  igual(semProjeto.ok, true, semProjeto.erro);
+
+  const docs = inscricoesGravadas(amb);
+  igual(docs.length, 2);
+  docs.forEach((doc) => {
+    igual(doc.autoriza_imagem, 'NAO', 'string vazia pelo envelope público tem de continuar sendo NAO');
+    igual(doc.incluido_por, undefined, 'o campo da coordenação entrou pelo envelope público');
+  });
+  igual(docs.filter((d) => d.projeto_id === 'p1')[0].declara_ciencia, 'SIM');
+  igual(docs.filter((d) => !d.projeto_id)[0].declara_ciencia, 'NAO',
+    'string vazia na ciência, sem projeto, tem de continuar sendo NAO');
+});
+
+teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado e projeto ESGOTADO — e a resposta diz 3/2', () => {
+  // Mutação que derruba: qualquer `recusaPelaJanela_()`, `config('cadastro_aberto')`
+  // ou `reservarVaga` dentro de `incluirInscricao` — a coordenação ficaria
+  // trancada do lado de fora junto com o público, que é o defeito relatado. E
+  // `verificarAntiAbuso_(payload)` antes de gravar (o item j do cabeçalho): o
+  // teto por hora é zerado aqui e o honeypot vai preenchido, que é o que um
+  // robô faria — a guarda recusaria a coordenação com "Estamos recebendo muitas
+  // inscrições agora", no auditório, na hora em que ela precisa incluir; e
+  // cada inclusão gastaria uma escrita em PropertiesService (`throttle_*`) que
+  // é do formulário público, não desta porta.
+  const amb = cenarioInclusao();
+  amb.api.gravarConfig('cadastro_aberto', 'NAO');
+  amb.api.gravarConfig('inscricoes_fim', '2020-01-01 00:00');
+  amb.api.gravarConfig('limite_inscricoes_hora', '0');
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
+  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
+
+  // O CONTROLE: o público está barrado de verdade neste cenário.
+  amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
+  const publico = amb.api.submeterInscricao({
+    projeto_id: 'p2', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    curso_fase: 'ADS - ADS11', declara_ciencia: true, consentimento_lgpd: true, origem: 'SITE'
+  });
+  igual(publico.ok, false, 'o formulário devia estar fechado');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true, website: 'robo' }));
+  igual(r.ok, true, r.erro);
+  igual(r.inscritos, 3, 'o contador tem de dizer 3, e não arredondar para 2');
+  igual(r.vagas, 2);
+  igual(r.situacao, 'ESGOTADO');
+  verdadeiro(r.mensagem.indexOf('Robótica ficou 3/2') !== -1, r.mensagem);
+  igual(amb.api.contarInscritos_('p2'), 3, 'a vaga conta de verdade, sem contador gravado');
+  igual([...amb.propriedades.keys()].filter((k) => k.indexOf('throttle_') === 0), [],
+    'a inclusão gastou o contador por hora do formulário público');
+  igual(linhasDoLog(amb, 'BLOQUEIO').length, 0, 'a coordenação foi tratada como robô');
+
+  const p2 = chamar(amb, 'painelProjetos').itens.filter((p) => p.id === 'p2')[0];
+  igual(p2.inscritos, 3, 'o painel arredondou a ocupação para o teto');
+});
+
+teste('projeto cheio SEM confirmar_teto: pergunta, diz os números e não escreve NADA', () => {
+  // Mutação que derruba: gravar antes de contar, ou trocar `>= vagas` por
+  // `> vagas` — o 60º aluno entraria sem pergunta e o 61º perguntaria.
+  const amb = cenarioInclusao();
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  igual(r.ok, false);
+  igual(r.precisa_confirmar, true);
+  igual(r.inscritos, 2);
+  igual(r.vagas, 2);
+  igual(r.erro, 'Este projeto está com 2/2. Incluir deixa 3/2.');
+
+  igual(gravacoes(amb.falso).length, 0, 'perguntar não pode custar escrita nenhuma — nem log');
+  igual(amb.api.contarInscritos_('p2'), 2);
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 0);
+});
+
+teste('projeto com vagas ilimitadas (0) nunca pergunta', () => {
+  // Mutação que derruba: tirar o `vagas > 0` da pergunta — `0 >= 0` é verdadeiro,
+  // e todo projeto ilimitado passaria a "estar cheio" com zero inscritos.
+  const amb = cenarioInclusao();
+  semearProjeto(amb.api, 'p3', 'Aberto a todos', 0);
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p3' }));
+  igual(r.ok, true, r.erro);
+  igual(r.precisa_confirmar, undefined);
+  igual(r.vagas, 0);
+  verdadeiro(/ficou 1 inscrito/.test(r.mensagem), r.mensagem);
+});
+
+teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, com o protocolo e sem outra escrita', () => {
+  // Mutação que derruba: `registrar` antes de olhar `duplicada`, ou uma consulta
+  // "já existe?" antes de gravar — a conferência otimista que 04_Inscricoes.gs
+  // tirou do caminho.
+  const amb = cenarioInclusao();
+  const primeira = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(primeira.ok, true, primeira.erro);
+  amb.zerar();
+
+  const segunda = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ nome: 'Outro Nome', email: 'outro@exemplo.com' }));
+  igual(segunda.ok, false);
+  igual(segunda.erro, 'Este aluno já está inscrito neste projeto. Protocolo: ' + primeira.id + '.');
+
+  igual(gravacoes(amb.falso).length, 1, 'só a tentativa recusada pelo 409 — nem log, nem segunda inscrição');
+  igual(consultas(amb.falso).filter((c) => JSON.stringify(c.corpo).indexOf('"inscricoes"') !== -1 &&
+    JSON.stringify(c.corpo).indexOf('projeto_id') !== -1).length, 0,
+    'apareceu uma consulta "já existe?" antes da escrita');
+  igual(inscricoesGravadas(amb).length, 1);
+  igual(inscricoesGravadas(amb)[0].nome, 'Aluna Exemplo', 'a segunda tentativa sobrescreveu a primeira');
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 1);
+});
+
+/**
+ * A fila de espera deste projeto, para os dois cenários em que a coordenação
+ * PRECISA da porta por fora — e em que o caminho que a primeira versão apontava
+ * (Auditório → Fila de espera → Promover) recusa: `promoverDaEspera` respeita o
+ * teto e a situação do projeto, e quem está na fila está lá PORQUE o projeto
+ * encheu; depois do prazo, ele está FECHADO. Era um beco sem saída provado por
+ * sonda: incluir recusava mandando promover, e promover recusava com "as vagas
+ * do projeto já estão preenchidas" / "o projeto está fechado".
+ */
+function cenarioDaFila(extraDoProjeto, ocupam) {
+  const amb = cenarioInclusao();
+  amb.api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  if (extraDoProjeto) amb.api.atualizar('projetos', 'p2', extraDoProjeto);
+  if (ocupam) {
+    inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
+    inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
+  }
+  // A inscrição da fila é a do ALUNO, pelo site: origem SITE, aceites dados,
+  // curso e fase dele. É o que a promoção tem de preservar campo por campo.
+  amb.fila = inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
+    curso_fase: 'ADS - ADS11', whatsapp: '48988887777', em_espera: 'SIM'
+  });
+  amb.fila.criado_em = amb.api.ler('inscricoes', amb.fila.id).criado_em;
+  igual(amb.api.contarInscritos_('p2'), ocupam ? 2 : 0, 'quem espera não ocupa vaga');
+  igual(amb.api.contarEmEspera_('p2'), 1);
+  return amb;
+}
+
+/** O documento promovido é o de sempre, campo por campo — e sem as marcas. */
+function conferirPromovida(amb, r) {
+  igual(r.ok, true, r.erro);
+  igual(r.id, amb.fila.id, 'o protocolo tem de ser o EXISTENTE — não nasce documento');
+  igual(r.promovida_da_fila, true);
+  igual(r.precisa_confirmar, undefined);
+  verdadeiro(/^Promovido da fila de espera\. Protocolo /.test(r.mensagem), r.mensagem);
+
+  const docs = inscricoesGravadas(amb).filter((i) => i.matricula === '9110001' && i.projeto_id === 'p2');
+  igual(docs.length, 1, 'a promoção criou uma segunda inscrição');
+  const doc = docs[0];
+  igual(doc.em_espera, undefined, 'a marca tem de ser APAGADA, não zerada — é o espelho de promoverDentroDoLock_');
+  igual(doc.espera_de, undefined);
+  igual(doc.origem, 'SITE', 'a inscrição continua sendo a do aluno');
+  igual(doc.incluido_por, undefined, 'promover não reescreve o documento com o que a coordenação digitou');
+  igual(doc.curso_fase, 'ADS - ADS11');
+  igual(doc.whatsapp, '48988887777');
+  igual(doc.declara_ciencia, 'SIM', 'os aceites do aluno não podem virar "não perguntado"');
+  igual(doc.consentimento_lgpd, 'SIM');
+  igual(doc.criado_em, amb.fila.criado_em, 'a chegada na fila é a data que a inscrição guarda');
+  igual(amb.api.contarEmEspera_('p2'), 0, 'a fila deste projeto tinha de ficar vazia');
+  igual(chamar(amb, 'filaDeEspera').fila.length, 0, 'a aba Auditório ainda mostra a pessoa na fila');
+}
+
+teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto pergunta e não escreve NADA; com confirmar_teto PROMOVE a inscrição que existe', () => {
+  // Mutação que derruba: tratar todo 409 como "já está inscrito" (a primeira
+  // versão), ou mandar a coordenação ao Auditório (a segunda — `promoverDaEspera`
+  // recusa em projeto cheio, e este cenário É o projeto cheio); gravar
+  // `em_espera: 'NAO'` em vez de apagar (`undefined` abaixo); usar `atualizar`
+  // só com as duas chaves (a máscara não apaga campo — e mandar o documento
+  // pela metade a `escreverEmLote` apagaria o resto, que `curso_fase` e
+  // `declara_ciencia` vigiam); ou promover ANTES da pergunta do teto (a
+  // primeira chamada escreveria).
+  const amb = cenarioDaFila(null, true);
+  amb.zerar();
+
+  // Sem confirmar_teto: a pergunta de sempre, e ZERO escritas — nem a tentativa.
+  const pergunta = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  igual(pergunta.ok, false);
+  igual(pergunta.precisa_confirmar, true);
+  igual(pergunta.erro, 'Este projeto está com 2/2. Incluir deixa 3/2.');
+  igual(gravacoes(amb.falso).length, 0, 'perguntar não pode custar escrita nenhuma');
+  igual(inscricoesGravadas(amb).filter((i) => i.matricula === '9110001')[0].em_espera, 'SIM', 'perguntou e promoveu');
+  igual(amb.api.contarInscritos_('p2'), 2);
+  amb.zerar();
+
+  // Com confirmar_teto: a promoção, e o projeto fica 3/2.
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  conferirPromovida(amb, r);
+  igual(r.inscritos, 3);
+  igual(r.vagas, 2);
+  igual(r.situacao, 'ESGOTADO');
+  igual(r.matricula_conferida, 'NAO', 'a marca é a do DOCUMENTO promovido, que o aluno gravou sem conferência');
+  igual(r.aviso, '', 'não pode avisar "entrou marcada como não conferida" sobre um documento que não foi reescrito');
+  verdadeiro(/Robótica ficou 3\/2\./.test(r.mensagem), r.mensagem);
+  igual(amb.api.contarInscritos_('p2'), 3, 'a promoção não contou como vaga');
+
+  // O custo: a tentativa recusada pelo 409, UMA escrita (o commit da promoção)
+  // e o log. Leituras: o projeto, a lista oficial e a inscrição recusada.
+  igual(gravacoes(amb.falso).length, 3, 'a promoção é UMA escrita, além da tentativa e do log');
+  igual(leiturasForaDaConfig(amb.falso).length, 3);
+  igual(gravacoes(amb.falso).filter((q) => q.url.indexOf(':commit') !== -1).length, 1,
+    'a promoção tem de ser o mesmo commit de promoverDentroDoLock_ — o documento inteiro, de uma vez');
+
+  const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
+  igual(linhas.length, 1);
+  igual(linhas[0].entidade_id, amb.fila.id);
+  igual(linhas[0].detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO (promovida da fila)');
+
+  // Promovida, a pessoa OCUPA vaga: o Incluir de novo é a duplicata comum.
+  amb.zerar();
+  const deNovo = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  igual(deNovo.ok, false);
+  igual(deNovo.promovida_da_fila, undefined);
+  verdadeiro(/já está inscrito neste projeto\. Protocolo: /.test(deNovo.erro), deNovo.erro);
+  igual(gravacoes(amb.falso).length, 1, 'a duplicata comum continua custando só a tentativa');
+});
+
+teste('cenário B — projeto FECHADO (inscrições encerradas) com vaga e a matrícula na fila: promove sem perguntar, por fora da situação', () => {
+  // Mutação que derruba: recusar por `situacaoDe_` (é o que `promoverDaEspera`
+  // faz, e é o beco: depois do prazo todo projeto está fechado), ou perguntar
+  // o teto com vaga sobrando.
+  const amb = cenarioDaFila({ inscricoes_abertas: 'NAO', vagas: '5' }, false);
+  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'FECHADO');
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  conferirPromovida(amb, r);
+  igual(r.inscritos, 1);
+  igual(r.vagas, 5);
+  igual(r.situacao, 'FECHADO');
+  igual(amb.api.contarInscritos_('p2'), 1);
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe,
+    'por coordenacao@exemplo.com no projeto Robótica (1/5) (promovida da fila)');
+});
+
+teste('cenário C — matrícula da fila FORA da lista oficial: promover não avisa "entrou marcada como não conferida" e devolve a marca do DOCUMENTO', () => {
+  // A promoção não reescreve marca nenhuma: `matricula_conferida` é a que o
+  // documento já tinha quando entrou na fila (aqui SIM — a lista foi expurgada
+  // depois, o que é legítimo), e o aviso "entrou marcada como não conferida" fala
+  // de uma gravação que não aconteceu. Os cenários A e B usam a 9110001, que
+  // está na lista, e por isso nunca decidiam nada aqui. Mutação que derruba:
+  // tirar o `&& !promovida` do aviso (o amarelo aparece), ou responder
+  // `matricula_conferida` fixo em 'NAO' na promoção em vez de ler do documento.
+  const amb = cenarioDaFila(null, true);
+  igual(amb.api.matriculaConhecida('9110002'), false, 'o cenário exige uma matrícula fora da lista');
+  const naFila = inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com',
+    matricula_conferida: 'SIM', em_espera: 'SIM'
+  });
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+    projeto_id: 'p2', matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com', confirmar_teto: true
+  }));
+  igual(r.ok, true, r.erro);
+  igual(r.id, naFila.id);
+  igual(r.promovida_da_fila, true);
+  igual(r.aviso, '', 'avisou "não conferida" sobre um documento que não foi reescrito');
+  igual(r.matricula_conferida, 'SIM', 'a marca da resposta tem de ser a do documento, não a da lista de hoje');
+  igual(amb.api.ler('inscricoes', naFila.id).matricula_conferida, 'SIM');
+  igual(amb.api.ler('inscricoes', naFila.id).em_espera, undefined);
+});
+
+teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscrição nova, avisa o outro projeto, e a fila fica onde está', () => {
+  // A chave de dedup leva o projeto: a fila de p2 não é o 409 de p1. Mutação
+  // que derruba: promover qualquer inscrição em espera da pessoa, e não a da
+  // chave recusada.
+  const amb = cenarioDaFila(null, true);
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p1' }));
+  igual(r.ok, true, r.erro);
+  igual(r.promovida_da_fila, false);
+  verdadeiro(/^Incluído\. Protocolo /.test(r.mensagem), r.mensagem);
+  verdadeiro(r.aviso.indexOf('Robótica') !== -1, r.aviso);
+  igual(inscricoesGravadas(amb).filter((i) => i.projeto_id === 'p2' && i.matricula === '9110001')[0].em_espera, 'SIM',
+    'a fila de Robótica foi mexida por uma inclusão em R+ Cidades');
+  igual(amb.api.contarInscritos_('p1'), 1);
+  igual(amb.api.contarInscritos_('p2'), 2);
+});
+
+teste('formato inválido recusa ANTES de ler qualquer coisa — a régua é a do formulário', () => {
+  // Mutação que derruba: mover `conferirFormatoDaInclusao_` para depois de
+  // `projetoPorId`, ou trocar `erroFormatoMatricula_` por uma faixa própria
+  // (4..20) — `911` passaria aqui e nunca casaria com a lista oficial.
+  const amb = cenarioInclusao();
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '911' }));
+  igual(r.ok, false);
+  verdadeiro(/7 d.gitos/.test(r.erro), 'a recusa precisa dizer o tamanho certo: ' + r.erro);
+  igual(foraDaConfig(amb.falso).length, 0, 'recusou depois de já ter lido o banco');
+
+  // As outras réguas, juntas na mesma frase, como `validarInscricao` faz.
+  const tudo = chamar(amb, 'incluirInscricao', {
+    projeto_id: 'p1', matricula: '', nome: '  ', email: 'sem-arroba', whatsapp: '123'
+  });
+  igual(tudo.ok, false);
+  ['Informe o nome.', 'E-mail inválido.', 'Informe a matrícula.', 'WhatsApp inválido.'].forEach((frase) => {
+    verdadeiro(tudo.erro.indexOf(frase) !== -1, 'faltou "' + frase + '" em: ' + tudo.erro);
+  });
+  igual(foraDaConfig(amb.falso).length, 0);
+
+  // E o que a coordenação PODE: nome de uma palavra, sem curso e fase, sem WhatsApp.
+  const curto = chamar(amb, 'incluirInscricao', { projeto_id: 'p1', matricula: '9110001', nome: 'Xu', email: 'xu@exemplo.com' });
+  igual(curto.ok, true, curto.erro);
+});
+
+teste('projeto inexistente é recusado, e a matrícula não chega a ser consultada', () => {
+  const amb = cenarioInclusao();
+  amb.zerar();
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p9' }));
+  igual(r.ok, false);
+  verdadeiro(/Recarregue a lista/.test(r.erro), r.erro);
+  igual(leiturasForaDaConfig(amb.falso).length, 1, 'só o projeto foi lido');
+  igual(gravacoes(amb.falso).length, 0);
+});
+
+teste('matrícula fora da lista oficial ENTRA marcada como não conferida, e a resposta avisa', () => {
+  // Mutação que derruba: gravar `matricula_conferida: 'SIM'` fixo, ou recusar
+  // quem não está na lista (o modo BLOQUEAR é do público; a coordenação decide).
+  const amb = cenarioInclusao();
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '9110999' }));
+  igual(r.ok, true, r.erro);
+  igual(r.matricula_conferida, 'NAO');
+  verdadeiro(r.aviso.indexOf('9110999') !== -1 && r.aviso.indexOf('não está na lista oficial') !== -1, r.aviso);
+  igual(inscricoesGravadas(amb)[0].matricula_conferida, 'NAO');
+});
+
+teste('já inscrito em OUTRO projeto: grava mesmo assim, e o aviso nomeia o projeto e ensina a mover', () => {
+  // Mutação que derruba: recusar quando `jaEstaEm.length` (é o modo SIM de
+  // `aluno_projeto_unico`, que não é o padrão e não é decisão desta função), ou
+  // deixar o aviso sem o nome do projeto. (Tirar o `projeto_id` de
+  // `outrosProjetosDe_` NÃO derruba, e está dito: a consulta roda ANTES da
+  // escrita, então a pessoa nunca está neste projeto nesse instante — e quando
+  // está, quem responde é o 409, sem aviso nenhum.)
+  const amb = cenarioInclusao();
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(r.ok, true, r.erro);
+  verdadeiro(r.aviso.indexOf('Robótica') !== -1, 'o aviso não nomeou o outro projeto: ' + r.aviso);
+  verdadeiro(r.aviso.indexOf('Alunos → Editar → Projeto') !== -1, r.aviso);
+  verdadeiro(r.aviso.indexOf('R+ Cidades') === -1, 'o próprio projeto apareceu como "outro": ' + r.aviso);
+  igual(amb.api.contarInscritos_('p1'), 1);
+  igual(amb.api.contarInscritos_('p2'), 1);
+});
+
+teste('a trilha diz quem, em que projeto e quanto ficou — e NUNCA o dado do aluno', () => {
+  // Mutação que derruba: pôr `dados.nome`, `dados.matricula` ou o e-mail do
+  // aluno no detalhe do log — é a regra de `registrarEdicao_`, e a afirmação
+  // aqui é NEGATIVA de propósito.
+  const amb = cenarioInclusao();
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+
+  const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
+  igual(linhas.length, 1, 'a inclusão não deixou trilha');
+  const linha = linhas[0];
+  igual(linha.entidade, 'inscricao');
+  igual(linha.entidade_id, r.id);
+  igual(linha.detalhe, 'por coordenacao@exemplo.com no projeto R+ Cidades (1/60)');
+
+  ['Aluna', 'Exemplo', 'aluna@exemplo.com', '9110001', '48999990000', '99999'].forEach((pessoal) => {
+    igual(linha.detalhe.indexOf(pessoal), -1, 'dado pessoal na trilha: ' + pessoal);
+  });
+});
+
+teste('acima do teto, a trilha diz ACIMA DO TETO — é ela que responde "por que 3 de 2"', () => {
+  const amb = cenarioInclusao();
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
+
+  chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const linha = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0];
+  igual(linha.detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO');
+});
+
+teste('o custo é o do cabeçalho: 2 leituras de ponto, 2 agregações, 1 consulta, 2 escritas — e NENHUM cruzamento', () => {
+  // Mutação que derruba: chamar `reconciliar()` daqui (três coleções inteiras
+  // por inclusão), ou contar a ocupação duas vezes depois da escrita.
+  const amb = cenarioInclusao();
+  amb.zerar();
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(r.ok, true, r.erro);
+
+  igual(leiturasForaDaConfig(amb.falso).length, 2, 'o projeto e a lista oficial');
+  igual(agregacoes(amb.falso).length, 2, 'o teto antes e a ocupação depois');
+  igual(consultas(amb.falso).length, 1, 'os outros projetos da pessoa');
+  igual(gravacoes(amb.falso).length, 2, 'a inscrição e o log');
+  igual(amb.api.contar('alunos'), 0, 'a ficha em alunos NÃO nasce aqui — nasce no cruzamento');
+
+  // Com `confirmar_teto` a contagem de antes é pulada: uma agregação a menos.
+  amb.zerar();
+  chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '9110002', confirmar_teto: true }));
+  igual(agregacoes(amb.falso).length, 1);
+});
+
+teste('a ficha aparece no próximo Atualizar da aba Alunos — o cruzamento roda sozinho porque a contagem mudou', () => {
+  // Mutação que derruba: `incluirInscricao` gravar em `alunos` à mão (a rodada
+  // seguinte apagaria), ou o freio 1 de `reconciliarSeValerAPena_` deixar de
+  // olhar a contagem de inscrições.
+  const amb = cenarioInclusao();
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });   // a linha de base: nada a cruzar
+  igual(chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).total, 1, 'só a matriculada, SO_MATRICULADO');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(r.reconciliacao_pendente, true);
+
+  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  igual(depois.reconciliacao.rodou, true, 'o cruzamento devia ter rodado: entrou inscrição nova');
+  const ficha = depois.itens.filter((a) => a.matricula === '9110001')[0];
+  verdadeiro(ficha, 'a aluna incluída não apareceu na lista');
+  igual(ficha.status, 'CONFIRMADO', 'inscrição + lista oficial = confirmada');
+});
+
+teste('a inclusão derruba o cache dos números do Painel', () => {
+  const amb = cenarioInclusao();
+  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  amb.zerar();
+  const r = chamar(amb, 'painelEstatisticas');
+  igual(r.dados.inscricoes, 1, 'o Painel continuou respondendo do cache com a contagem de antes');
+  verdadeiro(amb.falso.requisicoes.length > 0);
+});
+
+grupo('buscarMatriculado — a ficha da lista oficial para a janela preencher');
+
+teste('encontrada: nome, e-mail, telefone formatado, curso, turma e os projetos em que já está', () => {
+  // Mutação que derruba: devolver `encontrado: true` com `oficial` nulo; passar
+  // `projeto_id` à consulta (o projeto desta janela sumiria de `ja_em`, e a
+  // coordenação só descobriria a duplicata pela recusa); ou devolver `ja_em`
+  // como lista de NOMES, que foi a primeira versão — a tela marcava "(este
+  // projeto)" por igualdade de nome (projeto renomeado ou homônimo enganava) e
+  // não tinha como dizer que a pessoa está na FILA, e não na vaga.
+  const amb = cenarioInclusao();
+  amb.api.atualizar('matriculados', '9110001', { email: 'aluna@exemplo.com', telefone: '48999990000' });
+  const naVaga = inscrever(amb.api, 'p1', 'R+ Cidades', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
+  const naFila = inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com', em_espera: 'SIM' });
+  amb.zerar();
+
+  const r = chamar(amb, 'buscarMatriculado', { matricula: '09110001' });   // com o zero da secretaria
+  igual(r.ok, true, r.erro);
+  igual(r.encontrado, true);
+  igual(r.nome, 'Aluna Exemplo');
+  igual(r.email, 'aluna@exemplo.com');
+  igual(r.telefone, '(48) 99999-0000');
+  igual(r.curso, 'ADS');
+  igual(r.turma, 'ADS11');
+  // Ordenado aqui pelo projeto: a consulta devolve na ordem de `__name__`, que é
+  // o hash da chave, e a ordem não é contrato de ninguém.
+  const porProjeto = r.ja_em.slice().sort((a, b) => a.projeto_id.localeCompare(b.projeto_id));
+  igual(porProjeto, [
+    { id: naVaga.id, projeto_id: 'p1', projeto_nome: 'R+ Cidades', em_espera: false },
+    { id: naFila.id, projeto_id: 'p2', projeto_nome: 'Robótica', em_espera: true }
+  ], 'ja_em é a inscrição — id, projeto e a marca de espera —, não só o nome');
+
+  igual(leiturasForaDaConfig(amb.falso).length, 1, 'uma leitura de ponto pela matrícula normalizada');
+  igual(consultas(amb.falso).length, 1);
+  igual(gravacoes(amb.falso).length, 0, 'consultar não escreve — nem no log');
+});
+
+teste('não encontrada: encontrado=false, campos vazios — e ja_em continua respondendo', () => {
+  // Mutação que derruba: devolver `ok: false` para matrícula fora da lista (a
+  // janela trataria como erro e não preencheria o aviso), ou pular a consulta
+  // de projetos quando `oficial` é nulo.
+  const amb = cenarioInclusao();
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110999', nome: 'Fora Da Lista', email: 'fora@exemplo.com' });
+  amb.zerar();
+
+  const r = chamar(amb, 'buscarMatriculado', { matricula: '9110999' });
+  igual(r.ok, true, r.erro);
+  igual(r.encontrado, false);
+  igual([r.nome, r.email, r.telefone, r.curso, r.turma], ['', '', '', '', '']);
+  igual(r.ja_em.map((i) => i.projeto_nome + (i.em_espera ? ' (espera)' : '')), ['Robótica']);
+  igual(gravacoes(amb.falso).length, 0);
+});
+
+teste('formato inválido ou vazia: recusa sem ler nada', () => {
+  const amb = cenarioInclusao();
+  amb.zerar();
+
+  const curta = chamar(amb, 'buscarMatriculado', { matricula: '911' });
+  igual(curta.ok, false);
+  verdadeiro(/7 d.gitos/.test(curta.erro), curta.erro);
+
+  const vazia = chamar(amb, 'buscarMatriculado', { matricula: '' });
+  igual(vazia.ok, false);
+  igual(vazia.erro, 'Informe a matrícula.');
+
+  igual(foraDaConfig(amb.falso).length, 0, 'recusou depois de já ter lido o banco');
+});
+
 grupo('atualizarAlunos — cruzar antes de listar, com freio');
 
 function cenarioAtualizar() {
@@ -2404,10 +3084,14 @@ teste('todo campo da janela de edição chega com o nome que o servidor lê', ()
   });
 });
 
-teste('as duas funções novas NÃO são leitura: elas fazem o painel esquecer as abas', () => {
+teste('as funções que escrevem NÃO são leitura: elas fazem o painel esquecer as abas', () => {
   const bloco = /var SO_LEITURA = \{([\s\S]*?)\};/.exec(ADMIN);
   verdadeiro(bloco !== null);
-  ['atualizarAlunos', 'editarAluno'].forEach((funcao) => {
+  // `incluirInscricao` grava uma inscrição (21/09): declarada como leitura, ela
+  // seria REPETIDA depois de um soluço de rede — e a repetição gravaria a mesma
+  // pessoa de novo (o 409 segura, mas a resposta que a coordenação lê seria a
+  // recusa, e não o protocolo) — e a aba Projetos ficaria com a ocupação de antes.
+  ['atualizarAlunos', 'editarAluno', 'incluirInscricao'].forEach((funcao) => {
     igual(bloco[1].indexOf(funcao), -1,
       funcao + ' escreve: declarada como leitura, a lista ficaria mostrando o valor de antes');
   });

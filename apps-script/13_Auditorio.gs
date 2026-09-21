@@ -846,6 +846,11 @@ function promoverDaEspera(payload) {
  * O invariante NÃO depende dessa janela: quem decide vaga é a contagem lida aqui
  * dentro. Duas promoções simultâneas da mesma pessoa gastam saldo duas vezes na
  * conta de quem promove — o que recusa alguém a mais, nunca aceita.
+ *
+ * `incluirInscricao` (10_Painel.gs) promove UMA inscrição do mesmo jeito — as
+ * duas marcas apagadas, o documento lido reescrito inteiro —, sem o lock e por
+ * fora do teto e da situação, porque é a coordenação decidindo por fora. Quem
+ * mudar o que "promover" escreve no documento muda nos dois lugares.
  */
 function promoverDentroDoLock_(candidatos, projetos, recusadas) {
   // A pergunta da fila é feita AQUI, antes do `waitLock`, e não é para usar a

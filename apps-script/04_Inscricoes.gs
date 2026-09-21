@@ -328,8 +328,28 @@ function chaveDedup_(dados) {
  * descobre a duplicata é o 409 do banco e não uma leitura nossa. É essa promessa
  * que 09_Projetos.gs compra ao chamar isto de dentro do lock, e ela tem teste que
  * conta as requisições.
+ *
+ * ---------------------------------------- O segundo argumento, e por que é um
+ *
+ * `pelaCoordenacao` é `{ incluido_por }` quando quem grava é `incluirInscricao`
+ * (10_Painel.gs), e ausente em todos os outros chamadores. Ele muda DUAS coisas
+ * no documento: entra `incluido_por`, e os três aceites vão VAZIOS — a
+ * coordenação não consente pelo aluno, e 'NAO' ali afirmaria que o aluno
+ * RECUSOU uma pergunta que ninguém lhe fez.
+ *
+ * É um ARGUMENTO, e não um campo de `dados`, porque `dados` é o payload que o
+ * cliente manda: `submeterInscricao` recebe o corpo do POST inteiro, e o
+ * `sincronizarRespostasForms` recebe o que o Forms trouxe. Qualquer marca posta
+ * dentro de `dados` — um campo `incluido_por`, um aceite mandado como texto
+ * vazio — viajaria no mesmo envelope que o aluno preenche, e o caminho público
+ * passaria a gravar um documento que ele nunca gravou (a primeira versão desta
+ * função fazia exatamente isso, reinterpretando `''` para todo chamador, e um
+ * POST à mão com `autoriza_imagem: ''` deixava de gravar 'NAO'). Fora do
+ * payload, o sinal só existe onde o código o escreve: com um argumento só, esta
+ * função grava o documento de sempre, campo por campo — e é isso que o teste
+ * do caminho público compara.
  */
-function gravarInscricao(dados) {
+function gravarInscricao(dados, pelaCoordenacao) {
   var chave = chaveDedup_(dados);
 
   var registro = {
@@ -348,11 +368,32 @@ function gravarInscricao(dados) {
     cpf: normalizarCpf(dados.cpf),
     data_nascimento: normalizarData(dados.data_nascimento),
     observacoes: String(dados.observacoes || '').trim(),
+    // Booleano vira SIM/NAO, e QUALQUER outra coisa também: `''`, `null` e
+    // `'não'` são NAO, como sempre foram. O terceiro estado, "não perguntado",
+    // não nasce do valor — nasce do chamador, logo abaixo.
     declara_ciencia: dados.declara_ciencia ? 'SIM' : 'NAO',
     autoriza_imagem: dados.autoriza_imagem ? 'SIM' : 'NAO',
     consentimento_lgpd: dados.consentimento_lgpd || '',
     raw_json: dados.raw_json || JSON.stringify(dados)
   };
+
+  // ------------------------------------------------------ Pela coordenação
+  //
+  // O que só existe no documento de quem entrou por `incluirInscricao` — é a
+  // mesma decisão da fila de espera, logo abaixo: o caminho público não tem
+  // como pedir isto, e continua gravando o documento de sempre.
+  //
+  // `incluido_por` diz POR QUEM (`origem: 'COORDENACAO'` já diz POR ONDE), que é
+  // o que a trilha precisa quando a pergunta for "quem pôs esta pessoa neste
+  // projeto". E os três aceites ficam em branco: a ficha omite o campo vazio, e
+  // é assim que "não perguntado" se distingue de "não aceitou" — 'NAO' aqui
+  // seria uma recusa que o aluno nunca deu.
+  if (pelaCoordenacao) {
+    registro.incluido_por = String(pelaCoordenacao.incluido_por || '');
+    registro.declara_ciencia = '';
+    registro.autoriza_imagem = '';
+    registro.consentimento_lgpd = '';
+  }
 
   // ------------------------------------------------------------ Fila de espera
   //
@@ -404,6 +445,26 @@ function gravarInscricao(dados) {
 var INSCRICOES_OUTROS_PROJETOS_MAX = 20;
 
 function outrosProjetosDe_(dados) {
+  return inscricoesEmOutrosProjetos_(dados).map(function (i) {
+    return i.projeto_nome || i.projeto_id;
+  });
+}
+
+/**
+ * A MESMA consulta de `outrosProjetosDe_`, devolvendo a inscrição em vez do
+ * nome: `{ id, projeto_id, projeto_nome, em_espera }` por projeto.
+ *
+ * Existe para `buscarMatriculado` (10_Painel.gs), que precisa de mais do que o
+ * nome: a janela "Incluir aluno" marca "(este projeto)" pelo ID — o nome é
+ * desnormalizado na escrita, e um projeto renomeado depois da inscrição, ou
+ * dois homônimos, deixariam a marca errada — e diz "(em espera)" quando a
+ * pessoa está na FILA deste projeto, porque aí o Incluir promove a inscrição
+ * que existe em vez de criar outra (`incluirInscricao`). `outrosProjetosDe_` continua
+ * devolvendo nomes, que é o que `submeterInscricao` lê desde o primeiro
+ * semestre; separar a leitura da consulta é o que deixa os dois chamadores
+ * compartilharem o filtro sem um mudar o contrato do outro.
+ */
+function inscricoesEmOutrosProjetos_(dados) {
   var matricula = normalizarMatricula(dados.matricula);
   var email = normalizarEmail(dados.email);
   if (!matricula && !email) return [];
@@ -435,7 +496,12 @@ function outrosProjetosDe_(dados) {
     // ." — ou era barrado por uma inscrição que não ocupa vaga em lugar nenhum.
     if (!String(inscricao.projeto_id || '').trim()) return;
 
-    achados.push(inscricao.projeto_nome || inscricao.projeto_id);
+    achados.push({
+      id: String(inscricao._id || ''),
+      projeto_id: String(inscricao.projeto_id),
+      projeto_nome: String(inscricao.projeto_nome || ''),
+      em_espera: String(inscricao.em_espera).toUpperCase() === 'SIM'
+    });
   });
   return achados;
 }

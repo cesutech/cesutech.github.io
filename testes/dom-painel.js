@@ -760,19 +760,28 @@ function abrirPainel(opcoes) {
    * `onclick` com o nome errado passaria por todos os testes e falharia no dedo da
    * coordenação.
    *
+   * O `onblur=` entrou em 21/09 pelo mesmo motivo, com a janela "Incluir aluno":
+   * é ao SAIR do campo da matrícula que o painel consulta a lista oficial, e um
+   * teste que chamasse `buscarMatriculadoUI()` por dentro não provaria que a
+   * marcação dispara alguma coisa. Só esses dois: `oninput`/`onchange` ficam de
+   * fora de propósito — `cena.digitar` já dispara `input`, e ligá-los faria todo
+   * teste que digita num filtro redesenhar a tabela sem ter pedido.
+   *
    * A compilação é PREGUIÇOSA porque os elementos estáticos nascem antes do
    * sandbox: quem clica, clica com a página já carregada.
    */
   function ligarOnclick(el) {
-    const fonte = el.getAttribute('onclick');
-    if (!fonte) return;
-    let compilado = null;
-    el.addEventListener('click', (ev) => {
-      if (!compilado) {
-        compilado = vm.runInContext('(function (event) {\n' + fonte + '\n})', sandbox,
-          { filename: 'onclick de #' + (el.id || el.tagName) });
-      }
-      compilado.call(el, ev);
+    [['onclick', 'click'], ['onblur', 'blur']].forEach(([atributo, evento]) => {
+      const fonte = el.getAttribute(atributo);
+      if (!fonte) return;
+      let compilado = null;
+      el.addEventListener(evento, (ev) => {
+        if (!compilado) {
+          compilado = vm.runInContext('(function (event) {\n' + fonte + '\n})', sandbox,
+            { filename: atributo + ' de #' + (el.id || el.tagName) });
+        }
+        compilado.call(el, ev);
+      });
     });
   }
 
