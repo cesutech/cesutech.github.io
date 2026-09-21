@@ -42,7 +42,7 @@ const FONTE = fs.readFileSync(path.join(PASTA_GS, '12_Disciplinas.gs'), 'utf8');
 
 // Na ordem alfabética em que o editor do Apps Script carrega os arquivos.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '07_Auth.gs', '09_Projetos.gs', '12_Disciplinas.gs'];
+  '04_Inscricoes.gs', '04_Log.gs', '05c_Revisao.gs', '07_Auth.gs', '09_Projetos.gs', '12_Disciplinas.gs'];
 
 function ambiente(opcoes) {
   const amb = criarAmbiente(Object.assign(

@@ -59,6 +59,34 @@ matrículas e os telefones são inventados.
 
 ---
 
+## A lista oficial ao longo do semestre
+
+Importar nunca apaga: quem sumiu do relatório novo continua na lista oficial.
+Isso é deliberado — descobrir "quem ficou de fora" custaria ler a coleção
+inteira a cada importação —, e por isso existem duas ferramentas separadas
+para tirar alguém:
+
+**Revisar** é o bisturi dentro do semestre. A secretaria emite um relatório
+por turma, e o lote guarda essa turma (lida do cabeçalho do arquivo e conferida
+no campo "Turma do relatório", no passo 2 da importação). Ao fim de cada
+importação, e pelo botão **Revisar** da aba Importações, o sistema lista quem
+estava no banco como aquela turma e não veio no arquivo — quem veio em outra
+lista deste semestre e quem já está cancelado aparecem à parte, sem ação. Para
+cada um se decide **Manter**, **Cancelar** (a matrícula some do formulário e
+das listas; volta sozinha se a secretaria a reenviar) ou **Excluir** (sai do
+banco, com cópia em `matriculados_excluidos`; só para quem nunca deveria ter
+entrado). Cancelar e Excluir sempre anulam as inscrições da pessoa: a vaga é
+liberada, e a inscrição fica na quarentena do Auditório. Depois de aplicar,
+**Alunos → Atualizar** refaz o cruzamento.
+
+**Apagar matriculados** é a vassoura entre semestres: tira do banco uma lista
+antiga inteira, lote a lote. O rito da virada de semestre é importar TODAS as
+listas do semestre novo, revisar lote a lote, e só então apagar os lotes do
+semestre anterior — revisar antes de importar as outras turmas apontaria como
+"não veio" quem só mudou de turma (a tela avisa, mas não bloqueia).
+
+---
+
 ## Organização
 
 ```

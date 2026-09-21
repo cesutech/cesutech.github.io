@@ -548,6 +548,14 @@ function funcoesDoPainel_() {
     confirmarImportacao: confirmarImportacao,
     expurgarLote: expurgarLote,
 
+    // 05c_Revisao.gs — a revisão de divergências (21/09): quem estava na lista
+    // oficial como a turma do lote e não veio nele. A primeira só lê (está em
+    // SO_LEITURA no painel); a segunda anula inscrições, cancela e exclui da
+    // lista oficial, com `exigirAdmin`, confirmação na tela e a linha
+    // LOTE_REVISADO no log — como toda escrita de coordenação daqui.
+    revisarLote: revisarLote,
+    aplicarRevisao: aplicarRevisao,
+
     // 06_Reconciliacao.gs
     rodarReconciliacao: rodarReconciliacao,
     sincronizarForms: sincronizarForms,

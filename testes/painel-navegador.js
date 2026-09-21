@@ -2057,6 +2057,16 @@ const BOTOES_QUE_GRAVAM = [
     }
   },
   {
+    // A revisão de divergências (21/09): a janela abre sobre uma resposta
+    // encenada de `revisarLote`, um aluno é marcado, e o botão é o Aplicar.
+    nome: 'Aplicar revisão', servidor: 'aplicarRevisao',
+    montar: (cena) => {
+      abrirJanelaDeRevisao(cena);
+      marcar(cena, '9110001', 'CANCELAR');
+      return cena.elemento('modal-salvar');
+    }
+  },
+  {
     nome: 'Escolher banner', servidor: 'listarBanners',
     montar: (cena) => {
       cena.js.trocarAba('projetos');
@@ -2740,6 +2750,393 @@ teste('a aba Importações mostra a turma, e rotula a que foi informada ou deduz
     'lote sem cabeçalho fica vazio, e não "undefined": ' + linhaDe('antigo.csv'));
 });
 
+// ====================================================== A revisão, clicada
+
+/**
+ * O QUE ESTE BLOCO PROTEGE: a revisão de divergências tem três portas na tela —
+ * o número do passo 3 da importação, o botão "Revisar" da aba Importações e a
+ * janela com as listas — e as três são marcação e concatenação de string que
+ * nenhum teste de servidor vê (revisao.js prova o servidor). Aqui a resposta
+ * do servidor é ENCENADA, para a tela ser lida em cada estado que o servidor
+ * pode devolver, e o que se afirma é o que ficou na tela e o que saiu no
+ * payload — inclusive a pergunta do `confirm`, que é onde os olhos estão.
+ */
+grupo('a revisão de divergências — passo 3, aba Importações e a janela');
+
+function itemDaRevisao(matricula, nome, inscricoes) {
+  return {
+    matricula: matricula, matriculaOficial: '0' + matricula, nome: nome, curso: 'ADS', turma: 'ADS41',
+    situacao: 'Matriculado', telefone: '', email: '', importadoEm: '2026-09-12 10:00:00',
+    lote: { id: 'L0', arquivo: 'ads41-sexta.pdf', importadoEm: '2026-09-12 10:00:00', semestre: '2026/2' },
+    inscricoes: inscricoes || []
+  };
+}
+
+function inscricaoDaRevisao(id, projeto, emEspera) {
+  return { id: id, projetoId: 'p1', projetoNome: projeto || 'Origem', emEspera: Boolean(emEspera), criadoEm: '2026-09-13 10:00:00' };
+}
+
+/** A resposta completa de `revisarLote`: 3 sem projeto, 2 com projeto (3 inscrições), 1 em outra lista, 1 já cancelada. */
+function respostaDaRevisao(extras) {
+  return Object.assign({
+    ok: true, loteId: 'L1', arquivo: 'ads41-segunda.pdf', importadoEm: '2026-09-19 10:00:00',
+    turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origemTurma: 'CABECALHO',
+    origemDetalhe: 'cabeçalho do arquivo',
+    vieram: 27, candidatos: 5, emLoteMaisNovo: 0,
+    outraListaDoSemestre: [{ matricula: '9110008', nome: 'Otto Exemplo',
+      lote: { id: 'L31', arquivo: 'ads31.pdf', importadoEm: '2026-09-18 10:00:00', semestre: '2026/2' } }],
+    jaCancelados: [{ matricula: '9110007', nome: 'Julia Exemplo', cancelado_em: '2026-09-15 09:00:00',
+      cancelado_por: 'coord@exemplo.com', inscricoes: [inscricaoDaRevisao('i7')] }],
+    sumiramMaisQueVieram: false, avisos: [], lidas: { matriculados: 30, lotes: 3, inscricoes: 40 },
+    loteMaximo: 100,
+    semProjeto: [itemDaRevisao('9110001', 'Ana Exemplo'), itemDaRevisao('9110002', 'Bia Exemplo'),
+      itemDaRevisao('9110003', 'Caio Exemplo')],
+    comProjeto: [itemDaRevisao('9110004', 'Dani Exemplo', [inscricaoDaRevisao('i4')]),
+      itemDaRevisao('9110005', 'Edu Exemplo', [inscricaoDaRevisao('i5a'), inscricaoDaRevisao('i5b', 'Lotado', true)])],
+    revisado: null, truncado: false
+  }, extras || {});
+}
+
+/** A contagem que o passo 3 pede — sem as listas. */
+function contagemDaRevisao(extras) {
+  return Object.assign({
+    ok: true, loteId: 'L1', arquivo: 'ads41-segunda.pdf', turma: 'ADS41', semestre: '2026/2',
+    origemTurma: 'CABECALHO', vieram: 27, candidatos: 5, emLoteMaisNovo: 0, outraListaDoSemestre: 2,
+    jaCancelados: 1, sumiramMaisQueVieram: false, avisos: [], loteMaximo: 100
+  }, extras || {});
+}
+
+/** A janela de revisão aberta sobre a resposta encenada. */
+function abrirJanelaDeRevisao(cena, resposta) {
+  cena.respostas.revisarLote = resposta || respostaDaRevisao();
+  cena.js.abrirRevisaoDeLote('L1');
+  delete cena.respostas.revisarLote;
+}
+
+function selectsDaRevisao(cena, lista) {
+  return cena.documento.querySelectorAll('[data-rev-matricula]')
+    .filter((s) => !lista || s.getAttribute('data-rev-lista') === lista);
+}
+
+function marcar(cena, matricula, acao) {
+  const s = cena.documento.querySelectorAll('[data-rev-matricula="' + matricula + '"]')[0];
+  if (!s) throw new Error('sem select para ' + matricula);
+  s.value = acao;
+  cena.js.recontarRevisao();
+}
+
+function importacaoConcluida(cena, cabecalho) {
+  cena.respostas.confirmarImportacao = {
+    ok: true, importadas: 2, ignoradas: 0, loteId: 'L1',
+    cabecalho: cabecalho || { turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origem: 'CABECALHO', linhasDaTurma: 2, preenchidas: 0 }
+  };
+  abrirPasso2(cena, null);
+  cena.elemento('botao-confirmar').click();
+}
+
+teste('o passo 3 pede a conferência numa chamada separada, com contarApenas, e desenha quem não veio', () => {
+  // Mutação que derruba: chamar sem `contarApenas` — o passo 3 pagaria a
+  // varredura de inscrições inteira por um número; ou ler o número da resposta
+  // da importação — que não tem número nenhum (0 leituras).
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.respostas.revisarLote = contagemDaRevisao();
+  importacaoConcluida(cena);
+
+  const pedidos = requisicoesDe(cena, 'revisarLote');
+  igual(pedidos.length, 1, 'a conferência tem de ser UMA chamada');
+  const dados = JSON.parse(pedidos[0].corpo).dados;
+  igual(dados, { loteId: 'L1', contarApenas: true });
+
+  const tela = cena.texto('pos-conferencia');
+  verdadeiro(tela.indexOf('5 aluno(s) que estavam no banco como ADS41 não vieram neste arquivo') !== -1, tela);
+  verdadeiro(tela.indexOf('2 vieram em outra lista de 2026/2') !== -1 && tela.indexOf('1 já cancelado') !== -1, tela);
+  verdadeiro(cena.elemento('botao-revisar-pos'), 'sem o botão, o número é só um número');
+  verdadeiro(/abrirRevisaoDeLote\('L1'\)/.test(cena.html('pos-conferencia')), 'o botão abre a revisão do lote errado');
+  verdadeiro(cena.elemento('botao-reconciliar-pos'), 'o passo seguinte continua onde estava');
+});
+
+teste('zero candidatos diz "todos vieram" sem botão; "sumiram mais" pinta de vermelho', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.respostas.revisarLote = contagemDaRevisao({ candidatos: 0, outraListaDoSemestre: 0, jaCancelados: 0 });
+  importacaoConcluida(cena);
+  const tela = cena.texto('pos-conferencia');
+  verdadeiro(tela.indexOf('Todos os 27 que estavam no banco como ADS41 vieram neste arquivo') !== -1, tela);
+  igual(cena.html('pos-conferencia').indexOf('abrirRevisaoDeLote'), -1, 'botão de revisar sem ninguém para revisar');
+
+  const alarme = abrirPainel({ semear: cadastroBase });
+  alarme.respostas.revisarLote = contagemDaRevisao({ candidatos: 25, vieram: 5, sumiramMaisQueVieram: true,
+    avisos: ['Sumiram mais alunos do que vieram (25 contra 5). Confira se o arquivo é mesmo de ADS41, ou se é virada de semestre.'] });
+  importacaoConcluida(alarme);
+  const html = alarme.html('pos-conferencia');
+  verdadeiro(/aviso--erro/.test(html), 'o alarme não é vermelho');
+  verdadeiro(/Sumiram mais alunos do que vieram.*25 contra 5/.test(html), html);
+  igual((html.match(/Sumiram mais/g) || []).length, 1, 'o aviso do servidor repetiu o alarme');
+  verdadeiro(alarme.elemento('botao-revisar-pos'), 'o alarme não tira o botão: quem decide é o professor');
+});
+
+teste('sem turma no lote, nenhuma chamada; recusa do servidor não desfaz a importação concluída', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.respostas.revisarLote = contagemDaRevisao();
+  importacaoConcluida(cena, { turma: '', turmaBruta: '', semestre: '', origem: '', linhasDaTurma: 0, preenchidas: 0 });
+  igual(requisicoesDe(cena, 'revisarLote').length, 0, 'a conferência só existe por turma');
+  verdadeiro(cena.texto('pos-conferencia').indexOf('não tem turma reconhecível') !== -1, cena.texto('pos-conferencia'));
+
+  const recusa = abrirPainel({ semear: cadastroBase });
+  recusa.respostas.revisarLote = { ok: false, precisaTurma: true, motivo: 'O cabeçalho do arquivo diz ADS41, mas nenhuma linha gravada é ADS41.' };
+  importacaoConcluida(recusa);
+  const tela = recusa.texto('pos-conferencia');
+  verdadeiro(tela.indexOf('Não consegui conferir quem não veio') !== -1, tela);
+  verdadeiro(tela.indexOf('nenhuma linha gravada é ADS41') !== -1, tela);
+  verdadeiro(tela.indexOf('A importação continua valendo') !== -1, tela);
+  verdadeiro(recusa.elemento('botao-reconciliar-pos'), 'a recusa da conferência levou o passo seguinte junto');
+  verdadeiro(recusa.texto('resultado-importacao').indexOf('Importação concluída') !== -1);
+
+  // A rede caindo na conferência vai para o bloco, não para a faixa vermelha
+  // do painel: a importação deu certo, e é isso que a tela tem de dizer.
+  const rede = abrirPainel({ semear: cadastroBase });
+  rede.respostas.revisarLote = null;
+  importacaoConcluida(rede);
+  rede.rodarTarefas(3);
+  verdadeiro(rede.texto('pos-conferencia').indexOf('Não consegui conferir') !== -1, rede.texto('pos-conferencia'));
+  igual(rede.texto('mensagem-global').indexOf('Erro em'), -1, 'a falha da conferência virou erro do painel');
+});
+
+teste('a aba Importações: Revisar em lote normal, "Revisar de novo" no revisado, nada em EXPURGADO e PARCIAL', () => {
+  // Mutação que derruba: trocar o Revisar pelo Apagar (ou vice-versa) numa
+  // linha; ou esconder o Apagar do lote revisado.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      const base = { tipo: 'PDF', linhas: '2', importado_em: '01/08/2026', importado_por: 'coord@exemplo.com',
+        turma_cabecalho: 'ADS41', turma_origem: 'CABECALHO', semestre_cabecalho: '2026/2', linhas_da_turma: '2' };
+      api.inserir('lotes', Object.assign({}, base, { arquivo: 'normal.pdf', criado_em: '20260804T090000000Z', status: 'ATUALIZOU' }), 'L4');
+      api.inserir('lotes', Object.assign({}, base, { arquivo: 'revisado.pdf', criado_em: '20260803T090000000Z', status: 'ATUALIZOU',
+        revisado_em: '2026-09-21 10:00:00', revisado_por: 'coord@exemplo.com',
+        revisao_resumo: '{"cancelados":3,"excluidos":1,"anuladas":2,"pulados":0,"ja_cancelados":0}' }), 'L3');
+      api.inserir('lotes', Object.assign({}, base, { arquivo: 'parcial.pdf', criado_em: '20260802T090000000Z', status: 'PARCIAL' }), 'L2');
+      api.inserir('lotes', Object.assign({}, base, { arquivo: 'apagado.pdf', criado_em: '20260801T090000000Z', status: 'EXPURGADO' }), 'L1');
+    }
+  });
+  cena.js.trocarAba('lotes');
+  const html = cena.html('conteudo-lotes');
+  const linhaDe = (arquivo) => { const i = html.indexOf(arquivo); return html.slice(i, html.indexOf('</tr>', i)); };
+
+  verdadeiro(html.indexOf('<th>Revisão</th>') !== -1, 'a coluna não existe');
+  verdadeiro(/abrirRevisaoDeLote\('L4'\)/.test(linhaDe('normal.pdf')) && />Revisar</.test(linhaDe('normal.pdf')), linhaDe('normal.pdf'));
+  verdadeiro(/expurgarLoteUI, 'L4'/.test(linhaDe('normal.pdf')), 'o lote normal perdeu o Apagar');
+  verdadeiro(/revisado em 21\/09\/2026/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
+  verdadeiro(/3 cancelado\(s\), 1 excluído\(s\), 2 inscrição\(ões\) anulada\(s\)/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
+  verdadeiro(/Revisar de novo/.test(linhaDe('revisado.pdf')) && /expurgarLoteUI, 'L3'/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
+  igual(linhaDe('parcial.pdf').indexOf('abrirRevisaoDeLote'), -1, 'PARCIAL não se revisa');
+  verdadeiro(/confirme de novo/.test(linhaDe('parcial.pdf')), linhaDe('parcial.pdf'));
+  igual(linhaDe('apagado.pdf').indexOf('abrirRevisaoDeLote'), -1, 'EXPURGADO não tem o que comparar');
+  igual(linhaDe('apagado.pdf').indexOf('expurgarLoteUI'), -1);
+  verdadeiro(cena.texto('conteudo-lotes').indexOf('bisturi') !== -1 && cena.texto('conteudo-lotes').indexOf('vassoura') !== -1,
+    'o rito da virada de semestre saiu do parágrafo');
+});
+
+teste('a janela: duas listas com select, a frase da anulação na B, e os blocos de informação sem ação', () => {
+  // Mutação que derruba: pôr select nos já cancelados ou na outra lista — o
+  // Aplicar mandaria decisão sobre quem não é candidato.
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.js.trocarAba('lotes');
+  abrirJanelaDeRevisao(cena);
+
+  verdadeiro(janelaAberta(cena));
+  igual(cena.documento.getElementById('modal-titulo').textContent, 'Revisar ADS41 — ads41-segunda.pdf, 19/09/2026');
+  verdadeiro(cena.elemento('rev-sem-projeto') && cena.elemento('rev-com-projeto'), 'as duas listas têm de existir');
+  igual(selectsDaRevisao(cena, 'sem').length, 3);
+  igual(selectsDaRevisao(cena, 'com').length, 2);
+  igual(selectsDaRevisao(cena).length, 5, 'select fora das duas listas');
+  selectsDaRevisao(cena).forEach((s) => igual(s.value, 'MANTER', 'Manter é o padrão'));
+
+  const corpo = cena.html('modal-corpo');
+  igual((corpo.match(/a inscrição será anulada \(vaga liberada\)/g) || []).length, 2, 'a frase vai em cada linha COM projeto');
+  verdadeiro(/protocolo i5b \(em espera\)/.test(corpo), 'a fila tem de aparecer no protocolo');
+  verdadeiro(/Comparando pela turma do relatório.*ADS41.*2026\/2/.test(corpo), corpo.slice(0, 300));
+  verdadeiro(/27 vieram · <strong>5 não vieram<\/strong> · 1 em outra lista de 2026\/2 · 1 já cancelado\(s\) · 73 documento\(s\) lido\(s\)/.test(corpo),
+    'a linha de contagem: ' + corpo.slice(corpo.indexOf('rev-contagem'), corpo.indexOf('rev-contagem') + 200));
+  verdadeiro(/Vieram em outra lista de 2026\/2 \(1\)/.test(corpo) && /Otto Exemplo/.test(corpo), 'a outra lista sumiu');
+  verdadeiro(/Já cancelados \(1\)/.test(corpo) && /Julia Exemplo/.test(corpo) && /ocupa vaga/.test(corpo), 'o já cancelado com inscrição tem de dizer que ocupa vaga');
+  igual(corpo.indexOf('rev-anular-'), -1, 'a caixa "anular também" não existe mais: Cancelar e Excluir sempre anulam');
+  igual(cena.elemento('rev-turma').value, 'ADS41');
+  verdadeiro(cena.elemento('modal-salvar'), 'sem Aplicar');
+  igual(cena.texto('rev-resumo'), '0 a cancelar · 0 a excluir · 0 inscrições a anular · 5 mantido(s)');
+});
+
+teste('a contagem viva soma as inscrições de quem sai, e "Marcar todos" de uma lista não toca a outra', () => {
+  // Mutação que derruba: `marcarTodosRevisao` sem o filtro da lista.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena);
+
+  marcar(cena, '9110001', 'CANCELAR');
+  marcar(cena, '9110005', 'EXCLUIR');
+  igual(cena.texto('rev-resumo'), '1 a cancelar · 1 a excluir · 2 inscrições a anular · 3 mantido(s)');
+
+  cena.js.marcarTodosRevisao('sem', 'CANCELAR');
+  igual(selectsDaRevisao(cena, 'sem').map((s) => s.value), ['CANCELAR', 'CANCELAR', 'CANCELAR']);
+  igual(selectsDaRevisao(cena, 'com').map((s) => s.value), ['MANTER', 'EXCLUIR'], 'o atalho da lista A mexeu na B');
+  igual(cena.texto('rev-resumo'), '3 a cancelar · 1 a excluir · 2 inscrições a anular · 1 mantido(s)');
+
+  // Marcar por atalho é trabalho: o fundo passa a perguntar.
+  cena.respostaConfirm = false;
+  clicarNoFundo(cena);
+  verdadeiro(janelaAberta(cena), 'o clique no fundo levou a revisão marcada embora');
+});
+
+teste('Aplicar sem nada marcado não vai ao servidor; desistir na pergunta também não', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena);
+  const botao = cena.elemento('modal-salvar');
+  const rotulo = botao.textContent;
+
+  botao.click();
+  igual(requisicoesDe(cena, 'aplicarRevisao').length, 0);
+  verdadeiro(cena.texto('mensagem-modal').indexOf('Nada marcado') !== -1, cena.texto('mensagem-modal'));
+  igual(cena.confirmacoes, [], 'perguntou sem haver o que perguntar');
+  verdadeiro(!botao.disabled && botao.textContent === rotulo, 'o botão ficou travado sem requisição nenhuma');
+
+  marcar(cena, '9110001', 'CANCELAR');
+  cena.respostaConfirm = false;
+  botao.click();
+  igual(cena.confirmacoes.length, 1);
+  igual(requisicoesDe(cena, 'aplicarRevisao').length, 0, 'desistiu e mandou mesmo assim');
+  verdadeiro(!botao.disabled && botao.textContent === rotulo, 'o botão não voltou depois do "não"');
+});
+
+teste('a pergunta resume o que vai acontecer, e o payload leva só as linhas diferentes de Manter', () => {
+  // Mutação que derruba: mandar as linhas Manter com acao 'MANTER' — o servidor
+  // recusa a lista inteira; ou esquecer o alarme na pergunta.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena, respostaDaRevisao({ sumiramMaisQueVieram: true, candidatos: 25, vieram: 5 }));
+  cena.respostas.aplicarRevisao = semResposta();
+
+  marcar(cena, '9110001', 'CANCELAR');
+  marcar(cena, '9110002', 'CANCELAR');
+  marcar(cena, '9110004', 'CANCELAR');
+  marcar(cena, '9110005', 'EXCLUIR');
+  cena.elemento('modal-salvar').click();
+
+  const pergunta = cena.confirmacoes[0];
+  verdadeiro(pergunta.indexOf('Aplicar a revisão de ADS41?') === 0, pergunta);
+  verdadeiro(pergunta.indexOf('3 aluno(s) serão CANCELADOS') !== -1, pergunta);
+  verdadeiro(pergunta.indexOf('1 aluno(s) serão EXCLUÍDOS') !== -1, pergunta);
+  verdadeiro(pergunta.indexOf('3 inscrição(ões) serão ANULADAS') !== -1, 'as inscrições de Dani (1) e Edu (2): ' + pergunta);
+  verdadeiro(pergunta.indexOf('ATENÇÃO: sumiram mais alunos do que vieram — 25 contra 5') !== -1, pergunta);
+  verdadeiro(pergunta.indexOf('não tem desfazer') !== -1, pergunta);
+
+  const pedidos = requisicoesDe(cena, 'aplicarRevisao');
+  igual(pedidos.length, 1);
+  const dados = JSON.parse(pedidos[0].corpo).dados;
+  igual(dados.loteId, 'L1');
+  igual(dados.turma, 'ADS41');
+  igual(dados.origemTurma, 'CABECALHO');
+  igual(dados.decisoes, [
+    { matricula: '9110001', acao: 'CANCELAR' }, { matricula: '9110002', acao: 'CANCELAR' },
+    { matricula: '9110004', acao: 'CANCELAR' }, { matricula: '9110005', acao: 'EXCLUIR' }
+  ]);
+  verdadeiro(JSON.parse(pedidos[0].corpo).idem, 'a escrita saiu sem chave de idempotência');
+});
+
+teste('a resposta cai dentro da janela: o relato, os pulados, o Ver Alunos que cruza — e a aba Importações recarrega', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  cena.js.trocarAba('lotes');
+  abrirJanelaDeRevisao(cena);
+  cena.respostas.aplicarRevisao = {
+    ok: true, cancelados: 3, excluidos: 1, anuladas: 2, fichasApagadas: 1, jaCancelados: 0,
+    pulados: [{ matricula: '9110003', motivo: 'voltou numa importação igual ou mais nova' }],
+    precisaReconciliar: true, mensagem: '1 pulado(s), não tocado(s): 9110003 — voltou numa importação igual ou mais nova.'
+  };
+  cena.requisicoesHttp.length = 0;
+
+  cena.js.marcarTodosRevisao('sem', 'CANCELAR');
+  marcar(cena, '9110005', 'EXCLUIR');
+  cena.elemento('modal-salvar').click();
+
+  verdadeiro(janelaAberta(cena), 'o sucesso fechou a janela antes de contar o que fez');
+  const corpo = cena.texto('modal-corpo');
+  verdadeiro(corpo.indexOf('Feito: 3 cancelado(s), 1 excluído(s), 2 inscrição(ões) anulada(s).') !== -1, corpo);
+  verdadeiro(corpo.indexOf('9110003 — voltou numa importação igual ou mais nova; não foi tocado') !== -1, corpo);
+  verdadeiro(corpo.indexOf('A ficha em Alunos atualiza no próximo Atualizar') !== -1, corpo);
+  igual(selectsDaRevisao(cena).length, 0, 'as listas continuam na tela depois de aplicadas');
+  igual(requisicoesDe(cena, 'listarLotes').length, 1, 'a coluna Revisão da aba não foi recarregada');
+
+  // Ver Alunos: fecha, troca de aba e roda o Atualizar (o cruzamento) — UMA
+  // chamada, e não o carregamento simples mais o cruzamento.
+  cena.requisicoesHttp.length = 0;
+  cena.botaoQueChama(/verAlunosAposRevisao/).click();
+  verdadeiro(!janelaAberta(cena));
+  igual(requisicoesDe(cena, 'atualizarAlunos').length, 1);
+  igual(requisicoesDe(cena, 'listarAlunos').length, 0, 'a troca de aba carregou a lista antes de cruzar');
+  verdadeiro(!cena.documento.getElementById('secao-alunos').classList.contains('oculto'), 'a aba Alunos não está na frente');
+});
+
+teste('erro do Aplicar fica na janela com o que já foi feito, e os selects continuam para reaplicar', () => {
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena);
+  cena.respostas.aplicarRevisao = { ok: false, erro: 'A lista da tela é de antes: alguém foi reimportado ou excluído no meio tempo.',
+    anuladas: 2, excluidos: 0, cancelados: 0 };
+
+  marcar(cena, '9110004', 'CANCELAR');
+  marcar(cena, '9110005', 'EXCLUIR');
+  cena.elemento('modal-salvar').click();
+
+  verdadeiro(janelaAberta(cena));
+  const erro = cena.texto('mensagem-modal');
+  verdadeiro(erro.indexOf('Feito antes da falha: 2 inscrição(ões) anulada(s).') !== -1, erro);
+  verdadeiro(erro.indexOf('A lista da tela é de antes') !== -1, erro);
+  igual(selectsDaRevisao(cena).map((s) => s.value), ['MANTER', 'MANTER', 'MANTER', 'CANCELAR', 'EXCLUIR'],
+    'o erro apagou o que estava marcado');
+  verdadeiro(!cena.elemento('modal-salvar').disabled, 'o botão ficou travado depois do erro');
+});
+
+teste('lote sem cabeçalho: "turma majoritária" no cabeçalho da janela; precisaTurma mostra só o campo, e Consultar manda a turma', () => {
+  // Mutação que derruba: Consultar sem `turma` no payload — o servidor
+  // responderia a mesma recusa para sempre.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena, respostaDaRevisao({ origemTurma: 'LINHAS', origemDetalhe: '27 de 30 registros desta importação', semestre: '' }));
+  const corpo = cena.html('modal-corpo');
+  verdadeiro(/Comparando pela turma majoritária das linhas desta importação.*ADS41.*27 de 30/.test(corpo), corpo.slice(0, 400));
+  verdadeiro(/anterior ao registro do cabeçalho/.test(corpo));
+
+  const pergunta = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(pergunta, { ok: false, precisaTurma: true, sugestao: 'ADS41',
+    motivo: 'Esta importação é anterior ao registro do cabeçalho, e as linhas que sobraram dela não apontam uma turma com segurança (2 de 3 registros desta importação). Informe a turma.' });
+  verdadeiro(pergunta.texto('modal-corpo').indexOf('Informe a turma') !== -1);
+  igual(pergunta.elemento('rev-turma').value, 'ADS41', 'a sugestão vai para o campo, para conferir e não para valer');
+  igual(pergunta.elemento('modal-salvar'), null, 'sem lista não há o que aplicar');
+  igual(selectsDaRevisao(pergunta).length, 0);
+
+  pergunta.respostas.revisarLote = respostaDaRevisao({ origemTurma: 'INFORMADA', origemDetalhe: 'informada na tela' });
+  pergunta.digitar('rev-turma', ' ads 42 ');
+  pergunta.botaoQueChama(/consultarRevisao/).click();
+  const pedidos = requisicoesDe(pergunta, 'revisarLote');
+  igual(pedidos.length, 2);
+  igual(JSON.parse(pedidos[1].corpo).dados, { loteId: 'L1', turma: 'ads 42' });
+  verdadeiro(/Comparando pela turma informada/.test(pergunta.html('modal-corpo')));
+  verdadeiro(pergunta.elemento('modal-salvar'), 'com a lista, o Aplicar volta');
+});
+
+teste('a resposta que chega com a janela já fechada avisa no painel e NÃO reabre a janela', () => {
+  // A janela fecha ENQUANTO o Aplicar viaja (o "×", o fundo, o Esc): a resposta
+  // encenada fecha a janela antes de voltar. Mutação que derruba: desenhar o
+  // relato em `#modal-corpo` sem conferir a identidade de REVISAO — a próxima
+  // janela aberta herdaria o relato de outra coisa.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena);
+  cena.respostas.aplicarRevisao = () => {
+    cena.js.fecharModal();
+    return { ok: true, cancelados: 1, excluidos: 0, anuladas: 0, fichasApagadas: 0, jaCancelados: 0, pulados: [], mensagem: '' };
+  };
+  marcar(cena, '9110001', 'CANCELAR');
+  cena.elemento('modal-salvar').click();
+
+  igual(cena.js.REVISAO, null, 'fecharModal tem de zerar REVISAO, como zera INCLUSAO');
+  verdadeiro(!janelaAberta(cena), 'a resposta tardia reabriu a janela');
+  const painel = cena.texto('mensagem-global');
+  verdadeiro(painel.indexOf('Feito: 1 cancelado(s)') !== -1, 'o que FOI gravado tem de ser dito em algum lugar: ' + painel);
+  verdadeiro(painel.indexOf('próximo Atualizar') !== -1, painel);
+});
 // ==================================================== O cancelado, clicado
 
 grupo('o cancelado da lista oficial — aba Alunos, ficha, Painel, Disciplinas e Incluir aluno');

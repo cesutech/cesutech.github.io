@@ -43,7 +43,7 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 // a que nunca esteve quebrada.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs',
   '03_Config.gs', '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs',
-  '05b_FormatoAcademico.gs', '07_Auth.gs', '12_Disciplinas.gs'];
+  '05b_FormatoAcademico.gs', '05c_Revisao.gs', '07_Auth.gs', '12_Disciplinas.gs'];
 
 const TOKEN = 'token-de-sessao';
 

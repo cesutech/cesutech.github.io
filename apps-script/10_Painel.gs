@@ -2668,7 +2668,13 @@ function listarLotes(payload) {
           turma: l.turma_cabecalho || '',
           turma_origem: l.turma_origem || '',
           semestre: l.semestre_cabecalho || '',
-          linhas_da_turma: l.linhas_da_turma || ''
+          linhas_da_turma: l.linhas_da_turma || '',
+          // A última revisão de divergências deste lote (05c_Revisao.gs): a
+          // coluna "Revisão" e o rótulo "Revisar de novo" saem daqui. O resumo
+          // vai como o JSON gravado — a tela é quem o lê, tolerando vazio.
+          revisado_em: l.revisado_em || '',
+          revisado_por: l.revisado_por || '',
+          revisao_resumo: l.revisao_resumo || ''
         };
       })
     };

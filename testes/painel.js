@@ -61,8 +61,11 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 // da aba Auditório (`inscricoesRecentes`, `filaDeEspera`) estão em SO_LEITURA, e
 // o teste dessa lista confere se toda função dela existe no servidor. Sem o
 // arquivo, ele acusaria função inexistente onde só falta carregar.
+// 05c_Revisao.gs (21/09) entrou pelo mesmo teste: `revisarLote` é leitura pura
+// e está em SO_LEITURA. Quem a exercita é testes/revisao.js; aqui ela só
+// precisa existir.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '06_Reconciliacao.gs', '07_Auth.gs',
+  '04_Inscricoes.gs', '04_Log.gs', '05c_Revisao.gs', '06_Reconciliacao.gs', '07_Auth.gs',
   '07b_LinkPorEmail.gs',
   '09_Projetos.gs', '10_Painel.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 
@@ -1999,11 +2002,16 @@ teste('SO_LEITURA só tem leitura, e toda função dela existe no servidor', () 
   // cada Tab faria o painel esquecer as abas carregadas. A irmã dela,
   // `incluirInscricao`, GRAVA e fica de fora (ver o teste das funções que
   // escrevem, abaixo).
+  // `revisarLote` (05c_Revisao.gs) entrou em 21/09 com a revisão de
+  // divergências: leitura pura por contrato E por desenho — a turma que ela
+  // deduz de um lote antigo NÃO é gravada (testes/revisao.js conta as
+  // requisições). A irmã dela, `aplicarRevisao`, cancela e exclui, e fica de
+  // fora (ver abaixo).
   igual(nomes.sort(), ['buscarMatriculado', 'detalheAluno', 'filaDeEspera', 'inscricoesRecentes',
     'inscritosDaDisciplina', 'inscritosDoProjeto', 'lerConfiguracoes',
     'listarAdmins', 'listarAlunos', 'listarDisciplinas', 'listarLog', 'listarLotes',
     'matriculadosDaDisciplina', 'modoDeAcesso', 'painelEstatisticas', 'painelProjetos',
-    'sessaoAtiva'],
+    'revisarLote', 'sessaoAtiva'],
   'entrou (ou saiu) função da lista de leituras — confira se ela realmente não grava');
 
   // `listarBanners` PARECE leitura e não é: ela passa por `drivePasta_`, que cria
@@ -3430,7 +3438,10 @@ teste('as funções que escrevem NÃO são leitura: elas fazem o painel esquecer
   // seria REPETIDA depois de um soluço de rede — e a repetição gravaria a mesma
   // pessoa de novo (o 409 segura, mas a resposta que a coordenação lê seria a
   // recusa, e não o protocolo) — e a aba Projetos ficaria com a ocupação de antes.
-  ['atualizarAlunos', 'editarAluno', 'incluirInscricao'].forEach((funcao) => {
+  // `aplicarRevisao` (05c_Revisao.gs, 21/09) anula inscrições, cancela e exclui
+  // da lista oficial: repetida depois de uma resposta perdida, refaria o
+  // estrago sobre quem já foi tocado.
+  ['atualizarAlunos', 'editarAluno', 'incluirInscricao', 'aplicarRevisao'].forEach((funcao) => {
     igual(bloco[1].indexOf(funcao), -1,
       funcao + ' escreve: declarada como leitura, a lista ficaria mostrando o valor de antes');
   });

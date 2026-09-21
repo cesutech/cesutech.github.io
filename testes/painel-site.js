@@ -748,7 +748,7 @@ teste('o tempo-limite é de 10s e anda colado em quem pode ser repetido', () => 
     'tudo, a próxima gravação abortada é uma gravação com desfecho desconhecido');
 });
 
-teste('a leitura do Auditório tem tempo próprio — e é a ÚNICA que tem', () => {
+teste('a leitura do Auditório tem tempo próprio — e só a revisão de importação tem outro', () => {
   // POR QUE UMA EXCEÇÃO EXISTE. O 10s foi calibrado em 12 e 13/08 sobre respostas
   // de 200 linhas. Em 27/08 `inscricoesRecentes` passou a pedir mil
   // (`AUDITORIO_TETO`), e o JSON de `resumoParaAuditorio_` foi somado campo a
@@ -767,13 +767,21 @@ teste('a leitura do Auditório tem tempo próprio — e é a ÚNICA que tem', ()
   verdadeiro(/inscricoesRecentes:\s*15000/.test(tabela[1]),
     'a leitura de mil linhas voltou a ter o tempo de uma de 200: ' + tabela[1]);
 
-  // SÓ ELA. O limite global vale para dezenove chamadas, e nenhuma outra mudou de
-  // tamanho — `filaDeEspera` inclusive, cujo teto é 500 desde antes e cujas
-  // linhas são mais estreitas. Uma tabela que crescesse sem medida seria o limite
-  // global afrouxado por dentro, sem ninguém ter medido nada.
+  // SÓ ELAS DUAS. O limite global vale para dezenove chamadas, e nenhuma outra
+  // mudou de tamanho — `filaDeEspera` inclusive, cujo teto é 500 desde antes e
+  // cujas linhas são mais estreitas. Uma tabela que crescesse sem medida seria o
+  // limite global afrouxado por dentro, sem ninguém ter medido nada.
+  //
+  // `revisarLote` (05c_Revisao.gs, 21/09) entrou por CONTA, e a conta está no
+  // comentário da tabela: ela lê a turma, os lotes e a varredura de inscrições
+  // — a mesma conta de `matriculadosDaDisciplina` mais os lotes, em 4-5 idas —
+  // e abortada aos 10s a repetição paga as ~2.500 leituras de novo. O número
+  // real da primeira janela aberta em produção é o item 9 do checklist.
   const nomes = (tabela[1].match(/[A-Za-z_$][\w$]*(?=\s*:)/g) || []);
-  igual(nomes, ['inscricoesRecentes'],
+  igual(nomes, ['inscricoesRecentes', 'revisarLote'],
     'entrou função na tabela do tempo-limite sem medida que justifique: ' + nomes.join(', '));
+  verdadeiro(/revisarLote:\s*15000/.test(tabela[1]),
+    'a revisão perdeu o tempo dela e voltou aos 10s de uma leitura de uma coleção: ' + tabela[1]);
 
   // E o relógio LÊ a tabela — sem isto ela seria decoração, e a página passaria
   // neste teste com o limite de 10s valendo para tudo.
@@ -2318,16 +2326,22 @@ teste('a largura das listas é um MODIFICADOR — o formulário continua nos 780
     'a tabela perdeu a rolagem horizontal — em tela estreita a última coluna fica inalcançável');
 });
 
-teste('só as DUAS janelas de lista alargam, e o fechamento é quem estreita', () => {
+teste('só as TRÊS janelas de lista alargam, e o fechamento é quem estreita', () => {
   // A varredura sai do próprio arquivo: quem chama `janelaLarga(true)` são as
-  // duas janelas de "Inscritos", e `janelaLarga(false)` mora no `fecharModal`,
-  // por onde TODA saída da janela passa — mais UM lugar, desde 21/09: o
-  // formulário "Incluir aluno" é desenhado DENTRO da janela de inscritos, sem
-  // fechá-la, e um formulário com 1180px de largura é o defeito que o teste da
-  // largura já descreve (campo largo separa o rótulo do que se digita). O Voltar
-  // dele reabre a lista por `verInscritosProjeto`, que alarga de novo.
-  igual((PAGINA.match(/janelaLarga\(true\)/g) || []).length, 2,
-    'uma terceira janela passou a alargar, ou uma das duas deixou de alargar');
+  // duas janelas de "Inscritos" e, desde 21/09, a janela de revisão de uma
+  // importação (`abrirRevisaoDeLote`) — três listas com meia dúzia de colunas
+  // cada, e a terceira ainda com um select por linha. `janelaLarga(false)` mora
+  // no `fecharModal`, por onde TODA saída da janela passa — mais UM lugar,
+  // desde 21/09: o formulário "Incluir aluno" é desenhado DENTRO da janela de
+  // inscritos, sem fechá-la, e um formulário com 1180px de largura é o defeito
+  // que o teste da largura já descreve (campo largo separa o rótulo do que se
+  // digita). O Voltar dele reabre a lista por `verInscritosProjeto`, que alarga
+  // de novo.
+  igual((PAGINA.match(/janelaLarga\(true\)/g) || []).length, 3,
+    'uma quarta janela passou a alargar, ou uma das três deixou de alargar');
+  const revisao = /function abrirRevisaoDeLote\(loteId, turma\)[\s\S]*?\n  \}/.exec(PAGINA);
+  verdadeiro(revisao !== null && /janelaLarga\(true\)/.test(revisao[0]),
+    'a janela de revisão deixou de alargar — seis colunas e um select em 780px');
   igual((PAGINA.match(/janelaLarga\(false\)/g) || []).length, 2,
     'a limpeza da largura mora em dois lugares: o fecharModal e o formulário de inclusão');
 

@@ -70,7 +70,7 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 //     arquivo, a rota de login respondia a falha genérica, e o teste dela media o
 //     caminho de erro achando que media o de sucesso.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs',
+  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs', '05c_Revisao.gs',
   '06_Reconciliacao.gs', '07_Auth.gs', '07b_LinkPorEmail.gs', '08_Api.gs', '09_Projetos.gs',
   '10_Painel.gs', '11_Banners.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 
