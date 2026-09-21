@@ -13,7 +13,7 @@
  *
  * Ordem sugerida na primeira vez:
  *   provaConfigELog > provaUnicidade > provaOrdenacaoNaoCorrompe >
- *   provaTipoForte > provaVazao > provaLimpar
+ *   provaTipoForte > provaVazao > provaAtualizarEmLote > provaLimpar
  *
  * Se a primeira falhar com erro de Firestore, rode `provaConectar()`: ela é a
  * mais barata de todas e diz qual dos pré-requisitos está faltando.
@@ -33,6 +33,7 @@ var COL_DEDUP = PREFIXO_PROVA + 'dedup';
 var COL_ORDENACAO = PREFIXO_PROVA + 'ordenacao';
 var COL_TIPOS = PREFIXO_PROVA + 'tipos';
 var COL_VAZAO = PREFIXO_PROVA + 'vazao';
+var COL_PATCH = PREFIXO_PROVA + 'patch';
 
 /** Chave de configuração reservada às provas. Nenhuma regra de negócio a lê. */
 var CHAVE_PROVA = 'prova_carimbo';
@@ -413,6 +414,62 @@ function provaVazao(n) {
     'execuções simultâneas do Apps Script continuaria valendo.');
 
   return { total: total, ms: ms, porSegundo: porSegundo };
+}
+
+/**
+ * Prova 6: `atualizarEmLote` (02_Repo.gs) contra o Firestore de verdade.
+ *
+ * É o ÚNICO ponto em que o falso dos testes (testes/apoio.js) pode divergir do
+ * banco, e é o que a revisão de divergências usa para cancelar alunos: um
+ * `:commit` com `update + updateMask + currentDocument:{exists:true}`. Duas
+ * afirmações, e as duas precisam ser verdade antes do primeiro Aplicar em
+ * produção (ver o checklist do plano de 21/09):
+ *
+ *   1. o patch num documento existente muda SÓ os campos da máscara — nome,
+ *      CPF e a linha original sobrevivem;
+ *   2. o patch num id inexistente devolve 404 NOT_FOUND e NADA do lote é
+ *      aplicado — nem o documento bom que veio antes dele.
+ *
+ * Custa 2 escritas, 3 leituras e um commit recusado. `provaLimpar()` apaga.
+ */
+function provaAtualizarEmLote() {
+  Logger.log('=== provaAtualizarEmLote ===');
+  var carimbo = String(new Date().getTime());
+  var id = 'patch_' + carimbo;
+
+  escreverEmLote(COL_PATCH, [{
+    _id: id, matricula: 'PROVA' + carimbo, nome: 'Aluno Sintetico', cpf: '00000000000',
+    raw_json: '["Aluno Sintetico","PROVA' + carimbo + '"]', lote_id: 'L_prova'
+  }]);
+
+  var patches = atualizarEmLote(COL_PATCH, [{
+    _id: id, situacao_cadastro: 'CANCELADO', cancelado_em: agora(),
+    cancelado_por: 'prova@exemplo.com', cancelado_lote_id: 'L_prova_2'
+  }]);
+  var depois = ler(COL_PATCH, id);
+  var preservou = depois && depois.nome === 'Aluno Sintetico' && depois.cpf === '00000000000' &&
+    depois.lote_id === 'L_prova' && depois.situacao_cadastro === 'CANCELADO';
+  Logger.log('1. patch em documento existente: ' + patches + ' patch(es); ' +
+    (preservou ? 'OK — só os 4 campos mudaram' : 'FALHOU — ' + JSON.stringify(depois)));
+
+  var recusou = '';
+  try {
+    atualizarEmLote(COL_PATCH, [
+      { _id: id, situacao_cadastro: 'REPROVADO' },
+      { _id: id + '_fantasma', situacao_cadastro: 'CANCELADO' }
+    ]);
+  } catch (e) {
+    recusou = e.status || e.message;
+  }
+  var intacto = ler(COL_PATCH, id);
+  var fantasma = ler(COL_PATCH, id + '_fantasma');
+  var atomico = recusou === 'NOT_FOUND' && intacto && intacto.situacao_cadastro === 'CANCELADO' && fantasma === null;
+  Logger.log('2. id inexistente no lote: ' + (recusou ? 'recusou com ' + recusou : 'NÃO recusou') +
+    '; o bom ficou ' + (intacto && intacto.situacao_cadastro) + '; fantasma: ' + (fantasma ? 'CRIADO' : 'não criado') +
+    ' -> ' + (atomico ? 'OK — nada do lote entrou' : 'FALHOU'));
+
+  Logger.log((preservou && atomico) ? 'atualizarEmLote está de pé.' : 'atualizarEmLote DIVERGE do falso: NÃO usar a revisão em produção.');
+  return { preservou: preservou, atomico: atomico };
 }
 
 /**

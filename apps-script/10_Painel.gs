@@ -23,8 +23,10 @@
  *
  * As outras, por chamada:
  *
- *   painelEstatisticas ....... 10 agregações + 1 leitura de ponto (os cursos),
- *                              ou ZERO com o cache quente (ver PAINEL_CACHE_S)
+ *   painelEstatisticas ....... 13 agregações + 1 leitura de ponto (os cursos),
+ *                              ou ZERO com o cache quente (ver PAINEL_CACHE_S);
+ *                              as três últimas (21/09) são os cancelados, numa
+ *                              ida só
  *   painelProjetos ........... 1 leitura da configuração + 1 consulta (~6
  *                              projetos) + 1 agregação por projeto
  *   inscritosDoProjeto ....... 1 leitura de ponto + 1 consulta de até
@@ -42,7 +44,13 @@
  *                              1 leitura de ponto (os cursos) SÓ quando a tela
  *                              ainda não tem a lista — e a página N custa
  *                              N × `tamanho`, porque a caminhada relê as
- *                              anteriores (ver PAINEL_MAX_PAGINA)
+ *                              anteriores (ver PAINEL_MAX_PAGINA). Sem filtro
+ *                              ("Todos") é 1 agregação a mais, na mesma ida: os
+ *                              cancelados que a lista esconde (21/09), e a
+ *                              caminhada lê até `tamanho` aceitos por página
+ *   listarAlunos (curso) ..... varredura do balde do curso (~200), e não uma
+ *                              página: é o preço de o `total` ser exato sem os
+ *                              cancelados (21/09)
  *   listarAlunos (exata) ..... 1 consulta por igualdade (+ os cursos, se pedidos)
  *   listarAlunos (varredura) . até PAINEL_TETO_VARREDURA leituras
  *   atualizarAlunos .......... 2 agregações + o custo de `listarAlunos` quando o
@@ -62,7 +70,7 @@
  *   salvarConfiguracao ....... 0 leituras (1 escrita, mais o log)
  *   resolverAluno ............ 1 leitura + 1 escrita (mais o log)
  *
- * Abrir o painel — as três abas de leitura — são 17 requisições na primeira vez,
+ * Abrir o painel — as três abas de leitura — são 21 requisições na primeira vez,
  * e há teste que conta cada uma.
  *
  * Agregação (`contar`) é cobrada por bloco de mil entradas de índice casadas, e
@@ -453,8 +461,8 @@ function cacheDoPainel_() {
  * ler os 2.500 documentos, que é exatamente o que este arquivo existe para não
  * fazer.
  *
- * As dez agregações são baratas em cota e CARAS EM ESPERA — elas saem em fila, e
- * são elas as ~3,3 s de rede da tela de abertura. Daí o cache: `payload.atualizar`
+ * As agregações são baratas em cota e CARAS EM ESPERA — elas saem em fila, e
+ * são elas os ~3,3 s de rede da tela de abertura. Daí o cache: `payload.atualizar`
  * fura e reescreve, tudo o mais responde do CacheService. A conferência do token
  * vem ANTES de qualquer contato com o cache, e não é detalhe: os dez números
  * descrevem o cadastro inteiro, e responder do cache sem token seria entregá-los
@@ -473,6 +481,19 @@ function painelEstatisticas(payload) {
         .forEach(function (s) {
           porStatus[s] = contar(ALUNOS_COLECAO, { campo: 'status', valor: s });
         });
+
+      // Os cancelados (21/09), em três perguntas numa ida só: o status
+      // CANCELADO (marca E sem inscrição — os que a lista padrão esconde), a
+      // MARCA em `alunos` (os dois casos, o que o filtro "Cancelados" mostra) e
+      // a marca na lista oficial (para o cartão dizer "2.480 linhas, 12
+      // canceladas" — a reconciliação pode ainda não ter rodado depois da
+      // revisão, e aí os dois números divergem de propósito).
+      var cancelados = contarVarios([
+        { colecao: ALUNOS_COLECAO, campo: 'status', valor: STATUS.CANCELADO },
+        { colecao: ALUNOS_COLECAO, campo: 'situacao_cadastro', valor: 'CANCELADO' },
+        { colecao: MATRICULADOS_COLECAO, campo: 'situacao_cadastro', valor: 'CANCELADO' }
+      ]);
+      porStatus[STATUS.CANCELADO] = cancelados[0];
 
       // MATRÍCULA, e não CPF: a cascata de `casar_` (06_Reconciliacao.gs) começa
       // na matrícula — "a chave institucional do CESUTECH, a mais forte de
@@ -505,8 +526,10 @@ function painelEstatisticas(payload) {
           // um cartão que mostra 12 de 37 cursos sem dizer isso passa a mentir
           // sobre o total exatamente quando o cadastro fica grande.
           porCursoResto: cursos.resto,
+          cancelados: cancelados[1],
           inscricoes: contar(INSCRICOES_COLECAO),
           matriculados: contar(MATRICULADOS_COLECAO),
+          matriculadosCancelados: cancelados[2],
           lotes: contar(LOTES_COLECAO),
           qualidade: {
             comEmail: comEmail,
@@ -735,6 +758,11 @@ function buscarMatriculado(payload) {
     return {
       ok: true,
       encontrado: oficial !== null,
+      // A marca da revisão (21/09) vai junto, como AVISO: a ficha continua
+      // vindo inteira e a inclusão continua possível. Quem recusa é a porta
+      // pública (`matriculaConhecida`); a coordenação decide sabendo.
+      cancelado: oficial !== null && cadastroCancelado_(oficial),
+      cancelado_em: oficial ? String(oficial.cancelado_em || '') : '',
       nome: oficial ? String(oficial.nome || '') : '',
       email: oficial ? String(oficial.email || '') : '',
       telefone: oficial ? formatarTelefone(oficial.telefone) : '',
@@ -811,10 +839,11 @@ function buscarMatriculado(payload) {
  * `?api=matricula` e de `editarAluno` — uma quarta régua aqui seria a que
  * envelhece sozinha. A dedup é a do banco: o id do documento é `chaveDedup_`, e o
  * 409 recusa a mesma pessoa no mesmo projeto sem leitura prévia e sem escrita a
- * mais — nem no log. E `matricula_conferida` é decidido por `matriculaConhecida`,
- * como no formulário: quem não está na lista oficial ENTRA (a coordenação
- * decide), mas entra marcado — o "?" da lista de inscritos continua dizendo a
- * verdade, e a resposta avisa.
+ * mais — nem no log. E `matricula_conferida` é decidido pela MESMA regra de
+ * `matriculaConhecida`, como no formulário: quem não está na lista oficial — ou
+ * está CANCELADO nela — ENTRA (a coordenação decide), mas entra marcado — o "?"
+ * da lista de inscritos continua dizendo a verdade, e a resposta avisa qual dos
+ * dois é o caso.
  *
  * O 409 tem DOIS significados, e só um deles é recusa: a chave de dedup é a
  * mesma para quem está na FILA DE ESPERA do projeto (`vagas_excedentes_em_espera`
@@ -910,7 +939,16 @@ function incluirInscricao(payload) {
     // Uma leitura da lista oficial e uma consulta às inscrições da pessoa — as
     // mesmas duas perguntas que `submeterInscricao` faz, na mesma ordem. As duas
     // respostas viram AVISO aqui, e não recusa: quem decide é a coordenação.
-    var conhecida = matriculaConhecida(payload.matricula);
+    //
+    // A leitura é feita aqui, e não por `matriculaConhecida`, porque esta porta
+    // precisa distinguir o que a pública esconde de propósito: a matrícula
+    // CANCELADA pela revisão de uma importação (21/09). Para o formulário ela é
+    // "não encontrada"; para a coordenação ela é "existe, e foi cancelada em
+    // dd/mm" — e a inscrição entra do mesmo jeito, marcada como não conferida,
+    // porque a lista oficial de hoje não a tem.
+    var oficial = ler(MATRICULADOS_COLECAO, normalizarMatricula(payload.matricula));
+    var cancelada = oficial !== null && cadastroCancelado_(oficial);
+    var conhecida = oficial !== null && !cancelada;
     var jaEstaEm = outrosProjetosDe_({ matricula: payload.matricula, projeto_id: projetoId });
 
     // Só o que o formulário também manda: os aceites e quem incluiu NÃO entram
@@ -982,7 +1020,12 @@ function incluirInscricao(payload) {
     var conferida = promovida ? String(promovida.matricula_conferida || 'NAO') : (conhecida ? 'SIM' : 'NAO');
 
     var avisos = [];
-    if (!conhecida && !promovida) {
+    if (cancelada && !promovida) {
+      avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
+        ' está CANCELADA na lista oficial' +
+        (formatarData(oficial.cancelado_em) ? ' (em ' + formatarData(oficial.cancelado_em) + ')' : '') +
+        ': a inscrição entrou marcada como não conferida.');
+    } else if (!conhecida && !promovida) {
       avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
         ' não está na lista oficial importada: a inscrição entrou marcada como não conferida.');
     }
@@ -1063,13 +1106,20 @@ function conferirFormatoDaInclusao_(payload) {
  * filtra em memória, mostra 50. Aqui há TRÊS caminhos, e a escolha entre eles é o
  * assunto da função:
  *
- *   consulta   sem busca e com no máximo um filtro. `fieldFilter` no banco +
- *              paginação por cursor. Custo: `tamanho` leituras por página.
+ *   consulta   sem busca e sem curso: "Todos", um status, ou "Cancelados".
+ *              `fieldFilter` no banco + paginação por cursor. Custo: `tamanho`
+ *              leituras por página (e, em "Todos", os cancelados escondidos —
+ *              ver `alunosPorConsulta_`).
  *   exata      a busca "parece" matrícula, CPF ou e-mail. Vira igualdade no
  *              banco: uma leitura, não 2.500. É o caso comum — quem procura um
  *              aluno cola o número dele.
- *   varredura  busca por NOME, ou os dois filtros juntos. Lê e filtra em
- *              JavaScript, com teto. É o caminho herdado, e o único caro.
+ *   varredura  busca por NOME, ou filtro de curso. Lê e filtra em JavaScript,
+ *              com teto. É o caminho herdado, e o único caro.
+ *
+ * O CANCELADO (21/09) entra nos três com uma regra só, escrita na peneira de
+ * `pedidoDeAlunos_`: "Todos" esconde quem tem status CANCELADO (marca da lista
+ * oficial E sem inscrição), o filtro "Cancelados" mostra quem tem a MARCA (com
+ * ou sem inscrição), e busca preenchida nunca esconde ninguém.
  *
  * Por que a busca exata cai para a varredura quando não acha nada: matrícula
  * digitada pela metade não casa por igualdade, e o professor não tem como saber
@@ -1098,7 +1148,11 @@ function listarAlunos(payload) {
       total: achado.total,
       pagina: pagina,
       tamanho: tamanho,
-      paginas: Math.max(1, Math.ceil(achado.total / tamanho))
+      paginas: Math.max(1, Math.ceil(achado.total / tamanho)),
+      // Quantos a lista padrão está escondendo (21/09) — os cancelados na lista
+      // oficial sem inscrição. A legenda da tela diz o número e aponta o filtro:
+      // esconder sem dizer é o que este sistema não faz.
+      cancelados_ocultos: achado.ocultos || 0
     };
 
     // A lista de cursos vai junto SÓ quando o cliente diz que ainda não a tem.
@@ -1134,8 +1188,17 @@ function pedidoDeAlunos_(payload) {
   var curso = String(payload.curso || '').trim();
   var busca = String(payload.busca || '').trim();
 
+  // O filtro "Cancelados" (21/09) não é um status como os outros: ele pergunta
+  // pela MARCA da lista oficial (`situacao_cadastro`), que pega os dois casos —
+  // o cancelado sem inscrição (status CANCELADO, escondido de "Todos") e o
+  // cancelado que ocupa vaga (status da cascata, visível em "Todos" com selo).
+  // Filtrar por `status == CANCELADO` mostraria só o primeiro, e a coordenação
+  // não teria onde ver a lista inteira de quem a revisão marcou.
+  var cancelados = status === STATUS.CANCELADO;
+
   var filtro = null;
   if (curso) filtro = { campo: 'curso', valor: curso };
+  else if (cancelados) filtro = { campo: 'situacao_cadastro', valor: 'CANCELADO' };
   else if (status) filtro = { campo: 'status', valor: status };
 
   var alvo = normalizarTexto(busca);
@@ -1155,19 +1218,31 @@ function pedidoDeAlunos_(payload) {
   // Na varredura a conferência agora é redundante — o banco já filtrou pelo mesmo
   // campo — e redundante é barato: são comparações de string sobre documentos que
   // já estão na memória. O caminho que ficou correto é o que custava 2 leituras.
+  //
+  // E é ela que ESCONDE o cancelado (21/09): sem status e sem busca — a lista
+  // padrão, "Todos" — quem tem `status == CANCELADO` fica de fora. Com busca
+  // preenchida NUNCA esconde: quem digitou a matrícula de alguém quer achá-lo,
+  // e uma busca que responde "ninguém" sobre uma pessoa que existe é a mentira
+  // mais cara desta tela. O cancelado COM inscrição tem outro status e passa —
+  // ele ocupa vaga, e a tela o mostra com selo.
   var peneira = function (a) {
     if (curso && String(a.curso) !== curso) return false;
+    if (cancelados) return String(a.situacao_cadastro) === 'CANCELADO';
     if (status && String(a.status) !== status) return false;
+    if (!status && !busca && String(a.status) === STATUS.CANCELADO) return false;
     return true;
   };
 
   return {
     filtro: filtro,
     busca: busca,
-    // Varre quando há busca por texto, ou quando os DOIS filtros estão
-    // preenchidos — só um deles cabe no `fieldFilter`, e o outro precisa de
-    // alguém para conferir documento a documento.
-    varrer: Boolean(busca) || Boolean(curso && status),
+    // Varre quando há busca por texto, ou quando o CURSO está preenchido — só
+    // um filtro cabe no `fieldFilter`, e o resto precisa de alguém para conferir
+    // documento a documento. Curso sozinho ia por consulta até 21/09; passou a
+    // varrer o balde do curso (~200 documentos) para o `total` sair exato sem os
+    // cancelados escondidos — uma agregação não sabe subtrair "cancelado DESTE
+    // curso".
+    varrer: Boolean(busca) || Boolean(curso),
     peneira: peneira,
     aceita: function (a) {
       if (!peneira(a)) return false;
@@ -1179,28 +1254,56 @@ function pedidoDeAlunos_(payload) {
   };
 }
 
-/** Caminho de consulta: `fieldFilter` no banco, paginação por cursor. */
+/**
+ * Caminho de consulta: `fieldFilter` no banco, paginação por cursor.
+ *
+ * Sem filtro (a lista "Todos") a peneira esconde os cancelados (21/09), e isso
+ * muda duas contas:
+ *
+ *   - o `total` é a agregação MENOS os cancelados — uma segunda agregação, na
+ *     mesma ida (`contarVarios`). Sem ela o rodapé diria "2.500 registros" e a
+ *     última página viria vazia;
+ *   - a página é preenchida com `tamanho` ACEITOS, e não com `tamanho` lidos: a
+ *     caminhada continua pelo cursor até juntar o que a página precisa. O teto
+ *     de leitura é exato, e não um chute — quem sabe quantos vão ser escondidos
+ *     é a própria agregação, então a caminhada nunca lê mais do que `pagina ×
+ *     tamanho + ocultos` documentos.
+ *
+ * Com filtro a peneira só reconfere o campo que o banco já filtrou, e a conta
+ * é a de sempre: `pagina × tamanho` leituras (ver PAINEL_MAX_PAGINA).
+ */
 function alunosPorConsulta_(pedido, pagina, tamanho) {
   if (pagina > PAINEL_MAX_PAGINA) return { erro: recusaDePagina_() };
 
-  var total = pedido.filtro ? contar(ALUNOS_COLECAO, pedido.filtro) : contar(ALUNOS_COLECAO);
+  var totais = pedido.filtro
+    ? [contar(ALUNOS_COLECAO, pedido.filtro), 0]
+    : contarVarios([
+        { colecao: ALUNOS_COLECAO },
+        { colecao: ALUNOS_COLECAO, campo: 'status', valor: STATUS.CANCELADO }
+      ]);
+  var ocultos = totais[1];
+  var total = totais[0] - ocultos;
 
-  var itens = [];
+  var aceitos = [];
+  var lidos = 0;
   var cursor = null;
+  var alvo = pagina * tamanho;
 
   // A caminhada é o preço de o `Admin.html` paginar por número — ver
-  // PAINEL_MAX_PAGINA. Página 1 não caminha: o laço roda uma vez.
-  for (var n = 1; n <= pagina; n++) {
+  // PAINEL_MAX_PAGINA. Página 1 sem cancelados não caminha: o laço roda uma vez.
+  do {
     var resposta = listar(ALUNOS_COLECAO, opcoesDeBusca_(pedido.filtro, tamanho, cursor));
-    itens = resposta.itens;
+    lidos += resposta.itens.length;
+    resposta.itens.forEach(function (a) {
+      if (pedido.peneira(a)) aceitos.push(a);
+    });
     cursor = resposta.cursor;
+  } while (cursor && aceitos.length < alvo && lidos < alvo + ocultos);
 
-    // Página pedida além do fim da lista: devolve vazia em vez de repetir a
-    // última. Acontece quando alguém remove registros com o painel aberto.
-    if (!cursor && n < pagina) return { itens: [], total: total };
-  }
-
-  return { itens: itens, total: total };
+  // Página pedida além do fim da lista sai vazia, em vez de repetir a última —
+  // acontece quando alguém remove registros com o painel aberto. O `slice`
+  // resolve isso sozinho.
+  return { itens: aceitos.slice(alvo - tamanho, alvo), total: total, ocultos: ocultos };
 }
 
 /**
@@ -1234,7 +1337,8 @@ function colherAlunos_(pedido, teto) {
   if (exata) {
     // Bloco em vez do tamanho da página: matrícula, CPF e e-mail são únicos por
     // aluno, então isto traz o conjunto inteiro e a paginação acontece em
-    // memória, igual à da varredura.
+    // memória, igual à da varredura. A peneira aqui NÃO esconde cancelado —
+    // há busca, e busca acha qualquer um (ver `pedidoDeAlunos_`).
     var direto = listar(ALUNOS_COLECAO, opcoesDeBusca_(exata, PAINEL_BLOCO, null)).itens
       .filter(pedido.peneira);
     if (direto.length) return { itens: direto, truncado: false };
@@ -1442,6 +1546,40 @@ function marcaDaReconciliacao_() {
 }
 
 /**
+ * Faz o próximo Atualizar cruzar de novo, sem mexer no orçamento do dia.
+ *
+ * O freio 1 de `reconciliarSeValerAPena_` compara CONTAGENS: se `inscricoes` e
+ * `matriculados` têm o mesmo tamanho da última rodada, não cruza. Duas coisas
+ * mudam o cadastro SEM mudar contagem, e as duas nasceram em 21/09 com a
+ * revisão de divergências: cancelar alunos (patch em documentos que já
+ * existiam) e reimportar quem estava cancelado (o documento é substituído, e
+ * a contagem fica igual). Sem esta função, o professor cancelaria dez alunos,
+ * clicaria em Atualizar e leria "nada entrou desde a última vez".
+ *
+ * REESCREVE a marca com os contadores em -1 — que nenhuma contagem real iguala
+ * — e preserva `dia`, `gasto` e `custo`. NUNCA `deleteProperty`: apagar a marca
+ * zeraria o gasto do dia, e o freio 2 (as 15.000 leituras) deixaria passar mais
+ * rodadas do que o orçamento permite exatamente no dia em que a revisão já
+ * consumiu leituras. `em` fica como está — é informação ("cruzou às tantas"),
+ * não decisão.
+ *
+ * Chamada por `confirmarImportacao` (05_Importacao.gs) e por `aplicarRevisao`
+ * (05c_Revisao.gs). Não lança: perder a marca é uma rodada a mais, e estourar
+ * aqui seria uma importação que gravou tudo e responde "falhou".
+ */
+function esquecerMarcaDaReconciliacao_() {
+  var marca = marcaDaReconciliacao_();
+  try {
+    PropertiesService.getScriptProperties().setProperty(PAINEL_MARCA_RECONCILIACAO, JSON.stringify({
+      inscricoes: -1, matriculados: -1,
+      em: marca.em, dia: marca.dia, gasto: marca.gasto, custo: marca.custo
+    }));
+  } catch (e) {
+    console.error('esquecerMarcaDaReconciliacao_: ' + e.message);
+  }
+}
+
+/**
  * Guarda o tamanho das três coleções DEPOIS da rodada, e cobra o custo do dia.
  *
  * Depois, e não antes, por duas razões: uma inscrição pode ter entrado durante os
@@ -1513,7 +1651,11 @@ function formatarAlunoParaTela_(a) {
     score_match: a.score_match,
     observacoes: a.observacoes,
     revisado_por: a.revisado_por,
-    revisado_em: a.revisado_em
+    revisado_em: a.revisado_em,
+    // A marca da lista oficial (21/09): é por ela que a linha ganha o selo
+    // "cancelado na lista" mesmo quando o status é outro (a pessoa ocupa vaga).
+    situacao_cadastro: a.situacao_cadastro || '',
+    cancelado_em: a.cancelado_em || ''
   };
 }
 
@@ -1581,7 +1723,14 @@ function detalheAluno(payload) {
         data_nascimento: formatarData(matriculado.data_nascimento),
         curso: matriculado.curso,
         turma: matriculado.turma,
-        situacao: matriculado.situacao
+        situacao: matriculado.situacao,
+        // A marca da revisão (21/09), lida do documento VIVO da lista oficial e
+        // não do status derivado: entre o Aplicar da revisão e o próximo
+        // Atualizar, é aqui que a ficha já diz a verdade. Vazias quando não há.
+        situacao_cadastro: cadastroCancelado_(matriculado) ? 'CANCELADO' : '',
+        cancelado_em: String(matriculado.cancelado_em || ''),
+        cancelado_por: String(matriculado.cancelado_por || ''),
+        cancelado_lote_id: String(matriculado.cancelado_lote_id || '')
       } : null
     };
 
@@ -1644,6 +1793,18 @@ function resolverAluno(payload) {
 
     var alvo = ler(ALUNOS_COLECAO, id);
     if (!alvo) return { ok: false, erro: 'Aluno não encontrado. Recarregue a lista.' };
+
+    // CANCELADO não se resolve à mão (21/09): o status nasceu da lista oficial,
+    // e a rodada seguinte o recalcularia por cima de qualquer decisão daqui
+    // (`preservarRevisao_`, 06_Reconciliacao.gs). Gravar e ver sumir na
+    // madrugada é a mentira silenciosa que este arquivo não aceita.
+    if (alvo.status === STATUS.CANCELADO) {
+      return {
+        ok: false,
+        erro: 'Este aluno foi cancelado na lista oficial pela revisão de uma importação. ' +
+              'Ele volta sozinho quando a secretaria o reenviar numa lista.'
+      };
+    }
 
     var carimbo = agora();
     atualizar(ALUNOS_COLECAO, id, {
@@ -2391,13 +2552,20 @@ function exportarCsv(payload) {
     var varrido = colherAlunos_(pedido, PAINEL_TETO_EXPORTACAO);
 
     var colunas = ['nome', 'cpf', 'email', 'telefone', 'data_nascimento',
-      'matricula', 'curso', 'turma', 'situacao', 'statusLabel', 'metodo_match', 'observacoes'];
+      'matricula', 'curso', 'turma', 'situacao', 'statusLabel', 'cadastro', 'metodo_match', 'observacoes'];
     var titulos = ['Nome', 'CPF', 'E-mail', 'Telefone', 'Nascimento',
-      'Matrícula', 'Curso', 'Turma', 'Situação', 'Status', 'Método do match', 'Observações'];
+      'Matrícula', 'Curso', 'Turma', 'Situação', 'Status', 'Cadastro', 'Método do match', 'Observações'];
 
     var linhas = [titulos];
     varrido.itens.forEach(function (a) {
       var tela = formatarAlunoParaTela_(a);
+      // "Cadastro" (21/09) é a marca da lista oficial, e não o status: o
+      // cancelado que ocupa vaga sai como CONFIRMADO em "Status" e "Cancelado
+      // em dd/mm/aaaa" aqui. A coluna herda a peneira da tela — sem filtro os
+      // cancelados sem inscrição não saem; com o filtro "Cancelados", só eles.
+      tela.cadastro = tela.situacao_cadastro === 'CANCELADO'
+        ? 'Cancelado em ' + (formatarData(tela.cancelado_em) || '?')
+        : '';
       linhas.push(colunas.map(function (c) {
         return String(tela[c] === undefined || tela[c] === null ? '' : tela[c]);
       }));

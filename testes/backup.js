@@ -56,7 +56,7 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
  * Na ordem alfabética em que o editor do Apps Script carrega os arquivos.
  *
  * São muitos porque a descoberta de coleções lê as constantes `*_COLECAO` do
- * escopo global, e as dez moram espalhadas por sete arquivos. Carregar só o que
+ * escopo global, e as onze moram espalhadas por sete arquivos. Carregar só o que
  * 14_Backup.gs "usa" provaria a descoberta contra uma lista que o próprio teste
  * montou — que é exatamente o erro que a descoberta existe para não cometer.
  */
@@ -74,9 +74,13 @@ function semComentarios(texto) {
   return texto.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
 }
 
-/** As dez de hoje. A lista está aqui para ser CONFERIDA, nunca para ser usada. */
-const DEZ_COLECOES = ['agregados', 'alunos', 'config', 'disciplinas', 'inscricoes',
-  'inscricoes_anuladas', 'log', 'lotes', 'matriculados', 'projetos'];
+/**
+ * As onze de hoje. A lista está aqui para ser CONFERIDA, nunca para ser usada.
+ * `matriculados_excluidos` (21/09) entrou pela constante em 04_Inscricoes.gs,
+ * sem ninguém tocar em 14_Backup.gs — que é o que a descoberta promete.
+ */
+const ONZE_COLECOES = ['agregados', 'alunos', 'config', 'disciplinas', 'inscricoes',
+  'inscricoes_anuladas', 'log', 'lotes', 'matriculados', 'matriculados_excluidos', 'projetos'];
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
@@ -380,10 +384,10 @@ function configurar(amb, dias, ligado) {
   if (ligado !== undefined) amb.api.gravarConfig('backup_ligado', String(ligado));
 }
 
-/** Um documento em cada uma das dez coleções, com um campo reconhecível. */
+/** Um documento em cada uma das onze coleções, com um campo reconhecível. */
 function semearBanco(amb, quantos) {
   const n = quantos || 2;
-  DEZ_COLECOES.forEach((colecao) => {
+  ONZE_COLECOES.forEach((colecao) => {
     for (let i = 1; i <= n; i++) {
       amb.api.inserir(colecao, {
         criado_em: '2026080' + i + 'T100000000Z',
@@ -426,7 +430,7 @@ function arquivoDeHoje(amb) {
 
 grupo('o backup do dia — o que ele copia e o que ele promete');
 
-teste('grava as dez coleções, com o id de cada documento', () => {
+teste('grava as onze coleções, com o id de cada documento', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
 
@@ -434,10 +438,10 @@ teste('grava as dez coleções, com o id de cada documento', () => {
   igual(r.ok, true, r.erro);
 
   const arquivo = arquivoDeHoje(amb);
-  igual(arquivo.colecoes, DEZ_COLECOES, 'as coleções do arquivo');
+  igual(arquivo.colecoes, ONZE_COLECOES, 'as coleções do arquivo');
   igual(arquivo.completo, true);
 
-  DEZ_COLECOES.forEach((colecao) => {
+  ONZE_COLECOES.forEach((colecao) => {
     const docs = arquivo.documentos[colecao];
     verdadeiro(docs && docs.length >= 2, colecao + ' veio com ' + (docs && docs.length));
     docs.forEach((d) => {
@@ -467,7 +471,7 @@ teste('a contagem do cabeçalho bate com o que foi lido, coleção por coleção
 
   const arquivo = arquivoDeHoje(amb);
   let soma = 0;
-  DEZ_COLECOES.forEach((colecao) => {
+  ONZE_COLECOES.forEach((colecao) => {
     igual(arquivo.contagem[colecao], arquivo.documentos[colecao].length,
       'cabeçalho x array em ' + colecao);
     soma += arquivo.documentos[colecao].length;
@@ -674,7 +678,7 @@ teste('coleção que falha no meio: nada é gravado e NADA é apagado', () => {
   semearBanco(amb, 2);
   const antigos = semearBackupsAntigos(amb, [30, 45, 60, 90]);
 
-  // `matriculados` é a nona das dez na ordem alfabética: oito coleções já foram
+  // `matriculados` é a nona das onze na ordem alfabética: oito coleções já foram
   // lidas quando ela explode. É exatamente o "no meio" que interessa.
   amb.colecaoQuebrada = 'matriculados';
 
@@ -989,15 +993,15 @@ teste('coleção com dados no banco e sem constante nenhuma também entra', () =
   igual(arquivo.documentos.recibos_antigos[0].campos.nome, 'Ana');
 });
 
-teste('as dez de hoje são descobertas, e nenhuma está escrita em 14_Backup.gs', () => {
+teste('as onze de hoje são descobertas, e nenhuma está escrita em 14_Backup.gs', () => {
   const amb = ambiente();
-  igual(amb.api.backupColecoes_(), DEZ_COLECOES);
+  igual(amb.api.backupColecoes_(), ONZE_COLECOES);
 
   // A prova de que não há segunda lista: os nomes das coleções não aparecem
   // como literal no código do arquivo. `log` é a exceção declarada — e mesmo ela
   // entra por LOG_COLECAO, não pelo texto 'log'.
   const codigo = semComentarios(FONTE);
-  DEZ_COLECOES.forEach((colecao) => {
+  ONZE_COLECOES.forEach((colecao) => {
     igual(codigo.indexOf("'" + colecao + "'"), -1,
       "14_Backup.gs escreve '" + colecao + "' à mão — é a segunda lista voltando");
   });
@@ -1110,7 +1114,7 @@ teste('prazo estourado: nada é gravado, e a mensagem diz onde parou', () => {
   semearBanco(amb, 1);
   semearBackupsAntigos(amb, [90]);
 
-  // Cada ida ao banco custando 40 segundos: a execução não chega ao fim das dez
+  // Cada ida ao banco custando 40 segundos: a execução não chega ao fim das onze
   // coleções dentro dos 4 minutos de prazo.
   amb.msPorRequisicao = 40000;
 
@@ -1318,9 +1322,9 @@ teste('conta o banco em UMA ida, com agregação — conferir é barato', () => 
   amb.api.conferirBackup();
 
   const agregacoes = amb.falso.requisicoes.filter((r) => /:runAggregationQuery/.test(r.url));
-  igual(agregacoes.length, 10, 'uma agregação por coleção');
-  verdadeiro(amb.falso.idas.indexOf(10) !== -1,
-    'as dez contagens foram em fila indiana em vez de um fetchAll só');
+  igual(agregacoes.length, 11, 'uma agregação por coleção');
+  verdadeiro(amb.falso.idas.indexOf(11) !== -1,
+    'as onze contagens foram em fila indiana em vez de um fetchAll só');
 });
 
 teste('pasta vazia: diz o que fazer em vez de estourar', () => {

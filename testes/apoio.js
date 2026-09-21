@@ -204,7 +204,8 @@ function criarFirestoreFalso() {
         return erro(400, 'INVALID_ARGUMENT', 'maximum 500 writes allowed per request');
       }
       // `update` grava; `delete` apaga. As duas formas vivem no mesmo `:commit`,
-      // e é assim que `escreverEmLote` e `excluirEmLote` (02_Repo.gs) usam.
+      // e é assim que `escreverEmLote`, `excluirEmLote` e `atualizarEmLote`
+      // (02_Repo.gs) usam.
       //
       // A EXIGÊNCIA DO PREFIXO NÃO É ZELO: o Firestore de verdade recusa o lote
       // inteiro com 400 INVALID_ARGUMENT — 'Document name "https://..." lacks
@@ -214,6 +215,15 @@ function criarFirestoreFalso() {
       // testes passavam e a reconciliação morria no primeiro clique. Conferir o
       // prefixo é o que transforma este falso em rede de segurança para essa
       // classe de erro.
+      //
+      // DUAS FASES, como o `:commit` de verdade, que é atômico: primeiro TODAS
+      // as escritas são validadas (prefixo e precondição), e só depois qualquer
+      // uma é aplicada. `currentDocument: { exists: true }` num documento que
+      // não existe responde 404 NOT_FOUND e NENHUMA escrita do lote entra — nem
+      // as que vieram antes dela. Um falso que aplicasse enquanto valida deixaria
+      // `atualizarEmLote` passar nos testes gravando meio lote, que é
+      // exatamente o que a precondição existe para impedir.
+      const pendentes = [];
       for (const w of corpo.writes) {
         const nome = w.update ? w.update.name : w.delete;
         if (String(nome).indexOf('projects/') !== 0) {
@@ -222,8 +232,30 @@ function criarFirestoreFalso() {
         }
         const partesNome = nome.split('/documents/')[1].split('/');
         const chave = partesNome[0] + '/' + partesNome[1];
-        if (w.update) documentos.set(chave, w.update.fields);
-        else documentos.delete(chave);
+        if (w.currentDocument && w.currentDocument.exists === true && !documentos.has(chave)) {
+          return erro(404, 'NOT_FOUND', 'No document to update: ' + nome);
+        }
+        if (w.currentDocument && w.currentDocument.exists === false && documentos.has(chave)) {
+          return erro(409, 'ALREADY_EXISTS', 'Document already exists: ' + nome);
+        }
+        pendentes.push({ w, chave });
+      }
+      for (const { w, chave } of pendentes) {
+        if (!w.update) { documentos.delete(chave); continue; }
+
+        const mascara = (w.updateMask && w.updateMask.fieldPaths) || [];
+        if (!mascara.length) { documentos.set(chave, w.update.fields); continue; }
+
+        // Com máscara é MESCLA: só os caminhos listados mudam. Caminho na
+        // máscara e ausente no corpo é apagado — é a semântica do Firestore, e
+        // é o que impede a máscara de virar "substitui tudo" por engano.
+        const novo = Object.assign({}, documentos.get(chave) || {});
+        const enviados = w.update.fields || {};
+        mascara.forEach((c) => {
+          if (enviados[c] !== undefined) novo[c] = enviados[c];
+          else delete novo[c];
+        });
+        documentos.set(chave, novo);
       }
       return resposta(200, { writeResults: corpo.writes.map(() => ({ updateTime: '2026-08-05T00:00:00Z' })) });
     }

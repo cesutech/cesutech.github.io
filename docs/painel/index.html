@@ -394,6 +394,10 @@
           <option value="SO_INSCRITO">Só inscrito</option>
           <option value="SO_MATRICULADO">Só matriculado</option>
           <option value="DIVERGENCIA">Divergência</option>
+          <!-- Cancelados na lista oficial pela revisão de uma importação (21/09).
+               "Todos" os esconde (só quem não ocupa vaga); este filtro mostra
+               todo mundo com a marca, com ou sem inscrição. -->
+          <option value="CANCELADO">Cancelados</option>
         </select>
       </div>
       <div class="campo">
@@ -2579,12 +2583,18 @@
       ABAS_PRONTAS.painel = true;
       PAINEL_DESATUALIZADO = false;
 
+      // O cartão "Cancelados" conta a MARCA da lista oficial (com e sem
+      // inscrição — é o filtro "Cancelados" da aba Alunos), e não o status: o
+      // cancelado que ocupa vaga já está num dos quatro cartões acima dele, e o
+      // total do cadastro continua fechando com eles. Cinza, porque é gente
+      // que saiu, e não uma pendência.
       var html = '<div class="cartoes-kpi">' +
         kpi(d.total, 'Alunos no cadastro', '') +
         kpi(d.porStatus.CONFIRMADO, 'Confirmados', 'verde') +
         kpi(d.porStatus.SO_INSCRITO, 'Só inscritos', 'vinho') +
         kpi(d.porStatus.SO_MATRICULADO, 'Só matriculados', 'roxo') +
         kpi(d.porStatus.DIVERGENCIA, 'Divergências', 'ambar') +
+        kpi(d.cancelados || 0, 'Cancelados', 'cinza') +
         '</div>';
 
       if (d.porStatus.DIVERGENCIA > 0) {
@@ -2597,7 +2607,8 @@
       html += '<div class="cartao"><h2>Origem dos dados</h2>' +
         '<div class="cartoes-kpi" style="margin:0">' +
         kpi(d.inscricoes, 'Inscrições recebidas', '') +
-        kpi(d.matriculados, 'Linhas da lista oficial', '') +
+        kpi(d.matriculados, 'Linhas da lista oficial' +
+          (d.matriculadosCancelados ? ' (' + d.matriculadosCancelados + ' canceladas)' : ''), '') +
         kpi(d.lotes, 'Importações feitas', '') +
         '</div></div>';
 
@@ -4685,7 +4696,10 @@
       projetoId: p ? String(p.id) : '',
       projetoNome: p ? String(p.nome || '') : '',
       daLista: Boolean(p),
-      jaEm: []
+      jaEm: [],
+      // A marca de cancelado da lista oficial da matrícula consultada — vem com
+      // `jaEm` da mesma resposta, e é desenhada pelo mesmo lugar.
+      cancelado: null
     };
     // A janela agora é do Incluir: o que a Editar tinha carregado não vale mais,
     // e o formulário nasce sem trabalho de ninguém — o que estava digitado na
@@ -4913,7 +4927,7 @@
     lista.className = 'pequeno texto-fraco';
     lista.textContent = '';
     jaEm.innerHTML = '';
-    if (INCLUSAO) INCLUSAO.jaEm = [];
+    if (INCLUSAO) { INCLUSAO.jaEm = []; INCLUSAO.cancelado = null; }
     if (!matricula) return;
 
     chamar('buscarMatriculado', { matricula: matricula }, function (r) {
@@ -4942,6 +4956,7 @@
       }
 
       INCLUSAO.jaEm = r.ja_em || [];
+      INCLUSAO.cancelado = r.cancelado ? { em: r.cancelado_em || '' } : null;
       desenharJaEmDaInclusao_();
     });
   }
@@ -4960,7 +4975,17 @@
     if (!INCLUSAO || !jaEm) return;
 
     var inscricoes = INCLUSAO.jaEm || [];
-    if (!inscricoes.length) { jaEm.innerHTML = ''; return; }
+
+    // A porta da coordenação AVISA sobre o cancelado, não recusa (a pública
+    // recusa, calada — `matriculaConhecida`): a ficha preenche do mesmo jeito e
+    // a inscrição entra marcada. O aviso vive no mesmo estado que o de
+    // já-inscrito, e por isso sobrevive à troca de projeto no select.
+    var cancelado = INCLUSAO.cancelado
+      ? '<div class="aviso aviso--atencao pequeno">Esta matrícula foi cancelada na lista oficial' +
+        (INCLUSAO.cancelado.em ? ' em ' + escapar(diaDe(INCLUSAO.cancelado.em)) : '') +
+        '. Ela continua fora do formulário público; incluir aqui grava a inscrição com matrícula não conferida.</div>'
+      : '';
+    if (!inscricoes.length) { jaEm.innerHTML = cancelado; return; }
 
     // Sem projeto escolhido, `projetoId` é '' e nenhuma inscrição casa — não
     // precisa de guarda própria.
@@ -4971,7 +4996,7 @@
         (i.em_espera ? ' (em espera)' : '');
     });
     var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
-    jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
+    jaEm.innerHTML = cancelado + '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
       (naFilaDaqui
         ? '. Está na fila de espera deste projeto: Incluir dá a vaga à inscrição que já existe ' +
           '(mesmo protocolo), sem criar outra — o que você digitar abaixo não é gravado nela.'
@@ -5663,6 +5688,11 @@
         (r.resumo.foraDaLista
           ? ' · <strong>' + r.resumo.foraDaLista + '</strong> fora da lista oficial'
           : '') +
+        // Os cancelados da lista oficial não são "quem falta": "Todos" os
+        // esconde, e o número aqui é o que diz que eles existem.
+        (r.resumo.cancelados
+          ? ' · <strong>' + r.resumo.cancelados + '</strong> cancelado(s) (ocultos; recorte Cancelados)'
+          : '') +
         ' · ' + (r.lidas.matriculados + r.lidas.inscricoes) + ' documento(s) lido(s) (' +
         r.lidas.matriculados + ' da lista oficial + ' + r.lidas.inscricoes + ' inscrições)</p>';
 
@@ -5688,6 +5718,7 @@
         '<option value="SEM_PROJETO">Sem projeto — quem falta</option>' +
         '<option value="COM_PROJETO">Em projeto</option>' +
         '<option value="FORA_DA_LISTA">Fora da lista oficial</option>' +
+        '<option value="CANCELADO">Cancelados</option>' +
         '</select></div>' +
         '<div class="campo"><label for="disc-turma-busca">Buscar</label>' +
         '<input type="text" id="disc-turma-busca" placeholder="Nome ou matrícula..." ' +
@@ -5750,7 +5781,13 @@
         '<td style="white-space:nowrap">' + (escapar(i.matricula) || '<span class="texto-fraco">—</span>') + '</td>' +
         '<td class="quebra"><strong>' + escapar(i.nome) + '</strong></td>' +
         '<td><span class="selo selo--' + seloDoGrupo(i.grupo) + '">' +
-        escapar(rotuloDoGrupo(i.grupo)) + '</span></td>' +
+        escapar(rotuloDoGrupo(i.grupo)) + '</span>' +
+        // O cancelado que continua em projeto: ocupa vaga, e o selo pequeno é
+        // o que faz a coordenação decidir o que fazer com ele.
+        (i.grupo !== 'CANCELADO' && i.cancelado_em
+          ? ' <span class="selo selo--CANCELADO" title="Cancelado na lista oficial pela revisão de uma importação">cancelado na lista</span>'
+          : '') +
+        '</td>' +
         '<td class="quebra">' + (escapar(i.projetos) || '<span class="texto-fraco">—</span>') + '</td>' +
         // A disciplina DECLARADA fica ao lado da turma oficial de propósito: é
         // onde se vê o aluno que consta como ADS12 na secretaria e escolheu
@@ -5782,7 +5819,17 @@
     var busca = normalizarBusca_(campoTexto_('disc-turma-busca'));
 
     return TURMA_DISCIPLINA.itens.filter(function (i) {
-      if (recorte && i.grupo !== recorte) return false;
+      // "Todos" esconde o cancelado sem projeto (a lista oficial disse que ele
+      // saiu; não é quem falta); o recorte Cancelados mostra todo mundo com a
+      // marca, inclusive quem continua em projeto. A busca é a MESMA régua da
+      // aba Alunos: nunca esconde ninguém.
+      if (recorte === 'CANCELADO') {
+        if (!(i.grupo === 'CANCELADO' || i.cancelado_em)) return false;
+      } else if (recorte) {
+        if (i.grupo !== recorte) return false;
+      } else if (i.grupo === 'CANCELADO' && !busca) {
+        return false;
+      }
       if (!busca) return true;
       return normalizarBusca_(i.nome + ' ' + i.matricula).indexOf(busca) !== -1;
     });
@@ -5791,11 +5838,12 @@
   function seloDoGrupo(g) {
     // Reaproveita os selos do cruzamento de alunos, e o sentido é o mesmo:
     // SO_MATRICULADO é quem está na lista oficial e não se inscreveu;
-    // SO_INSCRITO é quem se inscreveu e a lista oficial não tem.
-    return { COM_PROJETO: 'CONFIRMADO', SEM_PROJETO: 'SO_MATRICULADO', FORA_DA_LISTA: 'SO_INSCRITO' }[g] || 'SO_INSCRITO';
+    // SO_INSCRITO é quem se inscreveu e a lista oficial não tem;
+    // CANCELADO é quem a lista oficial cancelou e não tem inscrição.
+    return { COM_PROJETO: 'CONFIRMADO', SEM_PROJETO: 'SO_MATRICULADO', FORA_DA_LISTA: 'SO_INSCRITO', CANCELADO: 'CANCELADO' }[g] || 'SO_INSCRITO';
   }
   function rotuloDoGrupo(g) {
-    return { COM_PROJETO: 'Em projeto', SEM_PROJETO: 'Sem projeto', FORA_DA_LISTA: 'Fora da lista' }[g] || g;
+    return { COM_PROJETO: 'Em projeto', SEM_PROJETO: 'Sem projeto', FORA_DA_LISTA: 'Fora da lista', CANCELADO: 'Cancelado' }[g] || g;
   }
 
   // ------------------------------------------- Quem escolheu (e a coringa)
@@ -6458,7 +6506,7 @@
           '<td class="quebra">' + escapar(a.email) + '</td>' +
           '<td class="quebra">' + escapar(a.curso) + '</td>' +
           '<td style="white-space:nowrap">' + escapar(a.turma) + '</td>' +
-          '<td><span class="selo selo--' + escapar(a.status) + '">' + escapar(a.statusLabel) + '</span></td>' +
+          '<td>' + seloDeStatus(a) + '</td>' +
           '<td class="pequeno texto-fraco">' + escapar(a.metodo_match) + '</td>' +
           '<td style="white-space:nowrap">' +
           '<button class="btn btn--pequeno" onclick="abrirDetalhe(\'' + escapar(a.id) + '\')">Ver</button> ' +
@@ -6469,13 +6517,40 @@
       html += '</tbody></table></div>';
       el.innerHTML = html;
 
+      // Os cancelados que "Todos" esconde vão contados na legenda, com o
+      // caminho para vê-los: esconder sem dizer é o que esta tela não faz.
       document.getElementById('paginacao-alunos').innerHTML =
         '<button class="btn btn--pequeno" ' + (r.pagina <= 1 ? 'disabled' : '') +
         ' onclick="carregarAlunos(' + (r.pagina - 1) + ')">Anterior</button>' +
-        '<span>Página ' + r.pagina + ' de ' + r.paginas + ' &middot; ' + r.total + ' registro(s)</span>' +
+        '<span>Página ' + r.pagina + ' de ' + r.paginas + ' &middot; ' + r.total + ' registro(s)' +
+        (r.cancelados_ocultos
+          ? ' &middot; ' + r.cancelados_ocultos + ' cancelado(s) fora desta lista (filtro Cancelados)'
+          : '') +
+        '</span>' +
         '<button class="btn btn--pequeno" ' + (r.pagina >= r.paginas ? 'disabled' : '') +
         ' onclick="carregarAlunos(' + (r.pagina + 1) + ')">Próxima</button>';
     });
+  }
+
+  /**
+   * O selo da coluna Status — e o segundo selo, do cancelado que ocupa vaga.
+   *
+   * Dois casos, de propósito (ver `pedidoDeAlunos_`, 10_Painel.gs): status
+   * CANCELADO é quem a lista oficial cancelou e não tem inscrição — um selo só,
+   * com a data. Qualquer outro status com `situacao_cadastro` marcado é quem foi
+   * cancelado na lista E continua inscrito (se reinscreveu, ou a coordenação o
+   * incluiu): ocupa vaga, fica em "Todos", e o selo pequeno é o que faz a
+   * coordenação decidir o que fazer com ele.
+   */
+  function seloDeStatus(a) {
+    if (a.status === 'CANCELADO') {
+      return '<span class="selo selo--CANCELADO">Cancelado' +
+        (a.cancelado_em ? ' em ' + escapar(diaDe(a.cancelado_em).slice(0, 5)) : '') + '</span>';
+    }
+    return '<span class="selo selo--' + escapar(a.status) + '">' + escapar(a.statusLabel) + '</span>' +
+      (a.situacao_cadastro === 'CANCELADO'
+        ? ' <span class="selo selo--CANCELADO" title="Cancelado na lista oficial pela revisão de uma importação; a inscrição continua viva e ocupa vaga">cancelado na lista</span>'
+        : '');
   }
 
   function atualizarSelectCursos(cursos, selecionado) {
@@ -6763,6 +6838,19 @@
         (r.aluno.metodo_match ? ' <span class="texto-fraco pequeno">casado por: ' +
           escapar(r.aluno.metodo_match) + '</span>' : '') + '</p>';
 
+      // O selo de cancelado vem do documento VIVO da lista oficial, e não do
+      // status derivado: entre o Aplicar da revisão e o próximo Atualizar da
+      // aba, a ficha já diz a verdade que a linha da tabela ainda não sabe.
+      var cancelado = r.matriculado && r.matriculado.situacao_cadastro === 'CANCELADO';
+      if (cancelado) {
+        html += '<div class="aviso aviso--atencao pequeno"><span class="selo selo--CANCELADO">Cancelado na lista oficial</span> ' +
+          'em ' + escapar(diaDe(r.matriculado.cancelado_em) || r.matriculado.cancelado_em) +
+          (r.matriculado.cancelado_por ? ' por ' + escapar(r.matriculado.cancelado_por) : '') +
+          ', pela revisão da importação' +
+          (r.matriculado.cancelado_lote_id ? ' ' + escapar(r.matriculado.cancelado_lote_id) : '') +
+          '. Volta sozinho quando a secretaria o reenviar numa lista.</div>';
+      }
+
       if (r.aluno.revisado_por) {
         html += '<div class="aviso aviso--info pequeno">Revisado por ' +
           escapar(r.aluno.revisado_por) + ' em ' + escapar(r.aluno.revisado_em) + '.</div>';
@@ -6776,18 +6864,28 @@
       html += '<div class="campo mt"><label for="obs-aluno">Observações da coordenação</label>' +
         '<textarea id="obs-aluno">' + escapar(r.aluno.observacoes || '') + '</textarea></div>';
 
-      html += '<div class="campo"><label for="novo-status">Definir status manualmente</label>' +
-        '<select id="novo-status">' +
-        opcaoStatus('CONFIRMADO', 'Confirmado', r.aluno.status) +
-        opcaoStatus('SO_INSCRITO', 'Só inscrito', r.aluno.status) +
-        opcaoStatus('SO_MATRICULADO', 'Só matriculado', r.aluno.status) +
-        opcaoStatus('DIVERGENCIA', 'Divergência (deixar pendente)', r.aluno.status) +
-        '</select></div>';
+      // CANCELADO não se define à mão: o servidor recusaria (`resolverAluno`) e
+      // a rodada seguinte recalcularia por cima. Sem o select, o `<option>` da
+      // cascata nunca aparece "selected" numa ficha em que ele não vale — e sem
+      // o Salvar, não há como gravar uma decisão que morreria na madrugada.
+      if (r.aluno.status === 'CANCELADO') {
+        html += '<p class="texto-fraco pequeno">Cancelado na lista oficial pela revisão de uma importação: ' +
+          'o status não se define à mão. Volta pela reimportação da lista.</p>';
+      } else {
+        html += '<div class="campo"><label for="novo-status">Definir status manualmente</label>' +
+          '<select id="novo-status">' +
+          opcaoStatus('CONFIRMADO', 'Confirmado', r.aluno.status) +
+          opcaoStatus('SO_INSCRITO', 'Só inscrito', r.aluno.status) +
+          opcaoStatus('SO_MATRICULADO', 'Só matriculado', r.aluno.status) +
+          opcaoStatus('DIVERGENCIA', 'Divergência (deixar pendente)', r.aluno.status) +
+          '</select></div>';
+      }
 
       document.getElementById('modal-corpo').innerHTML = html;
       document.getElementById('modal-rodape').innerHTML =
         '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-        '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarRevisao)">Salvar decisão</button>';
+        (r.aluno.status === 'CANCELADO' ? '' :
+          '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarRevisao)">Salvar decisão</button>');
     });
   }
 
@@ -6809,6 +6907,7 @@
       nome: 'Nome', email: 'E-mail', whatsapp: 'WhatsApp',
       curso_fase: 'Curso e fase', cpf: 'CPF', data_nascimento: 'Nascimento',
       curso: 'Curso', turma: 'Turma', situacao: 'Situação',
+      situacao_cadastro: 'Cadastro', cancelado_em: 'Cancelado em', cancelado_por: 'Cancelado por',
       telefone: 'Telefone', observacoes: 'Observações',
       declara_ciencia: 'Declara ciência', autoriza_imagem: 'Autoriza imagem',
       consentimento_lgpd: 'Consentimento LGPD'
@@ -6828,7 +6927,7 @@
   }
 
   function salvarRevisao() {
-    if (!ALUNO_ABERTO) return;
+    if (!ALUNO_ABERTO || !document.getElementById('novo-status')) return;
     chamar('resolverAluno', {
       id: ALUNO_ABERTO.id,
       status: document.getElementById('novo-status').value,
@@ -7279,6 +7378,7 @@
         kpi(s.so_inscrito, 'Só inscritos', 'vinho') +
         kpi(s.so_matriculado, 'Só matriculados', 'roxo') +
         kpi(s.divergencia, 'Divergências', 'ambar') +
+        (s.cancelado ? kpi(s.cancelado, 'Cancelados', 'cinza') : '') +
         '</div>' +
         (s.aviso ? '<div class="aviso aviso--atencao">' + escapar(s.aviso) + '</div>' : '') +
         (s.divergencia ? '<div class="aviso aviso--atencao">' + s.divergencia +

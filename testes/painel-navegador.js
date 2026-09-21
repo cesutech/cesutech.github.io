@@ -2740,6 +2740,171 @@ teste('a aba Importações mostra a turma, e rotula a que foi informada ou deduz
     'lote sem cabeçalho fica vazio, e não "undefined": ' + linhaDe('antigo.csv'));
 });
 
+// ==================================================== O cancelado, clicado
+
+grupo('o cancelado da lista oficial — aba Alunos, ficha, Painel, Disciplinas e Incluir aluno');
+
+/**
+ * A marca como a revisão de uma importação (05c_Revisao.gs) a grava: PATCH de
+ * quatro campos no documento da lista oficial. A ficha em `alunos` nasce do
+ * cruzamento de verdade — é o mesmo caminho da produção.
+ */
+function cancelarNaLista(api, matricula) {
+  api.atualizarEmLote('matriculados', [{
+    _id: matricula, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'coord@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
+  }]);
+}
+
+/** A Ana da lista oficial (9110001, sem inscrição com a própria matrícula) cancelada. */
+function cadastroComCancelada(api) {
+  cadastroBase(api);
+  cancelarNaLista(api, '9110001');
+  api.reconciliar();
+}
+
+/** O Bruno (9220002) cancelado — e a inscrição da Ana usa a matrícula DELE: ocupa vaga. */
+function cadastroComCanceladoInscrito(api) {
+  cadastroBase(api);
+  cancelarNaLista(api, '9220002');
+  api.reconciliar();
+}
+
+teste('"Todos" esconde a cancelada e a legenda diz quantas; o filtro Cancelados a mostra com a data', () => {
+  // Mutação que derruba: tirar `cancelados_ocultos` da legenda (a pessoa
+  // sumiria sem nenhum sinal na tela), ou a opção CANCELADO do select (não
+  // haveria onde vê-la).
+  const cena = abrirPainel({ semear: cadastroComCancelada });
+  cena.js.trocarAba('alunos');
+
+  igual(idsDaTabela(cena, 'abrirDetalhe').length, 3, 'a cancelada continuou em "Todos"');
+  const legenda = cena.texto('paginacao-alunos');
+  verdadeiro(/3 registro\(s\)/.test(legenda), legenda);
+  verdadeiro(/1 cancelado\(s\) fora desta lista \(filtro Cancelados\)/.test(legenda), legenda);
+  verdadeiro(!/selo--CANCELADO/.test(cena.html('conteudo-alunos')), 'ninguém de "Todos" devia ter selo de cancelado');
+
+  cena.digitar('filtro-status', 'CANCELADO');
+  cena.js.carregarAlunos(1);
+  igual(idsDaTabela(cena, 'abrirDetalhe').length, 1);
+  const tabela = cena.texto('conteudo-alunos');
+  verdadeiro(/Ana Silva/.test(tabela), tabela);
+  verdadeiro(/Cancelado em 21\/09/.test(tabela), 'o selo tem de dizer quando: ' + tabela);
+  verdadeiro(!/cancelado\(s\) fora desta lista/.test(cena.texto('paginacao-alunos')),
+    'com o filtro ninguém está escondido');
+});
+
+teste('o cancelado que ainda ocupa vaga fica em "Todos", com o selo pequeno ao lado do status', () => {
+  // Mutação que derruba: desenhar o selo só para `status === CANCELADO` — a
+  // coordenação não veria que a pessoa inscrita saiu da lista oficial.
+  const cena = abrirPainel({ semear: cadastroComCanceladoInscrito });
+  cena.js.trocarAba('alunos');
+
+  igual(idsDaTabela(cena, 'abrirDetalhe').length, 4, 'quem ocupa vaga não pode sumir');
+  const html = cena.html('conteudo-alunos');
+  verdadeiro(/selo--CANCELADO[^>]*>cancelado na lista</.test(html), 'faltou o selo pequeno: ' + html);
+  verdadeiro(/selo--(CONFIRMADO|DIVERGENCIA)/.test(html), 'o status da cascata some junto');
+  verdadeiro(!/cancelado\(s\) fora desta lista/.test(cena.texto('paginacao-alunos')), 'ele não está escondido');
+});
+
+teste('a ficha da cancelada: aviso com data e autor, sem o select de status e sem Salvar', () => {
+  // Mutação que derruba: desenhar o select — o `<option>` da cascata apareceria
+  // "selected" numa ficha em que ele não vale, e o Salvar gravaria uma decisão
+  // que o servidor recusa.
+  const cena = abrirPainel({ semear: cadastroComCancelada });
+  cena.js.trocarAba('alunos');
+  cena.digitar('filtro-status', 'CANCELADO');
+  cena.js.carregarAlunos(1);
+  cena.js.abrirDetalhe(idsDaTabela(cena, 'abrirDetalhe')[0]);
+
+  const corpo = cena.texto('modal-corpo');
+  verdadeiro(/Cancelado na lista oficial/.test(corpo), corpo);
+  verdadeiro(/21\/09\/2026/.test(corpo), 'a ficha não diz quando: ' + corpo);
+  verdadeiro(/coord@exemplo.com/.test(corpo), 'a ficha não diz quem: ' + corpo);
+  verdadeiro(/Cadastro CANCELADO/.test(corpo), 'a coluna da lista oficial não mostra a marca: ' + corpo);
+  igual(cena.documento.getElementById('novo-status'), null, 'a ficha cancelada ganhou o select de status');
+  igual(cena.documento.getElementById('modal-salvar'), null, 'a ficha cancelada ganhou o Salvar decisão');
+  verdadeiro(/não se define à mão/.test(corpo), corpo);
+});
+
+teste('a ficha do cancelado que ocupa vaga: o aviso vem do documento da lista, e o select fica', () => {
+  const cena = abrirPainel({ semear: cadastroComCanceladoInscrito });
+  cena.js.trocarAba('alunos');
+  cena.js.abrirDetalhe(alunoOnde(cena, 'matricula', '9220002'));
+
+  const corpo = cena.texto('modal-corpo');
+  verdadeiro(/Cancelado na lista oficial/.test(corpo), corpo);
+  verdadeiro(cena.documento.getElementById('novo-status') !== null, 'quem ocupa vaga continua com decisão humana');
+  verdadeiro(cena.documento.getElementById('modal-salvar') !== null);
+});
+
+teste('o Painel ganha o cartão Cancelados e diz quantas linhas da lista oficial estão canceladas', () => {
+  const cena = abrirPainel({ semear: cadastroComCancelada });
+  cena.js.trocarAba('painel');
+  const html = cena.html('conteudo-painel');
+  verdadeiro(/kpi--cinza/.test(html), 'o cartão Cancelados não foi desenhado');
+  verdadeiro(/Cancelados/.test(cena.texto('conteudo-painel')));
+  verdadeiro(/Linhas da lista oficial \(1 canceladas\)/.test(cena.texto('conteudo-painel')), cena.texto('conteudo-painel'));
+});
+
+teste('na janela da disciplina, o cancelado sem projeto some de "Todos", conta na legenda e volta no recorte', () => {
+  // Mutação que derruba: `turmaDisciplinaFiltrada` sem o ramo do CANCELADO — a
+  // coordenação cobraria quem a lista oficial já disse que saiu; ou o recorte
+  // Cancelados filtrando só por `grupo` — quem ocupa vaga não apareceria nele.
+  const cena = abrirPainel({
+    semear: (api) => { comDisciplinaDaAna(api); cancelarNaLista(api, '9110001'); }
+  });
+  cena.js.trocarAba('disciplinas');
+  cena.js.verInscritosDisciplina(disciplinaDeTurma(cena, 'ADS11'));
+
+  const vista = cena.texto('disc-vista');
+  verdadeiro(/1 cancelado\(s\) \(ocultos; recorte Cancelados\)/.test(vista), vista);
+  verdadeiro(/0 sem projeto/.test(vista), 'a cancelada foi contada como quem falta: ' + vista);
+  verdadeiro(!/Ana Silva/.test(cena.texto('disc-turma-tabela')), 'a cancelada apareceu em "Todos"');
+  igual(cena.js.turmaDisciplinaFiltrada().length, 0);
+
+  const antes = cena.chamadas.length;
+  cena.digitar('disc-turma-grupo', 'CANCELADO');
+  cena.js.desenharTurmaDisciplina();
+  igual(cena.chamadas.length, antes, 'o recorte foi ao servidor');
+  const tabela = cena.texto('disc-turma-tabela');
+  verdadeiro(/Ana Silva/.test(tabela), 'o recorte Cancelados não a mostrou: ' + tabela);
+  verdadeiro(/Cancelado/.test(tabela), tabela);
+  igual(cena.js.relatorioTurmaDisciplina().linhas.map((l) => l.grupo), ['CANCELADO'],
+    'a exportação tem de seguir o recorte da tela');
+
+  // A busca é a régua da aba Alunos: acha qualquer um, mesmo em "Todos".
+  cena.digitar('disc-turma-grupo', '');
+  cena.digitar('disc-turma-busca', 'ana');
+  cena.js.desenharTurmaDisciplina();
+  verdadeiro(/Ana Silva/.test(cena.texto('disc-turma-tabela')), 'a busca escondeu a cancelada');
+});
+
+teste('Incluir aluno: a matrícula cancelada preenche a ficha E avisa — e o aviso sobrevive à troca de projeto', () => {
+  // Mutação que derruba: tratar `cancelado` como "não encontrada" (a ficha
+  // viria vazia), ou desenhar o aviso fora de `desenharJaEmDaInclusao_` (a
+  // troca de projeto no select o apagaria).
+  const cena = abrirPainel({
+    semear: (api) => { cadastroParaIncluir(api); cancelarNaLista(api, '9110001'); }
+  });
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+
+  igual(cena.documento.getElementById('inc-nome').value, 'Ana Silva', 'a ficha tem de preencher mesmo cancelada');
+  igual(cena.texto('inc-lista'), 'Na lista oficial: ADS · ADS11');
+  const aviso = cena.texto('inc-ja-em');
+  verdadeiro(/foi cancelada na lista oficial em 21\/09\/2026/.test(aviso), aviso);
+  verdadeiro(/não conferida/.test(aviso), aviso);
+
+  cena.js.desenharJaEmDaInclusao_();
+  verdadeiro(/foi cancelada na lista oficial/.test(cena.texto('inc-ja-em')), 'o aviso sumiu ao redesenhar');
+
+  // Matrícula ativa (a do Bruno, que a inscrição da Ana usa): o aviso de
+  // cancelada morre com a consulta anterior; o de já-inscrito é o de sempre.
+  sairDaMatricula(cena, '9220002');
+  verdadeiro(!/cancelada/.test(cena.texto('inc-ja-em')), 'o aviso da matrícula anterior sobreviveu: ' + cena.texto('inc-ja-em'));
+  verdadeiro(/Já inscrito em Origem/.test(cena.texto('inc-ja-em')));
+});
+
 // ==================================================== A aba Auditório
 //
 // O QUE ESTE BLOCO PROTEGE, e por que ele é clicado e não conferido por regex.

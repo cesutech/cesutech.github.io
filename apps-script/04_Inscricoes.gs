@@ -100,6 +100,31 @@ var INSCRICOES_COLECAO = 'inscricoes';
 /** Lista oficial de matriculados. Id do documento = matrícula normalizada. */
 var MATRICULADOS_COLECAO = 'matriculados';
 
+/**
+ * Quem a revisão de uma importação EXCLUIU da lista oficial (21/09).
+ *
+ * Cópia do documento inteiro de `matriculados`, com o MESMO id, mais
+ * `excluido_em`, `excluido_por` e `excluido_lote_id` — sempre copia-depois-
+ * apaga, para a pessoa nunca deixar de existir em algum lugar. Só o Excluir
+ * pessoa a pessoa da revisão (05c_Revisao.gs) escreve aqui, e NINGUÉM lê:
+ * excluído é "não está na lista" para todo consumidor — `matriculaConhecida`,
+ * a reconciliação, a aba Alunos, a Disciplinas. Restaurar é operação de console
+ * (copiar de volta com `inserir`). "Apagar matriculados" (o expurgo de um lote
+ * inteiro) NÃO passa por aqui: 2.500 por semestre estourariam o teto do backup
+ * em três ou quatro semestres, e a vassoura de fim de semestre já tem o backup
+ * diário como rede.
+ *
+ * SEM EXPIRAÇÃO, por decisão de 21/09: guarda nome, CPF, telefone e a linha
+ * original de quem saiu, cresce às dezenas por semestre, e entra no backup
+ * diário sozinha — o sufixo `_COLECAO` é o que `backupColecoes_` (14_Backup.gs)
+ * procura. Uma limpeza por `excluido_em` fica anotada como possível, não feita.
+ *
+ * Declarada aqui, ao lado da coleção de que ela é a sombra, e não no arquivo da
+ * revisão: a constante precisa existir para o backup ANTES de a revisão nascer,
+ * e o nome canônico de `matriculados` também é daqui.
+ */
+var MATRICULADOS_EXCLUIDOS_COLECAO = 'matriculados_excluidos';
+
 // ------------------------------------------------------------ Matrícula
 
 /** Matrícula normalizada: só alfanumérico, caixa alta. */
@@ -213,7 +238,13 @@ function erroFormatoMatricula_(bruta) {
  * que é impedir erro de digitação.
  *
  * Resta um bit de informação ("a matrícula X existe"), e por isso o endpoint que
- * expõe esta função tem teto de consultas por hora. O que mudou do sistema sobre
+ * expõe esta função tem teto de consultas por hora. Matrícula CANCELADA pela
+ * revisão de uma importação responde o MESMO que inexistente — a mesma frase no
+ * formulário, o mesmo corpo em `?api=matricula` (08_Api.gs). A porta da
+ * coordenação (`buscarMatriculado`, `incluirInscricao`, 10_Painel.gs) é que
+ * avisa, porque lá quem pergunta é gente autenticada com a lista na frente.
+ *
+ * O que mudou do sistema sobre
  * Sheets não é a exposição, é o NOSSO custo: era a coluna inteira da lista
  * oficial a cada conferência, e a conferência roda a cada tecla que o aluno
  * corrige. Agora é uma leitura por id — 1 documento, contra as 50 mil por dia do
@@ -223,7 +254,30 @@ function matriculaConhecida(matricula) {
   var alvo = normalizarMatricula(matricula);
   if (!alvo) return false;
 
-  return ler(MATRICULADOS_COLECAO, alvo) !== null;
+  // Cancelado na lista oficial = não encontrado, para esta porta. Distinguir os
+  // dois seria um segundo bit sobre uma pessoa no oráculo — "existe e está
+  // cancelada" é mais do que "existe", e a régua daqui é entregar o mínimo.
+  var m = ler(MATRICULADOS_COLECAO, alvo);
+  return m !== null && !cadastroCancelado_(m);
+}
+
+/**
+ * Se este documento de `matriculados` carrega a marca de cancelamento.
+ *
+ * A marca são quatro campos gravados pela revisão de uma importação
+ * (05c_Revisao.gs): `situacao_cadastro = 'CANCELADO'`, `cancelado_em`,
+ * `cancelado_por` e `cancelado_lote_id`. Ela some pela REIMPORTAÇÃO — a lista
+ * nova reescreve o documento inteiro (`escreverEmLote` substitui, 02_Repo.gs) e
+ * `montarRegistro_` (05_Importacao.gs) não conhece o campo —, e é por isso que
+ * não existe "reativar": quem a secretaria mandou de novo está de volta.
+ *
+ * ÚNICO lugar que lê o campo, e por isso ele tolera ausência: documento anterior
+ * à marca não tem a chave, e `''` é ativo. `situacao` (a coluna da secretaria:
+ * MATRICULADO, TRANCADO...) é OUTRO campo e não é olhado aqui — a secretaria diz
+ * o que ela diz, e a marca diz o que a coordenação decidiu sobre uma lista.
+ */
+function cadastroCancelado_(m) {
+  return String((m || {}).situacao_cadastro || '').toUpperCase() === 'CANCELADO';
 }
 
 /**

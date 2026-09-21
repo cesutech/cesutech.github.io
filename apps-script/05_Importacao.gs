@@ -124,9 +124,14 @@
  *
  * Quem consome a chave é a revisão de divergências (a conferência de quem não
  * veio), que compara pela turma do lote. Reimportar o mesmo arquivo REESCREVE o
- * documento inteiro de cada aluno (`escreverEmLote` substitui, não mescla), e é
- * por isso que ela não deixa linha própria no log: a prova de que o aluno voltou
- * é o `lote_id` novo e a linha IMPORTACAO.
+ * documento inteiro de cada aluno (`escreverEmLote` substitui, não mescla): a
+ * marca de cancelamento que a revisão gravou (`situacao_cadastro` e os três
+ * campos ao lado, ver `cadastroCancelado_` em 04_Inscricoes.gs) some junto, e o
+ * aluno está de volta em `matriculaConhecida` na hora, com 0 leituras. É por
+ * isso que a reativação não tem função nem deixa linha própria no log: a prova
+ * de que o aluno voltou é o `lote_id` novo e a linha IMPORTACAO. O que NÃO
+ * volta é a inscrição que a revisão anulou — ela fica em `inscricoes_anuladas`,
+ * e o caminho é Alunos → Incluir aluno.
  *
  * ---------------------------------------------------------- O contrato duro
  *
@@ -469,6 +474,19 @@ function confirmarImportacao(payload) {
       descreverDescartes_(preparo));
 
     descartarTemporario_(payload.tempId);
+
+    // A reimportação REATIVA quem a revisão de divergências tinha cancelado — o
+    // documento foi substituído sem a marca (ver o cabeçalho) — e a contagem de
+    // `matriculados` pode não ter mudado. O freio 1 do Atualizar da aba Alunos
+    // compara contagens (10_Painel.gs) e não perceberia; a marca é esquecida
+    // para o próximo Atualizar cruzar. Em try/catch porque a importação já está
+    // gravada e registrada: uma propriedade que falhou não pode virar "Falha na
+    // importação" na tela.
+    try {
+      esquecerMarcaDaReconciliacao_();
+    } catch (e) {
+      console.error('confirmarImportacao (marca da reconciliação): ' + e.message);
+    }
 
     return {
       ok: true,

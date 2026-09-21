@@ -828,6 +828,25 @@ teste('modo AVISAR responde bloqueia:false', () => {
   igual(corpoDe(get(a, { api: 'matricula', m: '9999999', p: 'p1' })).bloqueia, false);
 });
 
+teste('matrícula CANCELADA na lista oficial responde o corpo IDÊNTICO ao de inexistente', () => {
+  // A marca da revisão de uma importação (21/09). Mutação que derruba:
+  // acrescentar `cancelada: true` à resposta, ou trocar `listaDisponivel` —
+  // "existe e está cancelada" é um segundo bit sobre uma pessoa, entregue a
+  // quem consulta anonimamente, e o oráculo passaria a distinguir quem saiu.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+  a.api.atualizarEmLote('matriculados', [{
+    _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L2'
+  }]);
+
+  const cancelada = get(a, { api: 'matricula', m: '9110001', p: 'p1' }).getContent();
+  const inexistente = get(a, { api: 'matricula', m: '9999999', p: 'p1' }).getContent();
+  igual(cancelada, inexistente, 'os dois corpos têm de ser byte a byte iguais');
+  igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, false);
+});
+
 teste('projeto que não valida matrícula nem consulta a lista', () => {
   const a = montar();
   criarProjeto(a.api, 'p1', { validar_matricula: 'NAO' });

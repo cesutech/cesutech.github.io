@@ -436,7 +436,7 @@ function fazerBackup() {
  * FONTE 1, o código: toda constante global cujo nome termina em `_COLECAO`
  * (`INSCRICOES_COLECAO`, `LOG_COLECAO`, ...). No V8 do Apps Script, todo `var` de
  * primeiro nível vira propriedade do objeto global, então a lista se descobre
- * sozinha. Escrever os dez nomes à mão aqui seria criar uma SEGUNDA lista, e a
+ * sozinha. Escrever os nomes à mão aqui seria criar uma SEGUNDA lista, e a
  * segunda lista é onde a coleção que nascer amanhã vai deixar de entrar. Esse é o
  * pior modo de falha possível para um backup: silencioso, e descoberto no dia da
  * restauração, quando não há mais o que fazer.

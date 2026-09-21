@@ -3,9 +3,10 @@
  *
  * Este arquivo é o ÚNICO caminho de dados do sistema. Não existe planilha por
  * baixo, não existe segundo repositório: tudo que é lido ou gravado passa por
- * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar` e
- * `escreverEmLote`. Se uma função de negócio precisa tocar em dado, ela chama
- * uma destas sete.
+ * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar`,
+ * `escreverEmLote`, `excluirEmLote` e `atualizarEmLote` (mais `contarVarios`,
+ * que é `contar` em paralelo). Se uma função de negócio precisa tocar em dado,
+ * ela chama uma destas.
  *
  * A API pública é deliberadamente a mesma que o projeto irmão
  * (o sistema anterior, sobre Google Sheets) expõe sobre o Google Sheets. Lá
@@ -495,6 +496,73 @@ function escreverEmLote(colecao, objetos) {
     gravados += bloco.length;
   }
   return gravados;
+}
+
+/**
+ * PATCH em massa, em blocos de 500 — o `atualizar` de muitos documentos numa
+ * requisição, e com uma precondição que `atualizar` não tem.
+ *
+ * Nasceu para a revisão de divergências (05c_Revisao.gs): cancelar N alunos da
+ * lista oficial é gravar QUATRO campos em N documentos que já existem. Os dois
+ * caminhos que já havia servem mal, cada um por um motivo:
+ *
+ *   `atualizar` ........ um PATCH por documento — N requisições em fila, e um
+ *                        PATCH no Firestore CRIA o documento que não existe: a
+ *                        tela de revisão aberta desde antes de uma exclusão
+ *                        gravaria um matriculado fantasma só com a marca;
+ *   `escreverEmLote` ... um `:commit`, mas `update` SEM `updateMask` substitui o
+ *                        documento inteiro — para não perder nome, CPF e
+ *                        `raw_json` seria preciso reler cada documento e mandar
+ *                        tudo de volta, e o que foi relido pode já estar velho
+ *                        quando chega (uma reimportação no meio do caminho seria
+ *                        sobrescrita pelo retrato de antes).
+ *
+ * Aqui cada escrita leva `updateMask.fieldPaths` = exatamente as chaves do
+ * objeto (só elas mudam; o resto do documento fica como está, sem releitura) e
+ * `currentDocument: { exists: true }` — se algum documento do bloco sumiu, o
+ * `:commit` volta 404 NOT_FOUND e o BLOCO INTEIRO não é aplicado. Não é
+ * limitação, é a garantia que se quer: "alguém foi reimportado ou excluído
+ * enquanto a tela estava aberta" é a resposta certa, e não meio lote gravado.
+ *
+ * `_id` é obrigatório em todo objeto e é conferido ANTES de qualquer requisição:
+ * um patch sem endereço não tem o que atualizar, e sortear um id (como
+ * `escreverEmLote` faz) só criaria uma escrita fadada ao 404 — ou, sem a
+ * precondição, um fantasma. Objeto sem campo nenhum além dos metadados é pulado
+ * (não há o que mandar), e não conta no total devolvido.
+ *
+ * Idempotente por construção — aplicar o mesmo patch duas vezes deixa o mesmo
+ * documento —, o que é o que torna seguro passar pela retentativa de `fsFetch_`.
+ * Como os irmãos, NÃO é atômico ENTRE blocos: cada bloco de 500 é tudo ou nada,
+ * e o segundo pode falhar depois de o primeiro ter entrado. Devolve quantos
+ * patches foram enviados.
+ */
+function atualizarEmLote(colecao, objetos) {
+  if (!objetos || !objetos.length) return 0;
+
+  // Nome de RECURSO, sem host — ver fsRecurso_().
+  var raiz = fsRecurso_();
+  var escritas = [];
+
+  objetos.forEach(function (objeto) {
+    if (!objeto || !objeto._id) {
+      throw new Error('atualizarEmLote: todo objeto precisa de _id — um patch sem endereço não tem o que atualizar');
+    }
+    var documento = paraDocumento_(objeto);
+    var chaves = Object.keys(documento.fields);
+    if (!chaves.length) return;
+
+    documento.name = raiz + '/' + colecao + '/' + objeto._id;
+    escritas.push({
+      update: documento,
+      updateMask: { fieldPaths: chaves },
+      currentDocument: { exists: true }
+    });
+  });
+
+  for (var inicio = 0; inicio < escritas.length; inicio += FS_LOTE_MAXIMO) {
+    fsFetch_('post', ':commit', { writes: escritas.slice(inicio, inicio + FS_LOTE_MAXIMO) });
+  }
+  return escritas.length;
 }
 
 /**

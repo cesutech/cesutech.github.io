@@ -152,19 +152,31 @@ SCHEMA[TAB.CONFIG] = [
   { key: 'descricao', label: 'Descrição' }
 ];
 
-/** Estados possíveis da reconciliação inscrição × lista oficial. */
+/**
+ * Estados possíveis da reconciliação inscrição × lista oficial.
+ *
+ * CANCELADO (21/09) é o quinto, e não é um degrau da cascata: é o aluno que a
+ * revisão de uma importação marcou como cancelado na lista oficial
+ * (`situacao_cadastro`, ver `cadastroCancelado_` em 04_Inscricoes.gs) E que não
+ * tem inscrição viva. Com inscrição viva o status continua sendo o da cascata —
+ * a pessoa ocupa vaga de verdade — e a marca viaja em `situacao_cadastro`. É
+ * o único status que a coordenação NÃO pode definir à mão (`resolverAluno`,
+ * 10_Painel.gs): ele nasce da lista oficial e some pela reimportação.
+ */
 var STATUS = {
   CONFIRMADO: 'CONFIRMADO',
   SO_INSCRITO: 'SO_INSCRITO',
   SO_MATRICULADO: 'SO_MATRICULADO',
-  DIVERGENCIA: 'DIVERGENCIA'
+  DIVERGENCIA: 'DIVERGENCIA',
+  CANCELADO: 'CANCELADO'
 };
 
 var STATUS_LABEL = {
   CONFIRMADO: 'Confirmado',
   SO_INSCRITO: 'Só inscrito',
   SO_MATRICULADO: 'Só matriculado',
-  DIVERGENCIA: 'Divergência'
+  DIVERGENCIA: 'Divergência',
+  CANCELADO: 'Cancelado'
 };
 
 /** Configuração default, gravada na aba Config no primeiro setup. */

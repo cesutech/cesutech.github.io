@@ -2747,6 +2747,61 @@ teste('a chave do lote continua custando 0 leituras', () => {
   verdadeiro(feitas.length <= 4, feitas.length + ' requisições — a chave do lote passou a custar ida própria');
 });
 
+// ------------------------------------------------ A reimportação reativa
+
+grupo('a reimportação reativa o cancelado — e avisa o Atualizar da aba Alunos');
+
+teste('reimportar apaga a marca de cancelamento: o documento volta inteiro, sem os 4 campos', () => {
+  // A reativação do desenho, sem função: `escreverEmLote` substitui o documento
+  // e `montarRegistro_` não conhece a marca. Mutação que derruba: gravar os
+  // matriculados por `atualizarEmLote` (mescla) — a marca sobreviveria à lista
+  // nova e a pessoa reenviada pela secretaria continuaria fora do formulário.
+  const { api } = ambiente();
+  importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
+  const antes = api.listar('matriculados', { limite: 1 }).itens[0];
+  api.atualizarEmLote('matriculados', [{
+    _id: antes._id, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L0'
+  }]);
+  igual(api.matriculaConhecida(antes._id), false);
+
+  importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41-de-novo.csv' });
+  const depois = api.ler('matriculados', antes._id);
+  igual(depois.situacao_cadastro, undefined);
+  igual(depois.cancelado_em, undefined);
+  igual(depois.cancelado_por, undefined);
+  igual(depois.cancelado_lote_id, undefined);
+  verdadeiro(depois.lote_id !== antes.lote_id, 'a prova da volta é o lote novo');
+  igual(api.matriculaConhecida(antes._id), true);
+});
+
+teste('confirmarImportacao esquece a marca da reconciliação — com -1, preservando dia, gasto e custo', () => {
+  // A reimportação que reativa não muda a contagem de `matriculados`, e o freio
+  // 1 do Atualizar (10_Painel.gs) compara contagens. Mutação que derruba: tirar
+  // a chamada — a marca ficaria com as contagens iguais e o professor leria
+  // "nada entrou desde a última vez" sobre uma lista que acabou de mudar. Ou
+  // `deleteProperty` — o gasto do dia zeraria.
+  //
+  // 10_Painel.gs entra só aqui: é dele a marca, e é ela que se quer ver mudar.
+  const { api, propriedades, falso } = ambiente({ arquivos: GS.concat(['10_Painel.gs']) });
+  propriedades.set('painel_reconciliacao', JSON.stringify({
+    inscricoes: 5, matriculados: 6, em: '2026-09-21 08:00:00', dia: '2026-09-21', gasto: 1234, custo: 617
+  }));
+
+  const antes = falso.requisicoes.length;
+  const r = importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
+  igual(r.resultado.ok, true, r.resultado.erro);
+
+  const marca = JSON.parse(propriedades.get('painel_reconciliacao'));
+  igual(marca.inscricoes, -1);
+  igual(marca.matriculados, -1);
+  igual(marca.dia, '2026-09-21');
+  igual(marca.gasto, 1234);
+  igual(marca.custo, 617);
+  igual(marca.em, '2026-09-21 08:00:00');
+  igual(falso.requisicoes.slice(antes).filter(LEITURA).length, 0, 'a marca vive em PropertiesService, não no banco');
+});
+
 // ---------------------------------------------------------------- Resultado
 
 process.exit(resultado());
