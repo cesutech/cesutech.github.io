@@ -1076,6 +1076,39 @@ teste('expurgarLote e reconciliar convivem: apagar a lista velha muda os número
     'sem lista oficial e sem inscrições, não sobra aluno nenhum');
 });
 
+// -------------------------------------------------------- A rodada das 5h
+
+grupo('reconciliarAutomatico — a conferência diária');
+
+teste('a linha do log diz quantos foram gravados, e não "undefined"', () => {
+  // `reconciliar()` devolve `escritos` (o resumo lá embaixo), e esta linha lia
+  // `gravados` — um campo que nunca existiu. A rodada das 5h vinha anotando
+  // "gravados: undefined" todo dia desde que o gatilho nasceu, justamente na
+  // única linha que diz se a madrugada fez alguma coisa.
+  //
+  // Mutação que derruba: voltar a `r.gravados`.
+  const amb = ambiente();
+  semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
+  semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002' });
+
+  amb.api.reconciliarAutomatico();
+
+  const linhas = amb.api.listar('log', {}).itens.filter((l) => l.acao === 'RECONCILIACAO_AUTOMATICA');
+  igual(linhas.length, 1, 'a rodada automática não deixou trilha');
+  igual(linhas[0].detalhe, 'alunos: 2, gravados: 2');
+});
+
+teste('a rodada que falha vira linha de ERRO, e não e-mail diário para o dono do script', () => {
+  const amb = ambiente();
+  amb.api.reconciliar = () => { throw new Error('a coleção "matriculados" passou de 8000 documentos'); };
+
+  amb.api.reconciliarAutomatico();
+
+  const erros = amb.api.listar('log', {}).itens.filter((l) => l.acao === 'ERRO');
+  igual(erros.length, 1);
+  verdadeiro(/passou de 8000/.test(erros[0].detalhe), erros[0].detalhe);
+});
+
 // ------------------------------------------------------------ Forms
 
 grupo('sincronizarForms — o que dá para fazer sem planilha-container');

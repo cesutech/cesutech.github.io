@@ -1123,7 +1123,11 @@ function reconciliarAutomatico() {
   try {
     var r = reconciliar();
     registrar('RECONCILIACAO_AUTOMATICA', 'sistema', '',
-      'alunos: ' + (r && r.total) + ', gravados: ' + (r && r.gravados));
+      // `escritos`, e não `gravados`: é o nome que `reconciliar()` devolve (ver o
+      // resumo no fim dela). O campo errado fazia a única linha da madrugada
+      // dizer "gravados: undefined" — e uma linha que não informa nada é pior
+      // que nenhuma, porque parece informação.
+      'alunos: ' + (r && r.total) + ', gravados: ' + (r && r.escritos));
   } catch (e) {
     // Gatilho que lança manda e-mail de falha para o dono do script todo dia.
     // O erro fica no Stackdriver e no log do sistema, que é onde se procura.

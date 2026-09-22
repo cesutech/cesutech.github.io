@@ -1646,6 +1646,33 @@ teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na qua
   igual(api.resumoParaAuditorio_(nova).trocada_de, 'i_x', 'a aba Geral precisa do selo para mostrar a procedência');
 });
 
+teste('a troca declara o cadastro sujo — e sobrevive a 10_Painel.gs não estar carregado', () => {
+  // A troca é a única escrita que muda a ficha do aluno SEM mudar contagem
+  // nenhuma (o `:commit` apaga uma inscrição e cria outra), e o freio 1 do
+  // Atualizar compara contagens — por isso `submeterInscricao` chama
+  // `esquecerMarcaDaReconciliacao_`, que mora em 10_Painel.gs. Este arquivo NÃO
+  // carrega o painel (ver `GS`, lá em cima), que é exatamente a situação em que
+  // a chamada precisa não derrubar nada.
+  //
+  // Mutação que derruba: tirar o try/catch da chamada — o `ReferenceError` sobe
+  // até o `catch` de `submeterInscricao`, e o aluno lê "Erro ao registrar" sobre
+  // uma troca que JÁ aconteceu no banco (a antiga na quarentena, a nova criada).
+  const amb = cenarioDaTroca('SIM');
+  igual(typeof amb.api.esquecerMarcaDaReconciliacao_, 'undefined',
+    'o cenário exige o painel AUSENTE — é ele que dá sentido ao try/catch');
+  inscreverEm(amb.api, 'i_x');
+  comLock(amb.api, amb.falso);
+
+  const r = amb.api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.trocada, { de: [{ projeto_nome: 'Robótica na Escola', codigo: 'robotica' }] });
+  igual(anuladas(amb.falso), ['i_x'], 'a troca tem de ter acontecido inteira');
+  igual(inscricoesGravadas(amb.falso), [r.protocolo]);
+  verdadeiro(amb.registros.erros.some((linha) => linha.indexOf('marca da reconciliação') !== -1),
+    'o console tem de dizer que a marca ficou por fazer: ' + JSON.stringify(amb.registros.erros));
+});
+
 teste('sem outra inscrição ativa, a regra custa UMA consulta a mais — e ela roda dentro do lock', () => {
   // Mutação que derruba: mover a consulta para fora do lock — o índice dela cai
   // antes de `pegou`, e duas abas com a primeira inscrição de cada leem vazio e

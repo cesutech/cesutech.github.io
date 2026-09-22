@@ -1507,6 +1507,36 @@ function submeterInscricao(dados) {
     if (!regra && jaEstaEm.length && !resultado.duplicada) {
       saida.aviso = 'Atenção: você também consta inscrito em ' + jaEstaEm.join(', ') + '.';
     }
+
+    // A TROCA É A ÚNICA ESCRITA QUE MUDA A FICHA SEM MUDAR CONTAGEM NENHUMA.
+    //
+    // O `:commit` apaga a inscrição antiga e cria a nova de uma vez, então
+    // `contar('inscricoes')` fica IGUAL — e o freio 1 do Atualizar da aba Alunos
+    // compara exatamente essas contagens (`reconciliarSeValerAPena_`,
+    // 10_Painel.gs). Sem esta linha, a coordenação clica em Atualizar e lê "nada
+    // entrou desde a última vez" com a ficha mostrando o projeto ANTIGO e um
+    // `inscricao_id` que aponta para um documento apagado (o detalhe do aluno diz
+    // "sem registro correspondente"). É o mesmo buraco que a importação
+    // (05_Importacao.gs) e a revisão (05c_Revisao.gs) já tapam; a troca nasceu
+    // depois da função e não recebeu a linha.
+    //
+    // O ramo indeterminado entra junto: ali a troca PODE ter entrado, e declarar
+    // o cadastro sujo custa uma rodada a mais no pior caso — contra uma ficha
+    // velha que ninguém mais vai cruzar, no outro.
+    //
+    // Em try/catch, e é obrigatório: `esquecerMarcaDaReconciliacao_` mora em
+    // 10_Painel.gs, e testes/inscricoes.js carrega este arquivo SEM ele — um
+    // `ReferenceError` aqui mataria a troca do aluno depois de ela já ter sido
+    // gravada e registrada. O precedente é 05_Importacao.gs, pelo mesmo motivo:
+    // a inscrição já está no banco e não pode virar "Erro ao registrar" na tela.
+    if (resultado.trocada || resultado.troca_indeterminada) {
+      try {
+        esquecerMarcaDaReconciliacao_();
+      } catch (e) {
+        console.error('submeterInscricao (marca da reconciliação): ' + e.message);
+      }
+    }
+
     return saida;
   } catch (err) {
     // A régua D-27 (`semCaminhoDeDocumento_`, 02_Repo.gs) também no console: a

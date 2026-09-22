@@ -3612,6 +3612,51 @@ teste('importar a lista oficial também reabre o cruzamento', () => {
   igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
 });
 
+teste('a TROCA de projeto do aluno declara o cadastro sujo — a contagem não muda, e a ficha muda', () => {
+  // O defeito que este teste nasceu vermelho para provar (22/09): a troca apaga
+  // a inscrição antiga e cria a nova no MESMO `:commit` (04_Inscricoes.gs), então
+  // `contar('inscricoes')` fica IGUAL. O freio 1 compara contagens, não vê nada,
+  // e o Atualizar responde "nada entrou desde a última vez" com a ficha
+  // mostrando o projeto ANTIGO e um `inscricao_id` que aponta para um documento
+  // apagado. É o mesmo buraco que `esquecerMarcaDaReconciliacao_` foi criada
+  // para tapar na importação e na revisão, e a troca nasceu depois dela sem
+  // receber a linha.
+  //
+  // Mutação que derruba: tirar o `esquecerMarcaDaReconciliacao_()` de
+  // `submeterInscricao` — `marca.inscricoes` volta a ser 1 e o Atualizar seguinte
+  // recusa cruzar.
+  const amb = cenarioAtualizar();
+  semearProjeto(amb.api, 'p2', 'Horta Comunitária', 30);
+  amb.api.gravarConfig('aluno_projeto_unico', 'SIM');
+  // O falso de `apoio.js` não tem LockService, e a troca grava dentro dele.
+  amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
+
+  // A ficha é lida do banco, e não de `listarAlunos`: a linha da tela não leva
+  // `projeto` (ver `formatarAlunoParaTela_`), e é justamente o campo que fica velho.
+  const ficha = () => amb.api.listar('alunos', {}).itens[0];
+
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  igual(ficha().projeto, 'R+ Cidades');
+  const antes = amb.api.contar('inscricoes');
+
+  const troca = amb.api.submeterInscricao({
+    projeto_id: 'p2', matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com',
+    whatsapp: '48999998888', curso_fase: 'ADS - ADS21',
+    declara_ciencia: true, autoriza_imagem: true, consentimento_lgpd: true,
+    trocar_de: ['p1']
+  });
+  igual(troca.ok, true, troca.erro);
+  verdadeiro(troca.trocada, 'o cenário não chegou a trocar de projeto');
+  igual(amb.api.contar('inscricoes'), antes, 'a troca apaga uma e cria outra: é por isso que o freio 1 não a vê');
+
+  igual(amb.api.marcaDaReconciliacao_().inscricoes, -1, 'a troca não declarou o cadastro sujo');
+
+  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  igual(depois.reconciliacao.rodou, true,
+    'o Atualizar afirmou "nada entrou" sobre uma ficha com o projeto antigo');
+  igual(ficha().projeto, 'Horta Comunitária');
+});
+
 teste('o orçamento do dia trava o cruzamento, e a recusa traz o número', () => {
   const amb = cenarioAtualizar();
   chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
