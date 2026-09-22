@@ -366,11 +366,19 @@ function paraDocumento_(objeto) {
  * Devolve sempre texto, inclusive quando o campo veio tipado — é o mesmo
  * contrato de `lerTudo` no projeto atual, que garante que nada além de string
  * circula pelo `google.script.run`.
+ *
+ * `_versao` é o `updateTime` que o banco carimbou na última escrita do
+ * documento — metadado de leitura como `_id` e `_nome` (prefixo `_`: não volta
+ * para o banco, não entra em backup nem em máscara). Quem relê um documento e
+ * quer gravar SÓ se ele ainda for aquele passa a versão de volta em
+ * `atualizarEmLote`/`excluirEmLote`, e o `:commit` recusa se alguém escreveu
+ * no meio tempo. Vem tanto de `ler` quanto de `listar` (o `:runQuery` devolve
+ * o documento inteiro, com o carimbo).
  */
 function paraObjeto_(documento) {
   if (!documento) return null;
 
-  var obj = { _id: fsIdDe_(documento.name), _nome: documento.name || '' };
+  var obj = { _id: fsIdDe_(documento.name), _nome: documento.name || '', _versao: documento.updateTime || '' };
   var campos = documento.fields || {};
   Object.keys(campos).forEach(function (chave) {
     obj[chave] = fsTexto_(campos[chave]);
@@ -519,10 +527,23 @@ function escreverEmLote(colecao, objetos) {
  *
  * Aqui cada escrita leva `updateMask.fieldPaths` = exatamente as chaves do
  * objeto (só elas mudam; o resto do documento fica como está, sem releitura) e
- * `currentDocument: { exists: true }` — se algum documento do bloco sumiu, o
- * `:commit` volta 404 NOT_FOUND e o BLOCO INTEIRO não é aplicado. Não é
- * limitação, é a garantia que se quer: "alguém foi reimportado ou excluído
- * enquanto a tela estava aberta" é a resposta certa, e não meio lote gravado.
+ * uma PRECONDIÇÃO, que depende do que o objeto traz:
+ *
+ *   com `_versao` ..... `currentDocument: { updateTime: _versao }` — o documento
+ *                       tem de existir E estar no mesmo carimbo em que foi lido
+ *                       (`paraObjeto_` o traz de toda leitura). Um documento
+ *                       reescrito no meio tempo — a reimportação que trouxe a
+ *                       pessoa de volta, um Editar — faz o `:commit` voltar 400
+ *                       FAILED_PRECONDITION. `exists:true` não distingue "o
+ *                       mesmo documento" de "o documento reescrito", e é essa a
+ *                       diferença entre marcar quem sumiu e marcar quem acabou
+ *                       de voltar;
+ *   sem `_versao` ..... `currentDocument: { exists: true }` — se algum documento
+ *                       do bloco sumiu, o `:commit` volta 404 NOT_FOUND.
+ *
+ * Nos dois casos o BLOCO INTEIRO não é aplicado. Não é limitação, é a garantia
+ * que se quer: "alguém foi reimportado ou excluído enquanto a tela estava
+ * aberta" é a resposta certa, e não meio lote gravado.
  *
  * `_id` é obrigatório em todo objeto e é conferido ANTES de qualquer requisição:
  * um patch sem endereço não tem o que atualizar, e sortear um id (como
@@ -555,7 +576,7 @@ function atualizarEmLote(colecao, objetos) {
     escritas.push({
       update: documento,
       updateMask: { fieldPaths: chaves },
-      currentDocument: { exists: true }
+      currentDocument: fsPrecondicao_(objeto)
     });
   });
 
@@ -566,12 +587,31 @@ function atualizarEmLote(colecao, objetos) {
 }
 
 /**
+ * A precondição de uma escrita em lote, a partir do que o objeto traz.
+ *
+ * Com `_versao` (o `updateTime` lido por `paraObjeto_`), o banco só aplica se o
+ * documento ainda estiver naquele carimbo; sem ela, só exige que exista. É o
+ * mesmo par para o patch e para o delete.
+ */
+function fsPrecondicao_(objeto) {
+  var versao = String((objeto && objeto._versao) || '');
+  return versao ? { updateTime: versao } : { exists: true };
+}
+
+/**
  * Remoção em massa, em blocos de 500 — o espelho de `escreverEmLote`.
  *
  * Existe por um motivo só, e é bom que seja o único: `expurgarLote`
  * (05_Importacao.gs) precisa apagar milhares de matriculados de uma lista velha,
  * e `excluir()` um a um seriam 2.500 requisições, muito além dos 6 minutos de
  * execução. Em blocos são 5.
+ *
+ * Cada item é um id (texto) OU um objeto `{ _id, _versao }` lido do banco. Com
+ * a versão, o delete leva `currentDocument: { updateTime }` e o banco recusa o
+ * bloco inteiro (400 FAILED_PRECONDITION) se o documento foi reescrito depois
+ * da leitura — a revisão (05c_Revisao.gs) apaga o matriculado que RELEU, e não
+ * o que uma reimportação acabou de gravar no mesmo id. Sem versão o delete é o
+ * de sempre: sem precondição, apagar o que não existe é 200.
  *
  * Como o `escreverEmLote`, NÃO é atômico entre blocos: o terceiro pode falhar
  * depois de dois terem apagado. Aqui isso é aceitável de um jeito que não era na
@@ -588,8 +628,12 @@ function excluirEmLote(colecao, ids) {
 
   for (var inicio = 0; inicio < ids.length; inicio += FS_LOTE_MAXIMO) {
     var bloco = ids.slice(inicio, inicio + FS_LOTE_MAXIMO);
-    var escritas = bloco.map(function (id) {
-      return { delete: raiz + '/' + colecao + '/' + id };
+    var escritas = bloco.map(function (item) {
+      var objeto = (item && typeof item === 'object') ? item : { _id: item };
+      if (!objeto._id) throw new Error('excluirEmLote: todo item precisa de id');
+      var escrita = { delete: raiz + '/' + colecao + '/' + objeto._id };
+      if (objeto._versao) escrita.currentDocument = { updateTime: String(objeto._versao) };
+      return escrita;
     });
 
     fsFetch_('post', ':commit', { writes: escritas });

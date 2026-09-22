@@ -795,6 +795,9 @@ teste('varrerInscricoes_ leva o id e o projeto_id de cada inscrição — é por
   igual(v.porMatricula['9110001'][0].id, gravada.id);
   igual(v.porMatricula['9110001'][0].projeto_id, 'p1');
   igual(v.todas[0].id, gravada.id);
+  // O CPF fica na linha (em memória) para a revisão juntar as inscrições de
+  // uma mesma pessoa sem matrícula pela chave da reconciliação.
+  verdadeiro('cpf' in v.todas[0], 'a linha não traz cpf');
 });
 
 teste('quem se inscreveu e a lista oficial NÃO tem não some da conta', () => {

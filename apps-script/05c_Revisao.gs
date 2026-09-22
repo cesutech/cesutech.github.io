@@ -84,11 +84,30 @@
  *
  * As duas ações SEMPRE anulam as inscrições vivas do aluno (decisão de 21/09):
  * a vaga tem de ser liberada, e o cancelado fica fora da lista padrão. As
- * inscrições são descobertas AQUI, pela mesma varredura de `revisarLote`, no
- * instante do Aplicar — e não recebidas da tela —, para uma inscrição feita
- * entre abrir a janela e clicar não ficar viva por baixo da marca. Anular passa
- * inteira por `anularInscricoes` (13_Auditorio.gs): relê, copia para a
- * quarentena, apaga, libera a vaga por construção e grava a linha dela no log.
+ * inscrições são descobertas AQUI, no instante do Aplicar — e não recebidas da
+ * tela —, para uma inscrição feita entre abrir a janela e clicar não ficar viva
+ * por baixo da marca. Anular passa inteira por `anularInscricoes`
+ * (13_Auditorio.gs): relê, copia para a quarentena, apaga, libera a vaga por
+ * construção e grava a linha dela no log.
+ *
+ * "As inscrições do aluno" são DUAS fontes, e as duas são lidas nas duas
+ * funções (`cruzamentoDaTurma_`):
+ *
+ *   a varredura de `inscricoes` (a de Disciplinas), indexada pela MATRÍCULA da
+ *   inscrição — quem se inscreveu com a matrícula da lista;
+ *
+ *   as fichas de `alunos` da turma, UMA consulta, pela `matricula_id` — a
+ *   inscrição sem matrícula (projeto aberto à comunidade) ou com matrícula que
+ *   a lista não tem, que a reconciliação casou por CPF, e-mail ou nome. Ela
+ *   ocupa vaga tanto quanto a outra, e a varredura sozinha não a enxerga; a
+ *   janela diz "casada por e-mail" ao lado do projeto. A segunda inscrição da
+ *   mesma pessoa (outro projeto) entra pela chave de pessoa da reconciliação
+ *   (`chaveDePessoa_`), porque a ficha só endereça a primeira. O que fica de
+ *   fora: uma inscrição casada por CPF/e-mail/nome DEPOIS da última rodada da
+ *   reconciliação (a ficha ainda não a conhece) e a ficha cuja turma ficou
+ *   velha (o matriculado mudou de turma depois da rodada). Nos dois casos a
+ *   rodada seguinte mostra a pessoa em Alunos como cancelada COM projeto, e a
+ *   coordenação anula pelo Auditório.
  *
  * -------------------------------------------------- A ordem do Aplicar
  *
@@ -97,7 +116,8 @@
  *   2. releitura da turma por UMA consulta — cada decisão é conferida contra o
  *      documento de agora: quem voltou numa importação igual ou mais nova, ou
  *      já não consta como a turma, é PULADO e não é tocado;
- *   3. a varredura de inscrições e o teto de anulação (200, o do Auditório);
+ *   3. o cruzamento (varredura de inscrições + fichas) e o teto de anulação
+ *      (200, o do Auditório);
  *   4. ANULAR PRIMEIRO — é o passo com teto próprio e com quarentena, logo o
  *      reversível; se ele recusar, nada foi cancelado antes;
  *   5. EXCLUIR: cópia → apaga → fichas órfãs em `alunos`;
@@ -106,6 +126,18 @@
  *   8. a linha LOTE_REVISADO, com as MATRÍCULAS por ação (números, sem nome —
  *      decisão de 21/09; o precedente é `registrarEdicao_`, 10_Painel.gs);
  *   9. cache do Painel e marca da reconciliação.
+ *
+ * Entre a releitura (2) e o apaga (5) ou o patch (6) passam SEGUNDOS a MINUTOS:
+ * `anularInscricoes` relê cada inscrição em fila, ~0,5 s cada, até 200. Uma
+ * reimportação que entra nessa janela reescreve o documento do aluno com o
+ * `lote_id` novo — e `exists:true` deixaria o patch marcar como cancelado quem
+ * está na lista oficial mais nova (invisível a qualquer revisão depois: o
+ * `lote_id` já é o novo). Por isso o patch e o delete levam a VERSÃO relida
+ * (`_versao`, o `updateTime` do banco): o `:commit` recusa o bloco inteiro com
+ * FAILED_PRECONDITION se qualquer documento mudou, `fraseSegura_` diz "a lista
+ * da tela é de antes" e a resposta traz o que já foi feito (as anulações). A
+ * pessoa reimportada fica sem a inscrição — o mesmo caso da inclusão no meio
+ * tempo, desfeito por Alunos → Incluir aluno.
  *
  * Cada passo relata o que JÁ fez se o seguinte falhar (o `catch` devolve os
  * contadores). Reaplicar é seguro: inscrição anulada vira `nao_encontradas`,
@@ -117,21 +149,24 @@
  *
  * -------------------------------------------------- Custo
  *
- * T = matriculados da turma, C = candidatos, I = inscrições, L = lotes (≤50).
+ * T = matriculados da turma, C = candidatos, I = inscrições, L = lotes (≤50),
+ * F = fichas de `alunos` da turma (≤ T).
  *
  *   revisarLote contarApenas   1 + T + L (só com candidatos)      ~3 idas
- *   revisarLote completo       o mesmo + I (bloco de 300)         4-5 idas
- *   aplicarRevisao             1 + T + I + (1 a 2 por id anulado) +
+ *   revisarLote completo       o mesmo + I (bloco de 300) + F     5-6 idas
+ *   aplicarRevisao             1 + T + I + F + (1 a 2 por id anulado) +
  *                              (1 consulta por excluído); escritas 2 por
  *                              anulada + 2 por excluído + ≤1 ficha + 1 commit
- *                              dos cancelados + 1 lote + 2 log      ~10 idas
+ *                              dos cancelados + 1 lote + 2 log      ~11 idas
  *
- * Turma de 40 com 3 sumidos, hoje: contar ≈ 91 leituras; completo ≈ 366; o
- * Aplicar ≈ 320 leituras e ~20 escritas. Teto absoluto do revisar: 1 + 500 +
- * 50 + 2000 ≈ 2.551. Abrir as treze turmas de uma sexta ≈ 4.800 leituras, ~10%
- * do dia. O painel dá 15 s a `revisarLote` (LIMITE_DE_LEITURA_POR_FUNCAO_MS):
- * ela lê três coleções e é a leitura mais lenta do painel depois da de
- * disciplinas — e abortada, a tentativa seguinte paga a conta inteira de novo.
+ * Turma de 40 com 3 sumidos, hoje: contar ≈ 91 leituras; completo ≈ 406; o
+ * Aplicar ≈ 360 leituras e ~20 escritas. Teto absoluto do revisar: 1 + 500 +
+ * 50 + 2000 + 500 ≈ 3.051. Abrir as treze turmas de uma sexta ≈ 5.300
+ * leituras, ~11% do dia. O painel dá 15 s a `revisarLote`
+ * (LIMITE_DE_LEITURA_POR_FUNCAO_MS): ela lê quatro coleções e é a leitura mais
+ * lenta do painel depois da de disciplinas — e abortada, a tentativa seguinte
+ * paga a conta inteira de novo. As fichas custam T leituras numa ida, e não
+ * uma ida por candidato: 40 idas seriam ~20 s, fora do limite.
  *
  * -------------------------------------------------- O que sai daqui
  *
@@ -313,14 +348,14 @@ function revisarLote(payload) {
     if (payload.contarApenas) return resposta;
 
     // O cruzamento com os projetos — a MESMA varredura da aba Disciplinas, para
-    // as duas telas concordarem sobre quem tem inscrição.
-    var varredura = varrerInscricoes_(REVISAO_MAX_CRUZAMENTO);
-    lidas.inscricoes += varredura.lidas;
+    // as duas telas concordarem sobre quem tem inscrição, mais a ponte pelas
+    // fichas (ver o cabeçalho).
+    var cruzamento = cruzamentoDaTurma_(turma.turma, lidas);
 
     var semProjeto = [];
     var comProjeto = [];
     candidatos.forEach(function (c) {
-      var item = itemDaRevisao_(c.doc, c.lote, inscricoesDe_(varredura, c.doc));
+      var item = itemDaRevisao_(c.doc, c.lote, inscricoesDe_(cruzamento, c.doc));
       (item.inscricoes.length ? comProjeto : semProjeto).push(item);
     });
     semProjeto.sort(porNome_);
@@ -335,21 +370,21 @@ function revisarLote(payload) {
         nome: m.nome || '',
         cancelado_em: m.cancelado_em || '',
         cancelado_por: m.cancelado_por || '',
-        inscricoes: inscricoesDe_(varredura, m)
+        inscricoes: inscricoesDe_(cruzamento, m)
       };
     }).sort(porNome_);
     resposta.revisado = lote.revisado_em
       ? { em: lote.revisado_em, por: lote.revisado_por || '', resumo: resumoDaRevisao_(lote.revisao_resumo) }
       : null;
-    resposta.truncado = Boolean(varredura.truncado);
+    resposta.truncado = Boolean(cruzamento.truncado);
 
-    if (varredura.truncado) {
+    if (cruzamento.truncado) {
       // A agregação só acontece aqui, e é o único lugar em que ela se paga: o
       // aviso precisa dizer o TAMANHO do buraco.
       var total = contar(INSCRICOES_COLECAO);
       resposta.avisos.push(
-        'Li as ' + varredura.lidas + ' primeiras inscrições de ' + total + '. Quem estiver nas ' +
-        Math.max(0, total - varredura.lidas) + ' restantes aparece aqui como SEM PROJETO sem estar — ' +
+        'Li as ' + cruzamento.lidas + ' primeiras inscrições de ' + total + '. Quem estiver nas ' +
+        Math.max(0, total - cruzamento.lidas) + ' restantes aparece aqui como SEM PROJETO sem estar — ' +
         'o Aplicar recusa enquanto isso durar.');
     }
 
@@ -489,19 +524,93 @@ function resumoDoLote_(id, lote) {
   };
 }
 
-/** As inscrições vivas de um matriculado, pela chave que a varredura indexa. */
-function inscricoesDe_(varredura, m) {
+/**
+ * As duas fontes de "quem tem inscrição" (ver "Cancelar e Excluir" no
+ * cabeçalho), lidas uma vez por chamada:
+ *
+ *   varredura   `varrerInscricoes_` (12_Disciplinas.gs), por matrícula;
+ *   porId       a mesma varredura, por id — é o que diz se a inscrição que a
+ *               ficha aponta ainda está VIVA (a ficha é da última rodada da
+ *               reconciliação; a inscrição pode ter sido anulada depois);
+ *   porPessoa   a mesma varredura, pela chave de pessoa da reconciliação
+ *               (`chaveDePessoa_`, 06) — a segunda inscrição da mesma pessoa,
+ *               que a ficha junta em `projeto` mas não endereça;
+ *   fichas      as fichas de `alunos` da turma com inscrição, por
+ *               `matricula_id`. UMA consulta de igualdade pela turma (a ficha
+ *               copia a turma do matriculado), e não uma por candidato: cada
+ *               ida custa ~0,5 s e o painel dá 15 s a `revisarLote`.
+ */
+function cruzamentoDaTurma_(turma, lidas) {
+  var varredura = varrerInscricoes_(REVISAO_MAX_CRUZAMENTO);
+  lidas.inscricoes += varredura.lidas;
+
+  var porId = {};
+  var porPessoa = {};
+  varredura.todas.forEach(function (i) {
+    porId[i.id] = i;
+    var pessoa = chaveDePessoa_(i);
+    if (!pessoa) return;
+    if (!Object.prototype.hasOwnProperty.call(porPessoa, pessoa)) porPessoa[pessoa] = [];
+    porPessoa[pessoa].push(i);
+  });
+
+  var fichas = {};
+  var lidasDeFichas = listar(ALUNOS_COLECAO, { campo: 'turma', valor: turma, limite: REVISAO_MAX_TURMA }).itens;
+  lidas.fichas = (lidas.fichas || 0) + lidasDeFichas.length;
+  lidasDeFichas.forEach(function (ficha) {
+    var m = normalizarMatricula(ficha.matricula_id);
+    if (!m || !ficha.inscricao_id) return;
+    if (!Object.prototype.hasOwnProperty.call(fichas, m)) fichas[m] = [];
+    fichas[m].push(ficha);
+  });
+
+  return {
+    porMatricula: varredura.porMatricula, porId: porId, porPessoa: porPessoa, fichas: fichas,
+    lidas: varredura.lidas, truncado: Boolean(varredura.truncado)
+  };
+}
+
+/**
+ * As inscrições vivas de um matriculado: as que trazem a matrícula dele, mais
+ * as que a reconciliação casou com ele por outro caminho (a ficha diz qual, e
+ * é o que `casadaPor` carrega para a janela — vazio quando foi pela matrícula).
+ */
+function inscricoesDe_(cruzamento, m) {
   var chave = normalizarMatricula(m.matricula || m._id);
-  if (!chave || !Object.prototype.hasOwnProperty.call(varredura.porMatricula, chave)) return [];
-  return varredura.porMatricula[chave].map(function (i) {
-    return {
+  if (!chave) return [];
+
+  var saida = [];
+  var vistas = {};
+  var juntar = function (i, casadaPor) {
+    if (Object.prototype.hasOwnProperty.call(vistas, i.id)) return;
+    vistas[i.id] = true;
+    saida.push({
       id: i.id,
       projetoId: i.projeto_id,
       projetoNome: i.projeto,
       emEspera: Boolean(i.em_espera),
-      criadoEm: i.criado_em
-    };
-  });
+      criadoEm: i.criado_em,
+      casadaPor: casadaPor
+    });
+  };
+
+  if (Object.prototype.hasOwnProperty.call(cruzamento.porMatricula, chave)) {
+    cruzamento.porMatricula[chave].forEach(function (i) { juntar(i, ''); });
+  }
+  if (Object.prototype.hasOwnProperty.call(cruzamento.fichas, chave)) {
+    cruzamento.fichas[chave].forEach(function (ficha) {
+      var apontada = cruzamento.porId[String(ficha.inscricao_id)];
+      // Ficha mais velha que a anulação: a inscrição já não existe, e não há o
+      // que anular nem o que mostrar.
+      if (!apontada) return;
+      var metodo = String(ficha.metodo_match || 'reconciliação');
+      var pessoa = chaveDePessoa_(apontada);
+      var mesmaPessoa = pessoa && Object.prototype.hasOwnProperty.call(cruzamento.porPessoa, pessoa)
+        ? cruzamento.porPessoa[pessoa] : [apontada];
+      mesmaPessoa.forEach(function (i) { juntar(i, metodo); });
+    });
+  }
+  return saida;
 }
 
 /**
@@ -616,22 +725,23 @@ function aplicarRevisao(payload) {
       (d.acao === 'EXCLUIR' ? excluir : cancelar).push(doc);
     });
 
-    // 3. As inscrições a anular — descobertas AGORA (ver o cabeçalho), de todo
-    // mundo que vai ser tocado, inclusive de quem já estava cancelado. Quem foi
-    // PULADO não entra: quem voltou na lista fica com a inscrição.
+    // 3. As inscrições a anular — descobertas AGORA (ver o cabeçalho), pelas
+    // duas fontes, de todo mundo que vai ser tocado, inclusive de quem já
+    // estava cancelado. Quem foi PULADO não entra: quem voltou na lista fica
+    // com a inscrição.
     var idsAnular = [];
     if (cancelar.length || excluir.length || jaCancelados.length) {
-      var varredura = varrerInscricoes_(REVISAO_MAX_CRUZAMENTO);
-      if (varredura.truncado) {
+      var cruzamento = cruzamentoDaTurma_(turma, { inscricoes: 0, fichas: 0 });
+      if (cruzamento.truncado) {
         return {
           ok: false,
-          erro: 'A varredura de inscrições foi cortada em ' + varredura.lidas + ' — não dá para ' +
+          erro: 'A varredura de inscrições foi cortada em ' + cruzamento.lidas + ' — não dá para ' +
                 'garantir que toda inscrição dos alunos marcados seria anulada, e cancelar sem ' +
                 'liberar a vaga não é uma opção. Nada foi feito.'
         };
       }
       cancelar.concat(excluir, jaCancelados).forEach(function (doc) {
-        inscricoesDe_(varredura, doc).forEach(function (i) {
+        inscricoesDe_(cruzamento, doc).forEach(function (i) {
           if (idsAnular.indexOf(i.id) === -1) idsAnular.push(i.id);
         });
       });
@@ -680,15 +790,22 @@ function aplicarRevisao(payload) {
         copia.excluido_lote_id = loteId;
         return copia;
       }));
-      feito.excluidos = excluirEmLote(MATRICULADOS_COLECAO, excluir.map(function (doc) { return doc._id; }));
+      // Apaga o documento RELIDO (a versão vai junto): reescrito no meio tempo
+      // por uma reimportação, o delete é recusado e a cópia acima fica sobrando
+      // — nunca uma pessoa a menos.
+      feito.excluidos = excluirEmLote(MATRICULADOS_COLECAO, excluir.map(function (doc) {
+        return { _id: doc._id, _versao: doc._versao };
+      }));
       feito.fichasApagadas = apagarFichasOrfas_(excluir, idsAnular);
     }
 
-    // 6. CANCELAR: o patch em lote — exatamente quatro campos, `exists:true`.
+    // 6. CANCELAR: o patch em lote — exatamente quatro campos, e a versão
+    // relida como precondição (ver "A ordem do Aplicar").
     if (cancelar.length) {
       feito.cancelados = atualizarEmLote(MATRICULADOS_COLECAO, cancelar.map(function (doc) {
         return {
           _id: doc._id,
+          _versao: doc._versao,
           situacao_cadastro: 'CANCELADO',
           cancelado_em: carimboAgora,
           cancelado_por: quem,
@@ -801,8 +918,12 @@ function decisoesDoPayload_(brutas) {
  * quem tem inscrição, o id da ficha vem da INSCRIÇÃO (06_Reconciliacao.gs), e
  * o endereço derivado da matrícula não acha ninguém. Ela sai quando não tem
  * `inscricao_id`, ou quando a inscrição dela acabou de ser anulada; com uma
- * inscrição que ficou viva (uma não lida pela varredura), a ficha fica — a
- * rodada seguinte a recalcula como SO_INSCRITO.
+ * inscrição que ficou viva (a ficha de turma velha, que o cruzamento por turma
+ * não viu), a ficha fica — a rodada seguinte a recalcula como SO_INSCRITO.
+ *
+ * É uma consulta POR excluído (e não a de `cruzamentoDaTurma_`, pela turma):
+ * excluídos são poucos, e a ficha com turma velha é justamente a que a consulta
+ * pela turma não alcança.
  *
  * `planejarRemocoes_` (06) não serve aqui: o teto de 100 remoções por rodada é
  * o que deixa fichas órfãs para sempre depois de um expurgo grande.
@@ -842,10 +963,12 @@ function mensagemDosPulados_(pulados) {
  * A frase que pode ir para o log de execução e para a tela.
  *
  * A mensagem do Firestore num `:commit` recusado traz o caminho do documento —
- * 'No document to update: projects/.../matriculados/9110001' —, e o caminho É a
- * matrícula. NOT_FOUND e FAILED_PRECONDITION no meio de um Aplicar significam
- * uma coisa só, e ela é dita com uma frase fixa; qualquer outra mensagem perde o
- * caminho antes de sair daqui.
+ * 'No document to update: projects/.../matriculados/9110001', 'the stored
+ * version (...) does not match ... for projects/.../matriculados/9110001' —, e
+ * o caminho É a matrícula. NOT_FOUND (sumiu) e FAILED_PRECONDITION (foi
+ * reescrito: a precondição de versão do patch e do delete) no meio de um
+ * Aplicar significam uma coisa só, e ela é dita com uma frase fixa; qualquer
+ * outra mensagem perde o caminho antes de sair daqui.
  */
 function fraseSegura_(err) {
   var status = String((err && err.status) || '');

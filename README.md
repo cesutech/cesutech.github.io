@@ -76,8 +76,12 @@ cada um se decide **Manter**, **Cancelar** (a matrícula some do formulário e
 das listas; volta sozinha se a secretaria a reenviar) ou **Excluir** (sai do
 banco, com cópia em `matriculados_excluidos`; só para quem nunca deveria ter
 entrado). Cancelar e Excluir sempre anulam as inscrições da pessoa: a vaga é
-liberada, e a inscrição fica na quarentena do Auditório. Depois de aplicar,
-**Alunos → Atualizar** refaz o cruzamento.
+liberada, e a inscrição fica na quarentena do Auditório. Contam como "da
+pessoa" tanto a inscrição feita com a matrícula dela quanto a que o cruzamento
+de Alunos casou por e-mail, CPF ou nome (a janela diz "casada por" ao lado do
+projeto) — uma inscrição casada assim DEPOIS do último cruzamento só é vista
+no cruzamento seguinte, e aí aparece em Alunos como cancelada com projeto.
+Depois de aplicar, **Alunos → Atualizar** refaz o cruzamento.
 
 **Apagar matriculados** é a vassoura entre semestres: tira do banco uma lista
 antiga inteira, lote a lote. O rito da virada de semestre é importar TODAS as

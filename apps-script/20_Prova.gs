@@ -417,20 +417,26 @@ function provaVazao(n) {
 }
 
 /**
- * Prova 6: `atualizarEmLote` (02_Repo.gs) contra o Firestore de verdade.
+ * Prova 6: `atualizarEmLote` e `excluirEmLote` com versão (02_Repo.gs) contra o
+ * Firestore de verdade.
  *
  * É o ÚNICO ponto em que o falso dos testes (testes/apoio.js) pode divergir do
- * banco, e é o que a revisão de divergências usa para cancelar alunos: um
- * `:commit` com `update + updateMask + currentDocument:{exists:true}`. Duas
- * afirmações, e as duas precisam ser verdade antes do primeiro Aplicar em
+ * banco, e é o que a revisão de divergências usa para cancelar e excluir
+ * alunos: um `:commit` com `update + updateMask + currentDocument`. Quatro
+ * afirmações, e as quatro precisam ser verdade antes do primeiro Aplicar em
  * produção (ver o checklist do plano de 21/09):
  *
  *   1. o patch num documento existente muda SÓ os campos da máscara — nome,
  *      CPF e a linha original sobrevivem;
  *   2. o patch num id inexistente devolve 404 NOT_FOUND e NADA do lote é
- *      aplicado — nem o documento bom que veio antes dele.
+ *      aplicado — nem o documento bom que veio antes dele;
+ *   3. o `updateTime` que `ler`/`listar` devolvem em `_versao` serve tal qual
+ *      como `currentDocument.updateTime`: o patch com a versão CERTA entra, e
+ *      o patch com a versão de ANTES de uma reescrita volta FAILED_PRECONDITION
+ *      sem aplicar nada (a corrida do Aplicar, 05c_Revisao.gs);
+ *   4. o delete com a versão de antes também é recusado, e o documento fica.
  *
- * Custa 2 escritas, 3 leituras e um commit recusado. `provaLimpar()` apaga.
+ * Custa ~5 escritas, ~6 leituras e três commits recusados. `provaLimpar()` apaga.
  */
 function provaAtualizarEmLote() {
   Logger.log('=== provaAtualizarEmLote ===');
@@ -468,8 +474,46 @@ function provaAtualizarEmLote() {
     '; o bom ficou ' + (intacto && intacto.situacao_cadastro) + '; fantasma: ' + (fantasma ? 'CRIADO' : 'não criado') +
     ' -> ' + (atomico ? 'OK — nada do lote entrou' : 'FALHOU'));
 
-  Logger.log((preservou && atomico) ? 'atualizarEmLote está de pé.' : 'atualizarEmLote DIVERGE do falso: NÃO usar a revisão em produção.');
-  return { preservou: preservou, atomico: atomico };
+  // 3. A versão. `listar` é o caminho da releitura do Aplicar; `ler` confere
+  // que os dois dizem a mesma coisa. Com a versão certa o patch entra; depois
+  // de uma reescrita (a reimportação do meio tempo) a versão velha é recusada.
+  var relido = listar(COL_PATCH, { campo: 'lote_id', valor: 'L_prova' }).itens.filter(function (d) { return d._id === id; })[0];
+  var mesmaVersao = Boolean(relido && relido._versao) && relido._versao === (ler(COL_PATCH, id) || {})._versao;
+  var entrou = false;
+  try {
+    entrou = atualizarEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova2@exemplo.com' }]) === 1 &&
+      (ler(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
+  } catch (e) {
+    Logger.log('3a. patch com a versão certa foi RECUSADO: ' + (e.status || e.message));
+  }
+  var recusouVersao = '';
+  try {
+    atualizarEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova3@exemplo.com' }]);
+  } catch (e) {
+    recusouVersao = e.status || e.message;
+  }
+  var ficouComA2 = (ler(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
+  var versionado = mesmaVersao && entrou && recusouVersao === 'FAILED_PRECONDITION' && ficouComA2;
+  Logger.log('3. versão: ler/listar iguais: ' + mesmaVersao + '; patch com a versão certa entrou: ' + entrou +
+    '; patch com a versão velha: ' + (recusouVersao ? 'recusou com ' + recusouVersao : 'NÃO recusou') +
+    '; o documento ficou como o patch certo deixou: ' + ficouComA2 + ' -> ' + (versionado ? 'OK' : 'FALHOU'));
+
+  // 4. O delete com a versão velha.
+  var recusouDelete = '';
+  try {
+    excluirEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao }]);
+  } catch (e) {
+    recusouDelete = e.status || e.message;
+  }
+  var sobreviveu = ler(COL_PATCH, id) !== null;
+  var deleteSeguro = recusouDelete === 'FAILED_PRECONDITION' && sobreviveu;
+  Logger.log('4. delete com a versão velha: ' + (recusouDelete ? 'recusou com ' + recusouDelete : 'NÃO recusou') +
+    '; o documento ' + (sobreviveu ? 'ficou' : 'SUMIU') + ' -> ' + (deleteSeguro ? 'OK' : 'FALHOU'));
+
+  var tudo = preservou && atomico && versionado && deleteSeguro;
+  Logger.log(tudo ? 'atualizarEmLote/excluirEmLote com versão estão de pé.'
+    : 'atualizarEmLote/excluirEmLote DIVERGEM do falso: NÃO usar a revisão em produção.');
+  return { preservou: preservou, atomico: atomico, versionado: versionado, deleteSeguro: deleteSeguro };
 }
 
 /**

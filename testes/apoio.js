@@ -106,6 +106,26 @@ function criarFirestoreFalso() {
   const idas = [];
   const forcadas = [];
 
+  // O `updateTime` de cada documento, como o Firestore carimba a cada escrita.
+  // Vive num mapa à parte para `documentos` continuar sendo só os `fields` (é o
+  // que os testes leem e semeiam direto). Documento semeado sem passar por
+  // escrita nenhuma tem o carimbo de nascença, igual para todos — o que importa
+  // é que TODA escrita troca o carimbo por um que nunca se repete, porque é
+  // isso que a precondição `currentDocument.updateTime` compara.
+  const carimbos = new Map();
+  const CARIMBO_INICIAL = '2026-08-05T00:00:00Z';
+  let escritas = 0;
+
+  function carimbar(chave) {
+    escritas++;
+    // Microssegundos, como o Firestore devolve — e um por escrita, nunca repetido.
+    carimbos.set(chave, '2026-08-05T00:00:00.' + String(escritas).padStart(6, '0') + 'Z');
+  }
+
+  function carimboDe(chave) {
+    return carimbos.get(chave) || CARIMBO_INICIAL;
+  }
+
   function resposta(codigo, corpo) {
     const texto = typeof corpo === 'string' ? corpo : JSON.stringify(corpo);
     return { getResponseCode: () => codigo, getContentText: () => texto };
@@ -121,7 +141,7 @@ function criarFirestoreFalso() {
 
   function documentoDe(chave) {
     const [colecao, id] = chave.split('/');
-    return { name: nomeDe(colecao, id), fields: documentos.get(chave) };
+    return { name: nomeDe(colecao, id), fields: documentos.get(chave), updateTime: carimboDe(chave) };
   }
 
   /** Valor pelo qual a consulta ordena. `__name__` ordena pelo caminho. */
@@ -223,6 +243,15 @@ function criarFirestoreFalso() {
       // as que vieram antes dela. Um falso que aplicasse enquanto valida deixaria
       // `atualizarEmLote` passar nos testes gravando meio lote, que é
       // exatamente o que a precondição existe para impedir.
+      //
+      // `currentDocument: { updateTime }` é a precondição mais forte: o
+      // documento tem de existir E estar no MESMO carimbo em que foi lido —
+      // qualquer escrita no meio tempo (uma reimportação, um Editar) responde
+      // 400 FAILED_PRECONDITION para o lote inteiro. É o que a revisão
+      // (05c_Revisao.gs) usa para não cancelar nem apagar um documento que já
+      // não é o que a tela mostrou; sem isto no falso, `exists:true` passaria
+      // por cima de um documento reescrito e o teste da corrida não teria como
+      // existir.
       const pendentes = [];
       for (const w of corpo.writes) {
         const nome = w.update ? w.update.name : w.delete;
@@ -232,17 +261,26 @@ function criarFirestoreFalso() {
         }
         const partesNome = nome.split('/documents/')[1].split('/');
         const chave = partesNome[0] + '/' + partesNome[1];
-        if (w.currentDocument && w.currentDocument.exists === true && !documentos.has(chave)) {
+        const pre = w.currentDocument || {};
+        if (pre.exists === true && !documentos.has(chave)) {
           return erro(404, 'NOT_FOUND', 'No document to update: ' + nome);
         }
-        if (w.currentDocument && w.currentDocument.exists === false && documentos.has(chave)) {
+        if (pre.exists === false && documentos.has(chave)) {
           return erro(409, 'ALREADY_EXISTS', 'Document already exists: ' + nome);
+        }
+        if (pre.updateTime !== undefined) {
+          if (!documentos.has(chave)) return erro(404, 'NOT_FOUND', 'No document to update: ' + nome);
+          if (String(pre.updateTime) !== carimboDe(chave)) {
+            return erro(400, 'FAILED_PRECONDITION', 'the stored version (' + carimboDe(chave) +
+              ') does not match the required base version (' + pre.updateTime + ') for ' + nome);
+          }
         }
         pendentes.push({ w, chave });
       }
       for (const { w, chave } of pendentes) {
-        if (!w.update) { documentos.delete(chave); continue; }
+        if (!w.update) { documentos.delete(chave); carimbos.delete(chave); continue; }
 
+        carimbar(chave);
         const mascara = (w.updateMask && w.updateMask.fieldPaths) || [];
         if (!mascara.length) { documentos.set(chave, w.update.fields); continue; }
 
@@ -279,6 +317,7 @@ function criarFirestoreFalso() {
         return erro(409, 'ALREADY_EXISTS', 'Document already exists: ' + nomeDe(colecao, desejado));
       }
       documentos.set(chave, corpo.fields || {});
+      carimbar(chave);
       return resposta(200, documentoDe(chave));
     }
 
@@ -302,11 +341,13 @@ function criarFirestoreFalso() {
         if (enviados[c] !== undefined) novo[c] = enviados[c];
       });
       documentos.set(chave, novo);
+      carimbar(chave);
       return resposta(200, documentoDe(chave));
     }
 
     if (metodo === 'DELETE') {
       documentos.delete(colecao + '/' + id);
+      carimbos.delete(colecao + '/' + id);
       return resposta(200, {});
     }
 

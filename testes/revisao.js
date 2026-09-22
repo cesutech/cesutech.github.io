@@ -10,8 +10,13 @@
  *      um lote antigo — ela está em SO_LEITURA e é repetida pelo painel.
  *   3. A ORDEM DO APLICAR. Anular primeiro (o passo com quarentena); a
  *      releitura pula quem voltou; os tetos recusam antes de qualquer leitura;
- *      cada passo relata o que já fez quando o seguinte cai.
- *   4. O QUE SAI. O log leva matrículas e nunca nome; a mensagem de erro do
+ *      cada passo relata o que já fez quando o seguinte cai; e o patch e o
+ *      delete levam a VERSÃO relida — a reimportação que entra DENTRO do
+ *      Aplicar não vira cancelamento de quem acabou de voltar.
+ *   4. TODAS AS INSCRIÇÕES. A que traz a matrícula (varredura) e a que a
+ *      reconciliação casou por e-mail/CPF/nome (ficha de `alunos`) — as duas
+ *      ocupam vaga, as duas são anuladas.
+ *   5. O QUE SAI. O log leva matrículas e nunca nome; a mensagem de erro do
  *      Firestore perde o caminho do documento antes de chegar à tela.
  *
  * As listas entram pelo caminho REAL da importação (`analisarArquivo` +
@@ -313,11 +318,16 @@ teste('quem estava como ADS41 e não veio no arquivo de ADS41 é candidato; quem
   igual(r.semProjeto[0].lote.arquivo, 'ads41-sexta.csv', 'de onde ela veio pela última vez');
   igual(r.loteMaximo, 100);
 
-  // A consulta é UMA igualdade em `turma`, com a chave do lote.
+  // A consulta é UMA igualdade em `turma`, com a chave do lote — em
+  // `matriculados`; a outra igualdade em `turma` é a das fichas de `alunos`
+  // (o cruzamento), também uma só.
   const consultas = consultaPor(amb.falso, 'turma');
-  igual(consultas.length, 1);
-  igual(consultas[0].where.fieldFilter.value.stringValue, 'ADS41');
-  igual(consultas[0].orderBy[0].field.fieldPath, '__name__', 'filtro num campo e ordem noutro pede índice composto');
+  igual(consultas.map((q) => q.from[0].collectionId).sort(), ['alunos', 'matriculados']);
+  consultas.forEach((q) => {
+    igual(q.where.fieldFilter.value.stringValue, 'ADS41');
+    igual(q.orderBy[0].field.fieldPath, '__name__', 'filtro num campo e ordem noutro pede índice composto');
+  });
+  igual(r.lidas.fichas, 0, 'sem reconciliação não há ficha nenhuma da turma');
 });
 
 teste('a lista ANTERIOR desta mesma turma, no mesmo semestre, é exatamente de onde o candidato vem', () => {
@@ -614,6 +624,7 @@ teste('CANCELAR: exatamente quatro campos mudam, num commit com máscara; a matr
   const amb = ambiente();
   const { l1 } = cenario(amb);
   const antes = documento(amb.falso, 'matriculados', '9110002');
+  const versaoAntes = amb.api.ler('matriculados', '9110002')._versao;
   igual(amb.api.matriculaConhecida('09110002'), true);
 
   amb.zerar();
@@ -640,9 +651,76 @@ teste('CANCELAR: exatamente quatro campos mudam, num commit com máscara; a matr
   igual(commits.length, 1);
   igual(commits[0].corpo.writes[0].updateMask.fieldPaths.sort(),
     ['cancelado_em', 'cancelado_lote_id', 'cancelado_por', 'situacao_cadastro']);
-  igual(commits[0].corpo.writes[0].currentDocument, { exists: true });
+  // A precondição é a VERSÃO que a releitura trouxe (o `updateTime` do banco),
+  // e não `exists:true` — é o que faz o patch recusar um documento reescrito
+  // no meio do Aplicar (teste da corrida, abaixo).
+  igual(commits[0].corpo.writes[0].currentDocument, { updateTime: versaoAntes });
+  verdadeiro(amb.api.ler('matriculados', '9110002')._versao !== versaoAntes, 'o patch não trocou a versão do documento');
 
   igual(amb.api.matriculaConhecida('09110002'), false, 'cancelado é "não encontrada" para o formulário');
+});
+
+teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pessoa NÃO é cancelada', () => {
+  // Mutação que derruba: `currentDocument: { exists: true }` (patch sem
+  // `_versao`) — o documento NOVO, com o lote_id da reimportação, receberia a
+  // marca: a pessoa está na lista oficial mais nova e fica fora do formulário,
+  // e nenhuma revisão a mostraria (para o lote novo ela "veio"; para o velho é
+  // "mais nova"). A janela existe de verdade: entre a releitura e o patch
+  // rodam a varredura e a anulação sequencial, segundos a minutos.
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  projeto(amb, 'p1');
+  const inscricao = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
+
+  // A reimportação cai no meio do Aplicar: logo depois da varredura (a função
+  // é resolvida pelo global do sandbox, então trocá-la aqui troca para o 05c).
+  const varredura = amb.api.varrerInscricoes_;
+  let loteNovo = null;
+  amb.api.varrerInscricoes_ = (teto) => {
+    const v = varredura(teto);
+    loteNovo = importar(amb, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' }).loteId;
+    return v;
+  };
+
+  const r = chamar(amb, 'aplicarRevisao', {
+    loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
+  });
+  amb.api.varrerInscricoes_ = varredura;
+
+  igual(r.ok, false);
+  verdadeiro(/lista da tela é de antes/.test(r.erro), r.erro);
+  igual(r.cancelados, 0);
+  igual(r.anuladas, 1, 'a anulação veio antes e é relatada: a pessoa reimportada fica sem a inscrição');
+  verdadeiro(r.erro.indexOf('9110002') === -1 && r.erro.indexOf('projects/') === -1, 'a matrícula vazou na frase');
+
+  const doc = documento(amb.falso, 'matriculados', '9110002');
+  igual(doc.lote_id, loteNovo, 'o documento é o da reimportação');
+  igual(doc.situacao_cadastro, undefined, 'a marca foi gravada por cima do documento novo');
+  igual(amb.api.matriculaConhecida('9110002'), true, 'quem está na lista mais nova saiu do formulário');
+  igual(documento(amb.falso, 'inscricoes', inscricao), null);
+  igual(registrosDoLog(amb.falso, 'LOTE_REVISADO').length, 0, 'um Aplicar recusado não é revisão');
+
+  // O mesmo para EXCLUIR: o delete leva a versão relida, e o documento novo fica.
+  const outro = ambiente();
+  const c2 = cenario(outro);
+  const varredura2 = outro.api.varrerInscricoes_;
+  outro.api.varrerInscricoes_ = (teto) => {
+    const v = varredura2(teto);
+    importar(outro, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
+    return v;
+  };
+  const e = chamar(outro, 'aplicarRevisao', {
+    loteId: c2.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }]
+  });
+  outro.api.varrerInscricoes_ = varredura2;
+  igual(e.ok, false);
+  igual(e.excluidos, 0);
+  verdadeiro(documento(outro.falso, 'matriculados', '9110002') !== null, 'o EXCLUIR apagou o documento reimportado');
+  verdadeiro(documento(outro.falso, 'matriculados_excluidos', '9110002') !== null,
+    'a cópia foi feita antes do delete recusado — sobra uma cópia, nunca falta uma pessoa');
+  const apaga = outro.falso.requisicoes.filter(COMMIT).filter((c) => colecaoDoCommit(c) === 'matriculados')
+    .map((c) => c.corpo.writes[0]).filter((w) => w.delete)[0];
+  verdadeiro(apaga && apaga.currentDocument && apaga.currentDocument.updateTime, 'o delete saiu sem a versão relida');
 });
 
 teste('CANCELAR repetido é idempotente: já cancelado, zero commits, e nada no log', () => {
@@ -697,14 +775,18 @@ teste('EXCLUIR: a cópia com o mesmo id existe ANTES do apagar, com excluido_*; 
 });
 
 teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só quando ficou sem origem', () => {
-  // Três fichas de três excluídos: a só-matriculada some; a que tinha inscrição
-  // (anulada agora) some; a cuja inscrição não tem matrícula (casou por e-mail,
-  // a varredura não a alcança) FICA — a rodada seguinte a recalcula.
-  // Mutação que derruba: apagar sem conferir a inscrição — a terceira sumiria.
+  // Quatro fichas de quatro excluídos: a só-matriculada some; a que tinha
+  // inscrição pela matrícula (anulada agora) some; a cuja inscrição não tem
+  // matrícula (casou por e-mail) TAMBÉM some — a inscrição é anulada pela
+  // ponte das fichas; a que aponta uma inscrição já anulada à mão depois da
+  // última rodada (ficha velha, inscrição que não existe) FICA — não foi este
+  // Aplicar que a deixou órfã, e a rodada seguinte a recalcula.
+  // Mutação que derruba: apagar sem conferir a inscrição — a quarta sumiria.
   const amb = ambiente();
   const l0 = importar(amb, ADS41_2026_2, [
     ['ANA EXEMPLO (09110001)', 'ADS41'], ['BEATRIZ EXEMPLO (09110002)', 'ADS41'],
-    ['CLARA EXEMPLO (09110003)', 'ADS41'], ['DUDA EXEMPLO (09110004)', 'ADS41']
+    ['CLARA EXEMPLO (09110003)', 'ADS41'], ['DUDA EXEMPLO (09110004)', 'ADS41'],
+    ['FLAVIA EXEMPLO (09110006)', 'ADS41']
   ], { nome: 'ads41-sexta.csv' }).loteId;
   const l1 = importar(amb, ADS41_2026_2, [
     ['DUDA EXEMPLO (09110004)', 'ADS41'], ['EVA EXEMPLO (09110005)', 'ADS41']
@@ -714,14 +796,18 @@ teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só
   const daClara = amb.api.gravarInscricao({
     matricula: '', nome: 'Clara Exemplo', email: 'clara@exemplo.com', projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
   }).id;
+  const daFlavia = inscrever(amb, '9110006', 'Flavia Exemplo', 'p1');
   // O e-mail da Clara na lista oficial é o que faz a cascata casá-la.
   amb.api.atualizar('matriculados', '9110003', { email: 'clara@exemplo.com' });
   amb.api.reconciliar();
+  // A da Flávia foi anulada pelo Auditório DEPOIS da rodada: a ficha ainda a aponta.
+  igual(amb.api.anularInscricoes({ token: amb.token, ids: [daFlavia] }).anuladas, 1);
 
-  igual(idsDe(amb.falso, 'alunos').length, 5, 'uma ficha por matriculada; a Clara casou pelo e-mail');
+  igual(idsDe(amb.falso, 'alunos').length, 6, 'uma ficha por matriculada; a Clara casou pelo e-mail');
   const fichaDe = (m) => amb.api.listar('alunos', { campo: 'matricula_id', valor: m }).itens[0];
   igual(fichaDe('9110002').inscricao_id, daBeatriz);
   igual(fichaDe('9110003').inscricao_id, daClara, 'a Clara casou pelo e-mail');
+  igual(fichaDe('9110006').inscricao_id, daFlavia, 'a ficha da Flávia ainda aponta a inscrição anulada');
   verdadeiro(fichaDe('9110003')._id !== amb.api.chaveAluno_('mat:9110003'),
     'a ficha de quem casou por e-mail não mora no endereço derivado da matrícula');
 
@@ -729,18 +815,76 @@ teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só
     loteId: l1, turma: 'ADS41',
     decisoes: [
       { matricula: '9110001', acao: 'EXCLUIR' }, { matricula: '9110002', acao: 'EXCLUIR' },
-      { matricula: '9110003', acao: 'EXCLUIR' }
+      { matricula: '9110003', acao: 'EXCLUIR' }, { matricula: '9110006', acao: 'EXCLUIR' }
     ]
   });
   igual(r.ok, true, r.erro);
-  igual(r.excluidos, 3);
-  igual(r.anuladas, 1, 'só a inscrição da Beatriz tem matrícula para ser achada');
-  igual(r.fichasApagadas, 2);
+  igual(r.excluidos, 4);
+  igual(r.anuladas, 2, 'a da Beatriz (matrícula) e a da Clara (e-mail); a da Flávia já não existia');
+  igual(r.fichasApagadas, 3);
   igual(fichaDe('9110001'), undefined, 'a ficha só-matriculada ficou');
   igual(fichaDe('9110002'), undefined, 'a ficha da Beatriz (inscrição anulada) ficou');
-  verdadeiro(fichaDe('9110003') !== undefined, 'a ficha da Clara sumiu com a inscrição viva');
+  igual(fichaDe('9110003'), undefined, 'a ficha da Clara (inscrição anulada pela ponte) ficou');
+  verdadeiro(fichaDe('9110006') !== undefined, 'a ficha da Flávia sumiu sem ter sido este Aplicar a deixá-la órfã');
+  igual(documento(amb.falso, 'inscricoes', daClara), null, 'a inscrição da Clara, casada por e-mail, ficou viva');
   igual(idsDe(amb.falso, 'matriculados'), ['9110004', '9110005']);
   verdadeiro(l0.length > 0);
+});
+
+teste('inscrição casada por e-mail (sem matrícula) é "com projeto", diz por quem casou, e é anulada — a vaga volta', () => {
+  // Mutação que derruba: cruzar só pela varredura por matrícula (tirar a ponte
+  // das fichas de `alunos`) — a pessoa apareceria como "sem projeto", o
+  // Cancelar não anularia nada e a vaga continuaria ocupada por alguém que a
+  // lista oficial não tem mais. Ou ignorar `porPessoa` — a segunda inscrição
+  // da mesma pessoa (outro projeto) ficaria viva.
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  amb.api.atualizar('matriculados', '9110002', { email: 'beatriz@exemplo.com' });
+  projeto(amb, 'p1', 'Robótica');
+  projeto(amb, 'p2', 'Horta');
+  const semMatricula = amb.api.gravarInscricao({
+    matricula: '', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
+    projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
+  }).id;
+  const segunda = amb.api.gravarInscricao({
+    matricula: '', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
+    projeto_id: 'p2', projeto_nome: 'Horta', origem: 'SITE'
+  }).id;
+  amb.api.reconciliar();
+  igual(amb.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0].metodo_match, 'E-mail');
+
+  amb.zerar();
+  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  igual(r.semProjeto, [], 'quem tem inscrição casada por e-mail não é "sem projeto"');
+  igual(r.comProjeto.map((i) => i.matricula), ['9110002']);
+  igual(r.comProjeto[0].inscricoes.map((i) => i.id).sort(), [semMatricula, segunda].sort(),
+    'as DUAS inscrições da pessoa: a ficha aponta a primeira, a chave de pessoa traz a segunda');
+  igual(r.comProjeto[0].inscricoes.map((i) => i.casadaPor), ['E-mail', 'E-mail']);
+  verdadeiro(r.lidas.fichas >= 1);
+  // UMA consulta em `alunos`, pela turma — não uma por candidato.
+  igual(consultaPor(amb.falso, 'turma').filter((q) => q.from[0].collectionId === 'alunos').length, 1);
+  igual(consultaPor(amb.falso, 'matricula_id').length, 0, 'consulta por candidato custa uma ida cada');
+
+  igual(amb.api.contarInscritos_('p1'), 1);
+  const a = chamar(amb, 'aplicarRevisao', {
+    loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
+  });
+  igual(a.ok, true, a.erro);
+  igual(a.cancelados, 1);
+  igual(a.anuladas, 2, 'as duas inscrições anuladas: a vaga tem de ser liberada');
+  igual(documento(amb.falso, 'inscricoes', semMatricula), null);
+  igual(documento(amb.falso, 'inscricoes', segunda), null);
+  igual(amb.api.contarInscritos_('p1'), 0);
+  igual(amb.api.contarInscritos_('p2'), 0);
+
+  // Pela matrícula a inscrição não diz "casada por": veio pelo caminho normal.
+  const outro = ambiente();
+  const c = cenario(outro);
+  projeto(outro, 'p1');
+  inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p1');
+  outro.api.reconciliar();
+  const pela = chamar(outro, 'revisarLote', { loteId: c.l1 });
+  igual(pela.comProjeto[0].inscricoes.map((i) => i.casadaPor), ['']);
 });
 
 teste('as inscrições são anuladas PRIMEIRO, pela quarentena de verdade, e a vaga volta', () => {
@@ -1014,6 +1158,31 @@ teste('lote antigo ganha a turma que a revisão usou (origem LINHAS), e só ele'
 
   // Da segunda vez a turma já está lá, e o rótulo vem do lote.
   igual(chamar(amb, 'revisarLote', { loteId: velho }).origemTurma, 'LINHAS');
+});
+
+teste('a resposta diz se o lote JÁ foi revisado — quando, por quem e o resumo — e null antes', () => {
+  // Mutação que derruba: `resposta.revisado = null` sempre — a janela deixaria
+  // de dizer "Já revisada em ...", e o Revisar repetido pareceria o primeiro.
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  projeto(amb, 'p1');
+  inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
+
+  igual(chamar(amb, 'revisarLote', { loteId: l1 }).revisado, null, 'lote nunca revisado');
+
+  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  igual(r.ok, true, r.erro);
+
+  const deNovo = chamar(amb, 'revisarLote', { loteId: l1 });
+  verdadeiro(deNovo.revisado !== null && typeof deNovo.revisado === 'object', 'revisado veio ' + JSON.stringify(deNovo.revisado));
+  igual(deNovo.revisado.por, PROF);
+  igual(deNovo.revisado.em, documento(amb.falso, 'lotes', l1).revisado_em);
+  igual(deNovo.revisado.resumo, { cancelados: 1, excluidos: 0, anuladas: 1, pulados: 0, ja_cancelados: 0 });
+  igual(deNovo.candidatos, 0, 'a Beatriz agora é já cancelada');
+  igual(deNovo.jaCancelados.length, 1);
+
+  // `contarApenas` não relata a revisão anterior (o passo 3 não a mostra).
+  igual(chamar(amb, 'revisarLote', { loteId: l1, contarApenas: true }).revisado, undefined);
 });
 
 teste('a marca da reconciliação é reescrita com -1 preservando dia, gasto e custo; o cache do Painel cai', () => {

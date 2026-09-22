@@ -7778,7 +7778,7 @@
     }
 
     var lidas = (r.lidas || {});
-    var totalLido = (lidas.matriculados || 0) + (lidas.lotes || 0) + (lidas.inscricoes || 0);
+    var totalLido = (lidas.matriculados || 0) + (lidas.lotes || 0) + (lidas.inscricoes || 0) + (lidas.fichas || 0);
     html += '<p class="texto-fraco pequeno" id="rev-contagem">' + r.vieram + ' vieram · <strong>' + r.candidatos +
       ' não vieram</strong>' +
       (r.emLoteMaisNovo ? ' · ' + r.emLoteMaisNovo + ' em importação mais nova' : '') +
@@ -7873,11 +7873,17 @@
     return html + '</tbody></table></div>';
   }
 
-  /** "Robótica · protocolo abc123 (em espera) · Horta · protocolo def456" */
+  /**
+   * "Robótica · protocolo abc123 (em espera)", uma linha por inscrição.
+   * `casadaPor` é a inscrição que NÃO traz esta matrícula e a reconciliação
+   * casou por outro caminho (e-mail, CPF, nome): dizer isso ao lado do projeto
+   * é o que explica por que ela vai ser anulada junto.
+   */
   function projetosDaRevisao(inscricoes) {
     return inscricoes.map(function (i) {
       return '<strong>' + escapar(i.projetoNome || i.projetoId) + '</strong> · protocolo ' + escapar(i.id) +
-        (i.emEspera ? ' (em espera)' : '');
+        (i.emEspera ? ' (em espera)' : '') +
+        (i.casadaPor ? ' <span class="texto-fraco">· sem esta matrícula, casada por ' + escapar(i.casadaPor) + '</span>' : '');
     }).join('<br>');
   }
 

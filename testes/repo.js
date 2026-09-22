@@ -556,6 +556,75 @@ teste('501 patches viram 2 commits, cada um dentro do limite da API', () => {
   igual(api.ler('teste_patch', 'p500').nome, 'ALUNO p500');
 });
 
+teste('com _versao o patch leva updateTime como precondição, e um documento reescrito no meio derruba o lote inteiro', () => {
+  // Mutação que derruba: `currentDocument: { exists: true }` ignorando a versão
+  // — o patch entraria por cima do documento reescrito (é a corrida do Aplicar,
+  // 05c: reimportado entre a releitura e o patch, marcado como cancelado). No
+  // falso: não conferir o carimbo — o mesmo teste passaria a gravar.
+  const { api, falso } = criarAmbiente();
+  semearMatriculado(api, '9110001');
+  semearMatriculado(api, '9110002');
+  const relidos = api.listar('teste_patch', { campo: 'turma', valor: 'ADS41' }).itens;
+  igual(relidos.length, 2);
+  verdadeiro(relidos.every((d) => d._versao), 'listar não trouxe a versão');
+  igual(api.ler('teste_patch', '9110001')._versao, relidos.filter((d) => d._id === '9110001')[0]._versao,
+    'ler e listar têm de dizer a mesma versão do mesmo documento');
+
+  // Alguém reescreve o segundo entre a leitura e o patch (uma reimportação).
+  api.escreverEmLote('teste_patch', [{ _id: '9110002', matricula: '9110002', nome: 'ALUNO 9110002', turma: 'ADS41', lote_id: 'L9' }]);
+
+  const e = lancou(() => api.atualizarEmLote('teste_patch', relidos.map((d) => ({
+    _id: d._id, _versao: d._versao, situacao_cadastro: 'CANCELADO'
+  }))), 'FAILED_PRECONDITION');
+  igual(e.status, 'FAILED_PRECONDITION');
+  const escritas = ultima(falso).corpo.writes;
+  igual(escritas[0].currentDocument, { updateTime: relidos[0]._versao });
+  igual(Object.keys(escritas[0].update.fields), ['situacao_cadastro'], '_versao não é campo e não vai no corpo');
+  igual(escritas[0].updateMask.fieldPaths, ['situacao_cadastro'], '_versao não entra na máscara');
+  igual(api.ler('teste_patch', '9110001').situacao_cadastro, undefined, 'o primeiro do lote entrou apesar da recusa do segundo');
+  igual(api.ler('teste_patch', '9110002').situacao_cadastro, undefined);
+  igual(api.ler('teste_patch', '9110002').lote_id, 'L9', 'a reescrita do meio tempo é a que vale');
+
+  // Relido de novo, a versão bate e o patch entra — e troca a versão.
+  const agora = api.ler('teste_patch', '9110002');
+  igual(api.atualizarEmLote('teste_patch', [{ _id: '9110002', _versao: agora._versao, situacao_cadastro: 'CANCELADO' }]), 1);
+  igual(api.ler('teste_patch', '9110002').situacao_cadastro, 'CANCELADO');
+  verdadeiro(api.ler('teste_patch', '9110002')._versao !== agora._versao, 'toda escrita troca a versão');
+
+  // Sem `_versao` a precondição continua sendo só a existência.
+  api.atualizarEmLote('teste_patch', [{ _id: '9110001', situacao_cadastro: 'CANCELADO' }]);
+  igual(ultima(falso).corpo.writes[0].currentDocument, { exists: true });
+
+  // Versão num id que não existe mais: NOT_FOUND, como o Firestore.
+  lancou(() => api.atualizarEmLote('teste_patch', [{ _id: 'sumiu', _versao: agora._versao, situacao_cadastro: 'X' }]), 'NOT_FOUND');
+});
+
+teste('excluirEmLote aceita { _id, _versao }: o delete leva a precondição, e o documento reescrito NÃO é apagado', () => {
+  // Mutação que derruba: ignorar `_versao` no delete — o documento novo, gravado
+  // por uma reimportação no meio do Aplicar, seria apagado no lugar do relido.
+  const { api, falso } = criarAmbiente();
+  semearMatriculado(api, '9110001');
+  semearMatriculado(api, '9110002');
+  const relido = api.ler('teste_patch', '9110002');
+
+  api.escreverEmLote('teste_patch', [{ _id: '9110002', matricula: '9110002', nome: 'ALUNO 9110002', turma: 'ADS41', lote_id: 'L9' }]);
+  const e = lancou(() => api.excluirEmLote('teste_patch', [
+    { _id: '9110001', _versao: api.ler('teste_patch', '9110001')._versao },
+    { _id: relido._id, _versao: relido._versao }
+  ]), 'FAILED_PRECONDITION');
+  igual(e.status, 'FAILED_PRECONDITION');
+  igual(ultima(falso).corpo.writes[1].delete, RECURSO + '/teste_patch/9110002');
+  igual(ultima(falso).corpo.writes[1].currentDocument, { updateTime: relido._versao });
+  verdadeiro(falso.documentos.has('teste_patch/9110001'), 'o primeiro do lote saiu apesar da recusa do segundo');
+  igual(api.ler('teste_patch', '9110002').lote_id, 'L9', 'o documento reescrito foi apagado');
+
+  // Ids em texto continuam como sempre: sem precondição, e apagar o que não existe é 200.
+  igual(api.excluirEmLote('teste_patch', ['9110001', 'nunca-existiu']), 2);
+  igual(ultima(falso).corpo.writes[0].currentDocument, undefined);
+  igual(falso.documentos.has('teste_patch/9110001'), false);
+  lancou(() => api.excluirEmLote('teste_patch', [{ _versao: 'x' }]), 'id');
+});
+
 teste('o falso: caminho na máscara e ausente no corpo é apagado, como no Firestore', () => {
   // É a semântica que impede a máscara de virar "substitui tudo" por engano — e
   // o que `atualizarEmLote` nunca produz (a máscara é feita das chaves que vão

@@ -2964,6 +2964,44 @@ teste('a janela: duas listas com select, a frase da anulação na B, e os blocos
   igual(cena.texto('rev-resumo'), '0 a cancelar · 0 a excluir · 0 inscrições a anular · 5 mantido(s)');
 });
 
+teste('a janela diz "Já revisada em" quando o lote já passou por um Aplicar, e cala quando não', () => {
+  // Mutação que derruba (no servidor): `resposta.revisado = null` sempre — o
+  // parágrafo nunca seria desenhado e o Revisar repetido pareceria o primeiro;
+  // na tela: desenhar o parágrafo sem olhar `r.revisado`.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena, respostaDaRevisao({
+    revisado: { em: '2026-09-21 10:00:00', por: 'coord@exemplo.com', resumo: { cancelados: 3, excluidos: 1, anuladas: 2 } }
+  }));
+  const corpo = cena.html('modal-corpo');
+  verdadeiro(/Já revisada em 21\/09\/2026 por coord@exemplo.com · 3 cancelado\(s\), 1 excluído\(s\), 2 inscrição\(ões\) anulada\(s\)\./.test(corpo),
+    'o parágrafo da revisão anterior: ' + corpo.slice(corpo.indexOf('Já revisada') - 20, corpo.indexOf('Já revisada') + 160));
+  verdadeiro(cena.elemento('modal-salvar'), 'revisada de novo continua tendo Aplicar');
+
+  const primeira = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(primeira, respostaDaRevisao({ revisado: null }));
+  igual(primeira.html('modal-corpo').indexOf('Já revisada'), -1, 'lote nunca revisado não pode dizer que foi');
+});
+
+teste('a inscrição casada por e-mail (sem esta matrícula) diz isso ao lado do projeto — e só ela', () => {
+  // Mutação que derruba: desenhar o protocolo sem `casadaPor` — a coordenação
+  // veria uma inscrição "de outra pessoa" ser anulada sem saber por quê.
+  const cena = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(cena, respostaDaRevisao({
+    comProjeto: [itemDaRevisao('9110004', 'Dani Exemplo', [
+      Object.assign(inscricaoDaRevisao('i4'), { casadaPor: 'E-mail' }),
+      inscricaoDaRevisao('i4b', 'Horta')
+    ])],
+    lidas: { matriculados: 30, lotes: 3, inscricoes: 40, fichas: 7 }
+  }));
+  const corpo = cena.html('modal-corpo');
+  verdadeiro(/protocolo i4 <span class="texto-fraco">· sem esta matrícula, casada por E-mail<\/span>/.test(corpo),
+    corpo.slice(corpo.indexOf('protocolo i4'), corpo.indexOf('protocolo i4') + 120));
+  verdadeiro(/protocolo i4b<\/td>|protocolo i4b<br>|protocolo i4b<div/.test(corpo), 'a inscrição pela matrícula ganhou a frase: ' +
+    corpo.slice(corpo.indexOf('protocolo i4b'), corpo.indexOf('protocolo i4b') + 80));
+  igual((corpo.match(/casada por/g) || []).length, 1);
+  verdadeiro(/80 documento\(s\) lido\(s\)/.test(corpo), 'as fichas entram na conta de documentos lidos');
+});
+
 teste('a contagem viva soma as inscrições de quem sai, e "Marcar todos" de uma lista não toca a outra', () => {
   // Mutação que derruba: `marcarTodosRevisao` sem o filtro da lista.
   const cena = abrirPainel({ semear: cadastroBase });
