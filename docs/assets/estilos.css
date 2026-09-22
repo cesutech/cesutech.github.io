@@ -125,6 +125,14 @@ a { color: var(--vinho); }
 .btn--primario:hover:not(:disabled) { background: var(--vinho-escuro); border-color: var(--vinho-escuro); }
 .btn--bloco { width: 100%; }
 .btn--grande { padding: 14px 30px; font-size: 1rem; }
+/* O botão que DESTRÓI alguma coisa — hoje só um: "trocar de projeto e cancelar
+   a inscrição anterior". Vermelho, e não o vinho da marca, porque o vinho é a
+   cor de TODO botão principal do site (inscrever-se, confirmar) e o aluno
+   aprendeu a clicar nele sem ler. A ação aqui é irreversível pelo site: a
+   inscrição antiga vai para as anuladas e a vaga dela fica livre para outra
+   pessoa. A cor é o que faz o dedo parar. */
+.btn--perigo { background: var(--vermelho); border-color: var(--vermelho); color: #fff; }
+.btn--perigo:hover:not(:disabled) { background: #a3211a; border-color: #a3211a; }
 
 /* ------------------------------------------------------------ Hero */
 
@@ -420,6 +428,26 @@ input.campo--ok:focus { box-shadow: 0 0 0 3px rgba(26, 127, 55, .16); }
   font-size: .93rem; line-height: 1.7; color: var(--texto-fraco);
 }
 .sucesso-projeto .projeto-info { margin-top: 16px; }
+
+/* A pergunta da troca de projeto, no lugar do botão de confirmar.
+
+   Âmbar, as mesmas cores do `.aviso--atencao`: não é erro (nada deu errado) nem
+   confirmação (nada aconteceu ainda) — é uma decisão que o aluno precisa tomar.
+   O bloco inteiro é uma coluna, e os dois botões ficam um EMBAIXO do outro, na
+   ordem manter → trocar: lado a lado no celular eles ficariam estreitos, com o
+   texto quebrado no meio, e a escolha destrutiva a um polegar de distância da
+   inocente. */
+.bloco-troca {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 18px; margin-bottom: 18px; border-radius: 8px;
+  background: #fff8e5; border: 1px solid #f0dca4; color: #6b4900;
+}
+.bloco-troca strong { font-size: 1.05rem; }
+.bloco-troca span { font-size: .89rem; line-height: 1.55; }
+/* Um respiro entre o texto e o primeiro botão: sem ele o "Manter" encosta na
+   última linha da explicação e parece parte dela. */
+.bloco-troca .btn { margin-top: 4px; }
+.bloco-troca .btn + .btn { margin-top: 0; }
 
 /* ------------------------------------------------------------ Rodapé */
 

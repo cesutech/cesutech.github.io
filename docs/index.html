@@ -231,6 +231,44 @@
                 É necessário aceitar para concluir a inscrição.
               </p>
 
+              <!--
+                A CONFIRMAÇÃO DA TROCA DE PROJETO — o bloco que ocupa o lugar do
+                botão quando o servidor responde `troca_pendente` (a regra de um
+                projeto ativo por matrícula, 04_Inscricoes.gs).
+
+                Ele mora AQUI, dentro do `#area-formulario` e ao lado do botão
+                que ele substitui, por dois motivos de fato:
+
+                  1. o formulário continua PREENCHIDO atrás dele. A confirmação é
+                     o segundo envio dos MESMOS campos (só com `trocar_de` a
+                     mais), então tirar o aluno do formulário — ou dar `reset()`
+                     nele — custaria a redigitação inteira;
+                  2. não pode morar no `#cartao-vagas`: aquele bloco é redesenhado
+                     por inteiro a cada renovação da lista (`renderizarCartaoVagas`
+                     em app.js, que roda sozinha a cada navegação), e a pergunta
+                     sumiria da tela no meio da decisão do aluno.
+
+                `role="alertdialog"` e `tabindex="-1"` porque isto É uma pergunta
+                que exige resposta antes de qualquer coisa acontecer, e o foco vai
+                para cá quando ela aparece. Nada de `window.confirm`: diálogo do
+                navegador não cabe o nome dos projetos, não é estilizável e, em
+                celular, aparece descolado do formulário — ver o teste em
+                testes/site.js que afirma que `confirm` continua sendo chamado
+                zero vez.
+
+                O conteúdo nasce vazio: quem o escreve é `pedirConfirmacaoDeTroca`
+                (app.js), com os nomes que o SERVIDOR mandou em `de` — nunca o que
+                o navegador lembrava.
+              -->
+              <div id="bloco-troca" class="bloco-troca oculto" role="alertdialog"
+                   tabindex="-1" aria-labelledby="bloco-troca-titulo"
+                   aria-describedby="bloco-troca-texto">
+                <strong id="bloco-troca-titulo"></strong>
+                <span id="bloco-troca-texto"></span>
+                <button type="button" class="btn btn--bloco" id="botao-manter-inscricao"></button>
+                <button type="button" class="btn btn--perigo btn--bloco" id="botao-trocar-projeto"></button>
+              </div>
+
               <button type="submit" class="btn btn--primario btn--bloco btn--grande" id="botao-enviar">
                 Confirmar inscrição
               </button>
