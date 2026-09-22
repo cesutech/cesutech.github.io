@@ -394,6 +394,10 @@
           <option value="SO_INSCRITO">Só inscrito</option>
           <option value="SO_MATRICULADO">Só matriculado</option>
           <option value="DIVERGENCIA">Divergência</option>
+          <!-- Cancelados na lista oficial pela revisão de uma importação (21/09).
+               "Todos" os esconde (só quem não ocupa vaga); este filtro mostra
+               todo mundo com a marca, com ou sem inscrição. -->
+          <option value="CANCELADO">Cancelados</option>
         </select>
       </div>
       <div class="campo">
@@ -468,6 +472,22 @@
         </p>
 
         <div id="aviso-importacao"></div>
+
+        <!--
+          A TURMA DO RELATÓRIO, lida do cabeçalho do arquivo e conferida aqui.
+
+          A secretaria emite um relatório por turma, e é essa turma — não a de
+          cada linha — que o lote guarda como chave de "quem estava no banco
+          como ADS41 e não veio neste arquivo". O campo é editável porque o OCR
+          estraga cabeçalho (ADS4l), e sem isto a única saída seria reimportar.
+          Mexer nele registra a turma como INFORMADA no lote; apagar importa
+          sem a chave. A dica embaixo diz de onde o valor veio.
+        -->
+        <div class="campo" id="campo-turma-cabecalho">
+          <label for="turma-cabecalho">Turma do relatório</label>
+          <input type="text" id="turma-cabecalho" maxlength="40" placeholder="ex.: ADS41">
+          <span class="dica" id="dica-turma-cabecalho"></span>
+        </div>
 
         <div class="tabela-wrap mb">
           <table>
@@ -938,7 +958,16 @@
     // consulta, nenhuma escrita, nem no log (10_Painel.gs). Ela roda ao sair do
     // campo da matrícula, e fora desta lista cada saída do campo faria o painel
     // esquecer as abas carregadas — uma recarga completa por tecla Tab.
-    buscarMatriculado: true
+    buscarMatriculado: true,
+    // A conferência de quem não veio (05c_Revisao.gs, 21/09) — leitura pura pelo
+    // contrato, e por desenho. Ela lê a turma, os lotes e as inscrições, e NÃO
+    // grava nem a turma que deduz de um lote antigo (quem grava é a irmã dela,
+    // a que aplica a revisão — essa cancela e exclui, e por isso fica de fora
+    // desta lista, sem nem ser nomeada aqui, porque o teste da lista procura
+    // nomes no bloco inteiro). É a segunda leitura mais lenta do painel, e a que
+    // mais precisa da nova tentativa (o tempo dela está em
+    // LIMITE_DE_LEITURA_POR_FUNCAO_MS).
+    revisarLote: true
   };
 
   // Espelho de IMPORTACAO_CAMPOS (05_Importacao.gs). Duas correções em 06/08:
@@ -1812,8 +1841,16 @@
    * mudou de tamanho — inclusive `filaDeEspera`, cujo teto é 500 desde antes e
    * cujas linhas são mais estreitas. Mexer nele sem medida seria trocar o que se
    * mediu por um palpite que vale para dezenove chamadas.
+   *
+   * `revisarLote` (21/09) é a segunda entrada, e por conta, não por medida: ela
+   * lê TRÊS coleções em quatro ou cinco idas — a turma inteira (até 500), os
+   * lotes (até 50) e a varredura de inscrições (275 hoje, em blocos de 300) —,
+   * a mesma conta de `matriculadosDaDisciplina` mais os lotes. Esperado, 3 a
+   * 5s; abortada, a tentativa seguinte paga a conta inteira de novo (até ~2.500
+   * leituras), que é exatamente o que o 15s existe para não provocar. A
+   * primeira janela aberta em produção confere este número contra o relógio.
    */
-  var LIMITE_DE_LEITURA_POR_FUNCAO_MS = { inscricoesRecentes: 15000 };
+  var LIMITE_DE_LEITURA_POR_FUNCAO_MS = { inscricoesRecentes: 15000, revisarLote: 15000 };
 
   /** O tempo desta leitura: o dela, quando ela tem um; o de todas, quando não. */
   function limiteDeLeitura_(funcao) {
@@ -2563,12 +2600,18 @@
       ABAS_PRONTAS.painel = true;
       PAINEL_DESATUALIZADO = false;
 
+      // O cartão "Cancelados" conta a MARCA da lista oficial (com e sem
+      // inscrição — é o filtro "Cancelados" da aba Alunos), e não o status: o
+      // cancelado que ocupa vaga já está num dos quatro cartões acima dele, e o
+      // total do cadastro continua fechando com eles. Cinza, porque é gente
+      // que saiu, e não uma pendência.
       var html = '<div class="cartoes-kpi">' +
         kpi(d.total, 'Alunos no cadastro', '') +
         kpi(d.porStatus.CONFIRMADO, 'Confirmados', 'verde') +
         kpi(d.porStatus.SO_INSCRITO, 'Só inscritos', 'vinho') +
         kpi(d.porStatus.SO_MATRICULADO, 'Só matriculados', 'roxo') +
         kpi(d.porStatus.DIVERGENCIA, 'Divergências', 'ambar') +
+        kpi(d.cancelados || 0, 'Cancelados', 'cinza') +
         '</div>';
 
       if (d.porStatus.DIVERGENCIA > 0) {
@@ -2581,7 +2624,8 @@
       html += '<div class="cartao"><h2>Origem dos dados</h2>' +
         '<div class="cartoes-kpi" style="margin:0">' +
         kpi(d.inscricoes, 'Inscrições recebidas', '') +
-        kpi(d.matriculados, 'Linhas da lista oficial', '') +
+        kpi(d.matriculados, 'Linhas da lista oficial' +
+          (d.matriculadosCancelados ? ' (' + d.matriculadosCancelados + ' canceladas)' : ''), '') +
         kpi(d.lotes, 'Importações feitas', '') +
         '</div></div>';
 
@@ -4669,7 +4713,10 @@
       projetoId: p ? String(p.id) : '',
       projetoNome: p ? String(p.nome || '') : '',
       daLista: Boolean(p),
-      jaEm: []
+      jaEm: [],
+      // A marca de cancelado da lista oficial da matrícula consultada — vem com
+      // `jaEm` da mesma resposta, e é desenhada pelo mesmo lugar.
+      cancelado: null
     };
     // A janela agora é do Incluir: o que a Editar tinha carregado não vale mais,
     // e o formulário nasce sem trabalho de ninguém — o que estava digitado na
@@ -4897,7 +4944,7 @@
     lista.className = 'pequeno texto-fraco';
     lista.textContent = '';
     jaEm.innerHTML = '';
-    if (INCLUSAO) INCLUSAO.jaEm = [];
+    if (INCLUSAO) { INCLUSAO.jaEm = []; INCLUSAO.cancelado = null; }
     if (!matricula) return;
 
     chamar('buscarMatriculado', { matricula: matricula }, function (r) {
@@ -4926,6 +4973,7 @@
       }
 
       INCLUSAO.jaEm = r.ja_em || [];
+      INCLUSAO.cancelado = r.cancelado ? { em: r.cancelado_em || '' } : null;
       desenharJaEmDaInclusao_();
     });
   }
@@ -4944,7 +4992,17 @@
     if (!INCLUSAO || !jaEm) return;
 
     var inscricoes = INCLUSAO.jaEm || [];
-    if (!inscricoes.length) { jaEm.innerHTML = ''; return; }
+
+    // A porta da coordenação AVISA sobre o cancelado, não recusa (a pública
+    // recusa, calada — `matriculaConhecida`): a ficha preenche do mesmo jeito e
+    // a inscrição entra marcada. O aviso vive no mesmo estado que o de
+    // já-inscrito, e por isso sobrevive à troca de projeto no select.
+    var cancelado = INCLUSAO.cancelado
+      ? '<div class="aviso aviso--atencao pequeno">Esta matrícula foi cancelada na lista oficial' +
+        (INCLUSAO.cancelado.em ? ' em ' + escapar(diaDe(INCLUSAO.cancelado.em)) : '') +
+        '. Ela continua fora do formulário público; incluir aqui grava a inscrição com matrícula não conferida.</div>'
+      : '';
+    if (!inscricoes.length) { jaEm.innerHTML = cancelado; return; }
 
     // Sem projeto escolhido, `projetoId` é '' e nenhuma inscrição casa — não
     // precisa de guarda própria.
@@ -4955,7 +5013,7 @@
         (i.em_espera ? ' (em espera)' : '');
     });
     var naFilaDaqui = inscricoes.some(function (i) { return i.em_espera && daqui(i); });
-    jaEm.innerHTML = '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
+    jaEm.innerHTML = cancelado + '<div class="aviso aviso--atencao pequeno">Já inscrito em ' + nomes.join(', ') +
       (naFilaDaqui
         ? '. Está na fila de espera deste projeto: Incluir dá a vaga à inscrição que já existe ' +
           '(mesmo protocolo), sem criar outra — o que você digitar abaixo não é gravado nela.'
@@ -5647,6 +5705,11 @@
         (r.resumo.foraDaLista
           ? ' · <strong>' + r.resumo.foraDaLista + '</strong> fora da lista oficial'
           : '') +
+        // Os cancelados da lista oficial não são "quem falta": "Todos" os
+        // esconde, e o número aqui é o que diz que eles existem.
+        (r.resumo.cancelados
+          ? ' · <strong>' + r.resumo.cancelados + '</strong> cancelado(s) (ocultos; recorte Cancelados)'
+          : '') +
         ' · ' + (r.lidas.matriculados + r.lidas.inscricoes) + ' documento(s) lido(s) (' +
         r.lidas.matriculados + ' da lista oficial + ' + r.lidas.inscricoes + ' inscrições)</p>';
 
@@ -5672,6 +5735,7 @@
         '<option value="SEM_PROJETO">Sem projeto — quem falta</option>' +
         '<option value="COM_PROJETO">Em projeto</option>' +
         '<option value="FORA_DA_LISTA">Fora da lista oficial</option>' +
+        '<option value="CANCELADO">Cancelados</option>' +
         '</select></div>' +
         '<div class="campo"><label for="disc-turma-busca">Buscar</label>' +
         '<input type="text" id="disc-turma-busca" placeholder="Nome ou matrícula..." ' +
@@ -5734,7 +5798,13 @@
         '<td style="white-space:nowrap">' + (escapar(i.matricula) || '<span class="texto-fraco">—</span>') + '</td>' +
         '<td class="quebra"><strong>' + escapar(i.nome) + '</strong></td>' +
         '<td><span class="selo selo--' + seloDoGrupo(i.grupo) + '">' +
-        escapar(rotuloDoGrupo(i.grupo)) + '</span></td>' +
+        escapar(rotuloDoGrupo(i.grupo)) + '</span>' +
+        // O cancelado que continua em projeto: ocupa vaga, e o selo pequeno é
+        // o que faz a coordenação decidir o que fazer com ele.
+        (i.grupo !== 'CANCELADO' && i.cancelado_em
+          ? ' <span class="selo selo--CANCELADO" title="Cancelado na lista oficial pela revisão de uma importação">cancelado na lista</span>'
+          : '') +
+        '</td>' +
         '<td class="quebra">' + (escapar(i.projetos) || '<span class="texto-fraco">—</span>') + '</td>' +
         // A disciplina DECLARADA fica ao lado da turma oficial de propósito: é
         // onde se vê o aluno que consta como ADS12 na secretaria e escolheu
@@ -5766,7 +5836,17 @@
     var busca = normalizarBusca_(campoTexto_('disc-turma-busca'));
 
     return TURMA_DISCIPLINA.itens.filter(function (i) {
-      if (recorte && i.grupo !== recorte) return false;
+      // "Todos" esconde o cancelado sem projeto (a lista oficial disse que ele
+      // saiu; não é quem falta); o recorte Cancelados mostra todo mundo com a
+      // marca, inclusive quem continua em projeto. A busca é a MESMA régua da
+      // aba Alunos: nunca esconde ninguém.
+      if (recorte === 'CANCELADO') {
+        if (!(i.grupo === 'CANCELADO' || i.cancelado_em)) return false;
+      } else if (recorte) {
+        if (i.grupo !== recorte) return false;
+      } else if (i.grupo === 'CANCELADO' && !busca) {
+        return false;
+      }
       if (!busca) return true;
       return normalizarBusca_(i.nome + ' ' + i.matricula).indexOf(busca) !== -1;
     });
@@ -5775,11 +5855,12 @@
   function seloDoGrupo(g) {
     // Reaproveita os selos do cruzamento de alunos, e o sentido é o mesmo:
     // SO_MATRICULADO é quem está na lista oficial e não se inscreveu;
-    // SO_INSCRITO é quem se inscreveu e a lista oficial não tem.
-    return { COM_PROJETO: 'CONFIRMADO', SEM_PROJETO: 'SO_MATRICULADO', FORA_DA_LISTA: 'SO_INSCRITO' }[g] || 'SO_INSCRITO';
+    // SO_INSCRITO é quem se inscreveu e a lista oficial não tem;
+    // CANCELADO é quem a lista oficial cancelou e não tem inscrição.
+    return { COM_PROJETO: 'CONFIRMADO', SEM_PROJETO: 'SO_MATRICULADO', FORA_DA_LISTA: 'SO_INSCRITO', CANCELADO: 'CANCELADO' }[g] || 'SO_INSCRITO';
   }
   function rotuloDoGrupo(g) {
-    return { COM_PROJETO: 'Em projeto', SEM_PROJETO: 'Sem projeto', FORA_DA_LISTA: 'Fora da lista' }[g] || g;
+    return { COM_PROJETO: 'Em projeto', SEM_PROJETO: 'Sem projeto', FORA_DA_LISTA: 'Fora da lista', CANCELADO: 'Cancelado' }[g] || g;
   }
 
   // ------------------------------------------- Quem escolheu (e a coringa)
@@ -6442,7 +6523,7 @@
           '<td class="quebra">' + escapar(a.email) + '</td>' +
           '<td class="quebra">' + escapar(a.curso) + '</td>' +
           '<td style="white-space:nowrap">' + escapar(a.turma) + '</td>' +
-          '<td><span class="selo selo--' + escapar(a.status) + '">' + escapar(a.statusLabel) + '</span></td>' +
+          '<td>' + seloDeStatus(a) + '</td>' +
           '<td class="pequeno texto-fraco">' + escapar(a.metodo_match) + '</td>' +
           '<td style="white-space:nowrap">' +
           '<button class="btn btn--pequeno" onclick="abrirDetalhe(\'' + escapar(a.id) + '\')">Ver</button> ' +
@@ -6453,13 +6534,40 @@
       html += '</tbody></table></div>';
       el.innerHTML = html;
 
+      // Os cancelados que "Todos" esconde vão contados na legenda, com o
+      // caminho para vê-los: esconder sem dizer é o que esta tela não faz.
       document.getElementById('paginacao-alunos').innerHTML =
         '<button class="btn btn--pequeno" ' + (r.pagina <= 1 ? 'disabled' : '') +
         ' onclick="carregarAlunos(' + (r.pagina - 1) + ')">Anterior</button>' +
-        '<span>Página ' + r.pagina + ' de ' + r.paginas + ' &middot; ' + r.total + ' registro(s)</span>' +
+        '<span>Página ' + r.pagina + ' de ' + r.paginas + ' &middot; ' + r.total + ' registro(s)' +
+        (r.cancelados_ocultos
+          ? ' &middot; ' + r.cancelados_ocultos + ' cancelado(s) fora desta lista (filtro Cancelados)'
+          : '') +
+        '</span>' +
         '<button class="btn btn--pequeno" ' + (r.pagina >= r.paginas ? 'disabled' : '') +
         ' onclick="carregarAlunos(' + (r.pagina + 1) + ')">Próxima</button>';
     });
+  }
+
+  /**
+   * O selo da coluna Status — e o segundo selo, do cancelado que ocupa vaga.
+   *
+   * Dois casos, de propósito (ver `pedidoDeAlunos_`, 10_Painel.gs): status
+   * CANCELADO é quem a lista oficial cancelou e não tem inscrição — um selo só,
+   * com a data. Qualquer outro status com `situacao_cadastro` marcado é quem foi
+   * cancelado na lista E continua inscrito (se reinscreveu, ou a coordenação o
+   * incluiu): ocupa vaga, fica em "Todos", e o selo pequeno é o que faz a
+   * coordenação decidir o que fazer com ele.
+   */
+  function seloDeStatus(a) {
+    if (a.status === 'CANCELADO') {
+      return '<span class="selo selo--CANCELADO">Cancelado' +
+        (a.cancelado_em ? ' em ' + escapar(diaDe(a.cancelado_em).slice(0, 5)) : '') + '</span>';
+    }
+    return '<span class="selo selo--' + escapar(a.status) + '">' + escapar(a.statusLabel) + '</span>' +
+      (a.situacao_cadastro === 'CANCELADO'
+        ? ' <span class="selo selo--CANCELADO" title="Cancelado na lista oficial pela revisão de uma importação; a inscrição continua viva e ocupa vaga">cancelado na lista</span>'
+        : '');
   }
 
   function atualizarSelectCursos(cursos, selecionado) {
@@ -6747,6 +6855,19 @@
         (r.aluno.metodo_match ? ' <span class="texto-fraco pequeno">casado por: ' +
           escapar(r.aluno.metodo_match) + '</span>' : '') + '</p>';
 
+      // O selo de cancelado vem do documento VIVO da lista oficial, e não do
+      // status derivado: entre o Aplicar da revisão e o próximo Atualizar da
+      // aba, a ficha já diz a verdade que a linha da tabela ainda não sabe.
+      var cancelado = r.matriculado && r.matriculado.situacao_cadastro === 'CANCELADO';
+      if (cancelado) {
+        html += '<div class="aviso aviso--atencao pequeno"><span class="selo selo--CANCELADO">Cancelado na lista oficial</span> ' +
+          'em ' + escapar(diaDe(r.matriculado.cancelado_em) || r.matriculado.cancelado_em) +
+          (r.matriculado.cancelado_por ? ' por ' + escapar(r.matriculado.cancelado_por) : '') +
+          ', pela revisão da importação' +
+          (r.matriculado.cancelado_lote_id ? ' ' + escapar(r.matriculado.cancelado_lote_id) : '') +
+          '. Volta sozinho quando a secretaria o reenviar numa lista.</div>';
+      }
+
       if (r.aluno.revisado_por) {
         html += '<div class="aviso aviso--info pequeno">Revisado por ' +
           escapar(r.aluno.revisado_por) + ' em ' + escapar(r.aluno.revisado_em) + '.</div>';
@@ -6760,18 +6881,28 @@
       html += '<div class="campo mt"><label for="obs-aluno">Observações da coordenação</label>' +
         '<textarea id="obs-aluno">' + escapar(r.aluno.observacoes || '') + '</textarea></div>';
 
-      html += '<div class="campo"><label for="novo-status">Definir status manualmente</label>' +
-        '<select id="novo-status">' +
-        opcaoStatus('CONFIRMADO', 'Confirmado', r.aluno.status) +
-        opcaoStatus('SO_INSCRITO', 'Só inscrito', r.aluno.status) +
-        opcaoStatus('SO_MATRICULADO', 'Só matriculado', r.aluno.status) +
-        opcaoStatus('DIVERGENCIA', 'Divergência (deixar pendente)', r.aluno.status) +
-        '</select></div>';
+      // CANCELADO não se define à mão: o servidor recusaria (`resolverAluno`) e
+      // a rodada seguinte recalcularia por cima. Sem o select, o `<option>` da
+      // cascata nunca aparece "selected" numa ficha em que ele não vale — e sem
+      // o Salvar, não há como gravar uma decisão que morreria na madrugada.
+      if (r.aluno.status === 'CANCELADO') {
+        html += '<p class="texto-fraco pequeno">Cancelado na lista oficial pela revisão de uma importação: ' +
+          'o status não se define à mão. Volta pela reimportação da lista.</p>';
+      } else {
+        html += '<div class="campo"><label for="novo-status">Definir status manualmente</label>' +
+          '<select id="novo-status">' +
+          opcaoStatus('CONFIRMADO', 'Confirmado', r.aluno.status) +
+          opcaoStatus('SO_INSCRITO', 'Só inscrito', r.aluno.status) +
+          opcaoStatus('SO_MATRICULADO', 'Só matriculado', r.aluno.status) +
+          opcaoStatus('DIVERGENCIA', 'Divergência (deixar pendente)', r.aluno.status) +
+          '</select></div>';
+      }
 
       document.getElementById('modal-corpo').innerHTML = html;
       document.getElementById('modal-rodape').innerHTML =
         '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-        '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarRevisao)">Salvar decisão</button>';
+        (r.aluno.status === 'CANCELADO' ? '' :
+          '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarRevisao)">Salvar decisão</button>');
     });
   }
 
@@ -6793,6 +6924,7 @@
       nome: 'Nome', email: 'E-mail', whatsapp: 'WhatsApp',
       curso_fase: 'Curso e fase', cpf: 'CPF', data_nascimento: 'Nascimento',
       curso: 'Curso', turma: 'Turma', situacao: 'Situação',
+      situacao_cadastro: 'Cadastro', cancelado_em: 'Cancelado em', cancelado_por: 'Cancelado por',
       telefone: 'Telefone', observacoes: 'Observações',
       declara_ciencia: 'Declara ciência', autoriza_imagem: 'Autoriza imagem',
       consentimento_lgpd: 'Consentimento LGPD'
@@ -6812,7 +6944,7 @@
   }
 
   function salvarRevisao() {
-    if (!ALUNO_ABERTO) return;
+    if (!ALUNO_ABERTO || !document.getElementById('novo-status')) return;
     chamar('resolverAluno', {
       id: ALUNO_ABERTO.id,
       status: document.getElementById('novo-status').value,
@@ -6857,13 +6989,15 @@
     ALUNO_ABERTO = null;
     ALUNO_EDICAO = null;
     INCLUSAO = null;
+    REVISAO = null;
   }
 
   /**
    * Alarga (ou estreita) a caixa da janela.
    *
-   * Só as duas janelas de LISTA pedem `true`, e só o `fecharModal()` pede
-   * `false` — e é ele quem faz isso valer para as sete: toda saída da janela
+   * Só as três janelas de LISTA pedem `true` (as duas de "Inscritos" e a de
+   * revisão de uma importação), e só o `fecharModal()` pede
+   * `false` — e é ele quem faz isso valer para as oito: toda saída da janela
    * passa por lá (o "×", o Cancelar, o clique no fundo, o Esc e a gravação que
    * deu certo), então não existe caminho que deixe a classe para trás.
    */
@@ -7040,6 +7174,8 @@
       r.totalLinhas + ' linha(s), formato ' + escapar(r.tipo) + '.</div>' +
       (r.aviso ? '<div class="aviso aviso--atencao">' + escapar(r.aviso) + '</div>' : '');
 
+    montarTurmaDoRelatorio(r.cabecalho);
+
     // Mapeamento campo → coluna
     var corpo = document.getElementById('corpo-mapeamento');
     corpo.innerHTML = '';
@@ -7079,6 +7215,47 @@
       linhas += '</tr>';
     });
     document.getElementById('corpo-amostra').innerHTML = linhas;
+  }
+
+  /**
+   * O campo "Turma do relatório" do passo 2, preenchido pelo que a análise leu.
+   *
+   * Quatro origens, e a dica diz qual foi — porque é a única defesa contra o
+   * OCR que estraga o cabeçalho: o professor precisa saber se está confirmando
+   * o que o arquivo diz ou um palpite tirado das linhas. Arquivo com mais de um
+   * cabeçalho vem VAZIO de propósito: dois relatórios colados não têm uma turma,
+   * e prefixar um deles seria decidir por ele.
+   */
+  function montarTurmaDoRelatorio(cabecalho) {
+    var c = cabecalho || {};
+    var campo = document.getElementById('turma-cabecalho');
+    var dica = document.getElementById('dica-turma-cabecalho');
+    var valor = '';
+    var texto = '';
+
+    if (c.origem === 'CABECALHO') {
+      valor = c.turma;
+      texto = 'Lida do cabeçalho do arquivo' + (c.semestre ? ' (' + escapar(c.semestre) + ')' : '') +
+        '. É por ela que, no fim, o sistema confere quem estava como ' + escapar(c.turma) +
+        ' e não veio. Um relatório por turma.';
+    } else if (c.origem === 'DISCIPLINA') {
+      valor = c.turma;
+      texto = 'Lida da linha da disciplina. É por ela que, no fim, o sistema confere quem estava ' +
+        'como ' + escapar(c.turma) + ' e não veio.';
+    } else if (c.turmas && c.turmas.length > 1) {
+      texto = 'O arquivo tem mais de um cabeçalho (' + escapar(c.turmas.join(', ')) + '). Informe a ' +
+        'turma, ou deixe vazio para importar sem a conferência de quem não veio.';
+    } else if (c.sugestao && c.sugestao.valida) {
+      valor = c.sugestao.turma;
+      texto = 'Não reconhecida no arquivo; sugerida pelas linhas (' + c.sugestao.comTurma + ' de ' +
+        c.sugestao.total + '). Confira antes de importar.';
+    } else {
+      texto = 'Não reconhecida no arquivo. Informe a turma, ou deixe vazio para importar sem a ' +
+        'conferência de quem não veio.';
+    }
+
+    campo.value = valor;
+    dica.innerHTML = texto;
   }
 
   function atualizarExemplo(select) {
@@ -7127,7 +7304,11 @@
       arquivo: IMPORTACAO.arquivo,
       tipo: IMPORTACAO.tipo,
       mapeamento: mapeamento,
-      substituir: document.getElementById('substituir').checked
+      substituir: document.getElementById('substituir').checked,
+      // O valor do campo, SEMPRE — inclusive vazio. É o servidor que decide se
+      // houve mudança (comparando com o que a análise leu); vazio explícito é
+      // "importar sem a chave", e ausente seria "decida por mim".
+      turmaCabecalho: document.getElementById('turma-cabecalho').value.trim()
     }, function (r) {
       if (!r || !r.ok) { avisar('erro', (r && r.erro) || 'Falha na importação.'); return; }
 
@@ -7140,7 +7321,15 @@
         // repetidas" e o aviso do substituir. O servidor sempre mandou; a tela
         // nunca desenhou, e os números sumiam sem deixar rastro para o professor.
         (r.aviso ? '<div class="aviso aviso--atencao">' + escapar(r.aviso) + '</div>' : '') +
+        '<div id="pos-revisao"></div>' +
         '<div id="pos-importacao"></div>';
+
+      // A turma com que o lote ficou. Bloco próprio, escrito depois, pelo mesmo
+      // motivo de `pos-importacao`: é o lugar onde a conferência de quem não
+      // veio desenha o resultado dela.
+      document.getElementById('pos-revisao').innerHTML = turmaRegistradaNoLote(r.cabecalho) +
+        '<div id="pos-conferencia"></div>';
+      conferirQuemNaoVeio(r.loteId, r.cabecalho);
 
       // A reconciliação é uma EXECUÇÃO À PARTE, e de propósito — ver o cabeçalho
       // de 05_Importacao.gs. Aqui ela é só o botão seguinte.
@@ -7158,6 +7347,106 @@
         '<button class="btn" onclick="reiniciarImportacao()">Importar outro arquivo</button>' +
         '</div>';
     });
+  }
+
+  /**
+   * A linha do passo 3 que diz com que turma o lote ficou — o que a conferência
+   * de quem não veio vai usar. Sem turma, diz que a conferência não existe para
+   * este arquivo, para ninguém esperar por ela.
+   */
+  function turmaRegistradaNoLote(cabecalho) {
+    var c = cabecalho || {};
+    if (!c.turma) {
+      return '<p class="texto-fraco pequeno">Este arquivo ficou sem turma do relatório — a ' +
+        'conferência de quem não veio só existe por turma.</p>';
+    }
+    var origem = c.origem === 'INFORMADA' ? 'informada por você' :
+      c.origem === 'MAIORIA' ? 'deduzida das linhas' : 'lida do arquivo';
+    return '<p class="texto-fraco pequeno">Turma do relatório registrada: <strong>' + escapar(c.turma) +
+      '</strong>' + (c.semestre ? ' — ' + escapar(c.semestre) : '') + ' (' + origem + '), ' +
+      c.linhasDaTurma + ' linha(s) dessa turma' +
+      (c.preenchidas ? ', ' + c.preenchidas + ' sem turma no arquivo receberam essa' : '') + '.</p>';
+  }
+
+  /**
+   * A conferência de quem não veio, logo depois de importar — o número do passo 3.
+   *
+   * É uma chamada SEPARADA, de leitura (`revisarLote` com `contarApenas`), e não
+   * um número que a importação devolveria: `confirmarImportacao` continua com 0
+   * leituras, e o número sai do MESMO predicado da janela de revisão — o passo 3
+   * e a janela dizem sempre a mesma coisa. Sem turma no lote não há chamada: a
+   * conferência só existe por turma, e a frase diz onde ela pode ser feita à mão.
+   *
+   * Falhar aqui não desfaz nada: a importação já está gravada, e a conferência
+   * continua disponível na aba Importações. Por isso o erro é `atencao`, dentro
+   * do bloco, e não a faixa vermelha do painel.
+   */
+  function conferirQuemNaoVeio(loteId, cabecalho) {
+    var alvo = document.getElementById('pos-conferencia');
+    var turma = cabecalho && cabecalho.turma;
+    if (!alvo) return;
+
+    if (!turma) {
+      alvo.innerHTML = '<p class="texto-fraco pequeno">Este arquivo não tem turma reconhecível — a ' +
+        'conferência de quem não veio só existe por turma. Na aba Importações, o botão Revisar ' +
+        'permite informar a turma.</p>';
+      return;
+    }
+
+    alvo.innerHTML = '<div class="aviso aviso--info">Conferindo quem estava no banco como <strong>' +
+      escapar(turma) + '</strong> e não veio neste arquivo...</div>';
+
+    var naoConsegui = function (motivo) {
+      alvo.innerHTML = '<div class="aviso aviso--atencao">Não consegui conferir quem não veio: ' +
+        escapar(motivo) + ' A importação continua valendo; a conferência fica na aba ' +
+        '<strong>Importações → Revisar</strong>.</div>';
+    };
+
+    chamar('revisarLote', { loteId: loteId, contarApenas: true }, function (r) {
+      if (!r) return;                       // chamar() já explicou o motivo
+      if (!r.ok) { naoConsegui(r.motivo || r.erro || 'erro desconhecido.'); return; }
+      alvo.innerHTML = conferenciaPosImportacao(r);
+    }, function (e) {
+      naoConsegui((e && e.message) ? e.message + '.' : 'falha de conexão.');
+    });
+  }
+
+  /** O bloco do passo 3 com o resultado da conferência — zero, alguns, ou alarme. */
+  function conferenciaPosImportacao(r) {
+    var turma = escapar(r.turma);
+    var aParte = [];
+    if (r.outraListaDoSemestre) {
+      aParte.push(r.outraListaDoSemestre + ' vieram em outra lista' + (r.semestre ? ' de ' + escapar(r.semestre) : ''));
+    }
+    if (r.jaCancelados) aParte.push(r.jaCancelados + ' já cancelado(s)');
+    if (r.emLoteMaisNovo) aParte.push(r.emLoteMaisNovo + ' em importação mais nova');
+    var entreParenteses = aParte.length ? ' <span class="texto-fraco">(' + aParte.join(' · ') + ')</span>' : '';
+
+    var html = '';
+    if (!r.candidatos) {
+      html += '<div class="aviso aviso--sucesso">' +
+        (r.vieram
+          ? 'Todos os ' + r.vieram + ' que estavam no banco como <strong>' + turma + '</strong> vieram neste arquivo.'
+          : 'Ninguém estava no banco como <strong>' + turma + '</strong> antes deste arquivo.') +
+        entreParenteses + '</div>';
+    } else {
+      html += '<div class="aviso aviso--atencao"><strong>' + r.candidatos + ' aluno(s) que estavam no banco ' +
+        'como ' + turma + ' não vieram neste arquivo.</strong> Trancaram, desistiram ou mudaram de turma.' +
+        entreParenteses +
+        '<div class="barra-acoes"><button class="btn btn--primario" id="botao-revisar-pos" ' +
+        'onclick="abrirRevisaoDeLote(\'' + escapar(r.loteId) + '\')">Revisar</button></div></div>';
+    }
+    if (r.sumiramMaisQueVieram) {
+      html += '<div class="aviso aviso--erro"><strong>Sumiram mais alunos do que vieram</strong> (' +
+        r.candidatos + ' contra ' + r.vieram + '). Confira se o arquivo é mesmo de ' + turma +
+        ', ou se é virada de semestre — importe as outras turmas antes de cancelar alguém.</div>';
+    }
+    (r.avisos || []).forEach(function (a) {
+      // O de "sumiram mais" já está acima, com o botão perto; repeti-lo seria ruído.
+      if (/^Sumiram mais/.test(a)) return;
+      html += '<div class="aviso aviso--atencao pequeno">' + escapar(a) + '</div>';
+    });
+    return html;
   }
 
   /**
@@ -7191,6 +7480,7 @@
         kpi(s.so_inscrito, 'Só inscritos', 'vinho') +
         kpi(s.so_matriculado, 'Só matriculados', 'roxo') +
         kpi(s.divergencia, 'Divergências', 'ambar') +
+        (s.cancelado ? kpi(s.cancelado, 'Cancelados', 'cinza') : '') +
         '</div>' +
         (s.aviso ? '<div class="aviso aviso--atencao">' + escapar(s.aviso) + '</div>' : '') +
         (s.divergencia ? '<div class="aviso aviso--atencao">' + s.divergencia +
@@ -7218,6 +7508,8 @@
     document.getElementById('arquivo').value = '';
     document.getElementById('status-upload').innerHTML = '';
     document.getElementById('substituir').checked = false;
+    document.getElementById('turma-cabecalho').value = '';
+    document.getElementById('dica-turma-cabecalho').innerHTML = '';
     irParaPasso(1);
   }
 
@@ -7238,11 +7530,16 @@
         return;
       }
 
-      var html = '<p class="texto-fraco pequeno">Importar nunca apaga. Para tirar do banco uma ' +
-        'lista antiga inteira, use <strong>Apagar matriculados</strong> na linha dela — quem voltou ' +
-        'numa importação mais nova pertence ao lote mais novo e não é tocado.</p>' +
+      var html = '<p class="texto-fraco pequeno">Importar nunca apaga. <strong>Revisar</strong> é o ' +
+        'bisturi dentro do semestre: mostra quem estava no banco como a turma do relatório e não ' +
+        'veio nele, para cancelar (ou excluir) um a um, com a inscrição anulada e a vaga liberada. ' +
+        '<strong>Apagar matriculados</strong> é a vassoura entre semestres: tira do banco uma lista ' +
+        'antiga inteira — quem voltou numa importação mais nova pertence ao lote mais novo e não é ' +
+        'tocado. Virada de semestre: importe TODAS as listas do semestre novo → Revisar lote a lote → ' +
+        'Apagar matriculados nos lotes do semestre anterior.</p>' +
         '<div class="tabela-wrap"><table><thead><tr>' +
-        '<th>Quando</th><th>Arquivo</th><th>Tipo</th><th>Linhas</th><th>Por</th><th>Modo</th><th></th>' +
+        '<th>Quando</th><th>Arquivo</th><th>Tipo</th><th>Linhas</th><th>Turma</th><th>Por</th><th>Modo</th>' +
+        '<th>Revisão</th><th></th>' +
         '</tr></thead><tbody>';
       r.itens.forEach(function (l) {
         html += '<tr>' +
@@ -7250,17 +7547,73 @@
           '<td class="quebra">' + escapar(l.arquivo) + '</td>' +
           '<td>' + escapar(l.tipo) + '</td>' +
           '<td>' + escapar(l.linhas) + '</td>' +
+          '<td>' + turmaDoLote(l) + '</td>' +
           '<td>' + escapar(l.importado_por) + '</td>' +
           '<td>' + escapar(l.status) + '</td>' +
-          '<td>' + (l.status === 'EXPURGADO'
-            ? '<span class="texto-fraco pequeno">apagado</span>'
-            : '<button class="btn btn--pequeno" data-gravando="Apagando..." ' +
-              'onclick="aoGravar(this, expurgarLoteUI, \'' +
-              escapar(l.lote_id) + '\')">Apagar matriculados</button>') +
-          '</td></tr>';
+          '<td class="pequeno">' + revisaoDoLote(l) + '</td>' +
+          '<td>' + acoesDoLote(l) + '</td></tr>';
       });
       el.innerHTML = html + '</tbody></table></div>';
     });
+  }
+
+  /**
+   * A coluna "Revisão": quando a última revisão rodou e o que ela fez, ou vazio.
+   * O resumo vem como o JSON gravado no lote; ilegível é o mesmo que ausente.
+   * `situacao: 'PARCIAL'` é o Aplicar interrompido depois de já ter escrito: a
+   * coluna diz "interrompida", para ninguém ler o lote como revisado inteiro.
+   */
+  function revisaoDoLote(l) {
+    if (!l.revisado_em) return '<span class="texto-fraco">—</span>';
+    var resumo = null;
+    try { resumo = l.revisao_resumo ? JSON.parse(l.revisao_resumo) : null; } catch (e) { resumo = null; }
+    var partes = [];
+    if (resumo) {
+      if (resumo.cancelados) partes.push(resumo.cancelados + ' cancelado(s)');
+      if (resumo.excluidos) partes.push(resumo.excluidos + ' excluído(s)');
+      if (resumo.anuladas) partes.push(resumo.anuladas + ' inscrição(ões) anulada(s)');
+      if (!partes.length) partes.push('nada a fazer');
+    }
+    var interrompida = resumo && resumo.situacao === 'PARCIAL';
+    return (interrompida ? '<strong>revisão interrompida</strong> em ' : 'revisado em ') +
+      escapar(diaDe(l.revisado_em) || l.revisado_em) +
+      (partes.length ? ' · ' + escapar(partes.join(', ')) + (interrompida ? ' antes da falha' : '') : '');
+  }
+
+  /**
+   * A última célula da linha: Revisar + Apagar, ou o motivo de não haver botão.
+   *
+   * EXPURGADO não tem o que comparar nem o que apagar; PARCIAL não é revisável
+   * porque apontaria como "não veio" quem está no arquivo e não chegou a entrar
+   * (o servidor recusa também — ver `recusaDoLote_`, 05c_Revisao.gs — mas o botão
+   * que só devolve recusa é um botão que ensina a não ler).
+   */
+  function acoesDoLote(l) {
+    if (l.status === 'EXPURGADO') return '<span class="texto-fraco pequeno">apagado</span>';
+    if (l.status === 'PARCIAL') {
+      return '<span class="texto-fraco pequeno">parcial — confirme de novo com o mesmo arquivo</span>';
+    }
+    return '<button class="btn btn--pequeno" onclick="abrirRevisaoDeLote(\'' + escapar(l.lote_id) + '\')">' +
+      (l.revisado_em ? 'Revisar de novo' : 'Revisar') + '</button> ' +
+      '<button class="btn btn--pequeno" data-gravando="Apagando..." ' +
+      'onclick="aoGravar(this, expurgarLoteUI, \'' + escapar(l.lote_id) + '\')">Apagar matriculados</button>';
+  }
+
+  /**
+   * A coluna "Turma" da aba Importações: a turma do relatório e de onde veio.
+   *
+   * Lida do arquivo (cabeçalho ou linha da disciplina) fica sem rótulo — é o
+   * caso normal. Deduzida das linhas ou informada à mão ganham o rótulo, porque
+   * são as duas que valem a pena reconferir antes de confiar na conferência de
+   * quem não veio. Lote sem turma (anterior a 21/09, ou arquivo sem cabeçalho)
+   * fica vazio: reimportar o mesmo arquivo é o que grava a chave.
+   */
+  function turmaDoLote(l) {
+    if (!l.turma) return '<span class="texto-fraco">—</span>';
+    var rotulo = l.turma_origem === 'INFORMADA' ? ' (informada)' :
+      (l.turma_origem === 'CABECALHO' || l.turma_origem === 'DISCIPLINA') ? '' : ' (linhas)';
+    return escapar(l.turma) + (l.semestre ? ' <span class="texto-fraco pequeno">' + escapar(l.semestre) + '</span>' : '') +
+      (rotulo ? '<span class="texto-fraco pequeno">' + rotulo + '</span>' : '');
   }
 
   /**
@@ -7291,6 +7644,431 @@
         carregarLotes();
       });
     });
+  }
+
+  // ------------------------------------------------------ A janela de revisão
+
+  /**
+   * O que a janela de revisão carregou — e QUAL janela é.
+   *
+   * NOVO a cada abertura, como `INCLUSAO`: a resposta do Aplicar leva segundos,
+   * e a janela pode ter sido fechada (o "×", o fundo, o Esc) antes de ela
+   * chegar. Comparar a identidade é o que impede uma resposta tardia de
+   * desenhar dentro da janela de OUTRA coisa. `porMatricula` guarda quantas
+   * inscrições cada candidato tem, para a contagem viva e a pergunta dizerem
+   * quantas vagas vão ser liberadas sem reler a tela.
+   *
+   * O que a janela NÃO tem, de propósito (decisão de 21/09): uma caixa "cancelar
+   * também a inscrição". Cancelar e Excluir SEMPRE anulam as inscrições vivas do
+   * aluno — a vaga tem de ser liberada —, e quem descobre quais são é o servidor,
+   * no instante do Aplicar. A lista "com projeto" mostra o projeto e diz a frase.
+   *
+   * O que ele anula é SÓ a inscrição que traz a matrícula do aluno. A que o
+   * cruzamento de Alunos ligou a ele por e-mail, CPF ou nome (`possiveis`) é
+   * uma linha de informação embaixo do nome — "possível inscrição sem esta
+   * matrícula em Robótica … confira no Geral" —, sem ação e sem entrar na
+   * contagem de "inscrições a anular": nome casa homônimo e e-mail casa
+   * família, e anular é destrutivo. Quem confere e decide é a coordenação, no
+   * Geral.
+   */
+  var REVISAO = null;
+
+  /**
+   * Abre a revisão de um lote: pela aba Importações ("Revisar") ou pelo passo 3
+   * da importação. `turma` só vem do "Consultar" da própria janela.
+   */
+  function abrirRevisaoDeLote(loteId, turma) {
+    REVISAO = { loteId: String(loteId), turma: String(turma || ''), resposta: null, porMatricula: {}, feito: '' };
+    ALUNO_EDICAO = null;
+    INCLUSAO = null;
+    MODAL_COM_TRABALHO = false;
+    document.getElementById('modal-fundo').classList.remove('oculto');
+    janelaLarga(true);
+    document.getElementById('modal-titulo').textContent = 'Revisar importação';
+    document.getElementById('mensagem-modal').innerHTML = '';
+    document.getElementById('modal-corpo').innerHTML = '<div class="carregando">Comparando a lista oficial com o arquivo...</div>';
+    document.getElementById('modal-rodape').innerHTML = '<button class="btn" onclick="fecharModal()">Cancelar</button>';
+    carregarRevisao();
+  }
+
+  function carregarRevisao() {
+    var janela = REVISAO;
+    if (!janela) return;
+
+    var payload = { loteId: janela.loteId };
+    if (janela.turma) payload.turma = janela.turma;
+
+    chamar('revisarLote', payload, function (r) {
+      if (!r || REVISAO !== janela) return;
+      desenharRevisao(r);
+    }, function (e) {
+      if (REVISAO !== janela) return;
+      document.getElementById('modal-corpo').innerHTML = campoDeTurmaDaRevisao(janela.turma);
+      avisar('erro', 'Não consegui carregar a revisão: ' + ((e && e.message) || 'falha de conexão') +
+        '. Confira a turma e clique em Consultar.');
+    });
+  }
+
+  /** O "Consultar" da janela: a mesma revisão, pela turma que está no campo. */
+  function consultarRevisao() {
+    if (!REVISAO) return;
+    var turma = campoTexto_('rev-turma');
+    if (!turma) { avisar('erro', 'Informe a turma.'); return; }
+    REVISAO.turma = turma;
+    // A lista vai ser redesenhada do zero: o que estava marcado morre com ela,
+    // e Consultar é um clique deliberado — sem pergunta, como o Cancelar.
+    MODAL_COM_TRABALHO = false;
+    document.getElementById('mensagem-modal').innerHTML = '';
+    document.getElementById('modal-corpo').innerHTML = '<div class="carregando">Consultando ' + escapar(turma) + '...</div>';
+    carregarRevisao();
+  }
+
+  /**
+   * O campo "Turma" com o botão Consultar — o remédio para cabeçalho errado ou
+   * lote antigo, na mesma marcação do campo da aba Disciplinas (`filtrosDaTurma`).
+   */
+  function campoDeTurmaDaRevisao(valor, dica) {
+    return '<div class="filtros">' +
+      '<div class="campo"><label for="rev-turma">Turma</label>' +
+      '<input type="text" id="rev-turma" value="' + escapar(valor || '') + '" maxlength="40" placeholder="ADS41">' +
+      (dica ? '<span class="dica">' + escapar(dica) + '</span>' : '') + '</div>' +
+      '<div class="campo"><button type="button" class="btn btn--pequeno" onclick="consultarRevisao()">Consultar</button></div>' +
+      '</div>';
+  }
+
+  /**
+   * Desenha a resposta de `revisarLote` dentro da janela.
+   *
+   * Duas listas com ação (sem projeto, com projeto) e dois blocos só de
+   * informação (quem veio em outra lista deste semestre, quem já está
+   * cancelado). Os já cancelados aparecem com as inscrições vivas, se houver —
+   * um cancelado que se reinscreveu ocupa vaga, e é a coordenação que decide,
+   * pelo Geral: o Aplicar não toca em quem já tem a marca.
+   */
+  function desenharRevisao(r) {
+    var corpo = document.getElementById('modal-corpo');
+    var rodape = document.getElementById('modal-rodape');
+    REVISAO.resposta = r;
+    REVISAO.porMatricula = {};
+
+    if (!r.ok) {
+      if (r.precisaTurma) {
+        corpo.innerHTML = '<div class="aviso aviso--atencao">' + escapar(r.motivo || r.erro) + '</div>' +
+          campoDeTurmaDaRevisao(REVISAO.turma || r.sugestao || '',
+            r.sugestao ? 'Sugestão pelas linhas que sobraram desta importação: ' + r.sugestao : '');
+        rodape.innerHTML = '<button class="btn" onclick="fecharModal()">Cancelar</button>';
+        return;
+      }
+      corpo.innerHTML = '<div class="aviso aviso--erro">' + escapar(r.erro || 'Não consegui revisar.') + '</div>';
+      rodape.innerHTML = '<button class="btn" onclick="fecharModal()">Fechar</button>';
+      return;
+    }
+
+    document.getElementById('modal-titulo').textContent =
+      'Revisar ' + r.turma + ' — ' + (r.arquivo || r.loteId) + (r.importadoEm ? ', ' + (diaDe(r.importadoEm) || r.importadoEm) : '');
+
+    var semestre = r.semestre ? ' — ' + escapar(r.semestre) : '';
+    var comparando;
+    if (r.origemTurma === 'LINHAS') {
+      comparando = 'Comparando pela turma majoritária das linhas desta importação: <strong>' + escapar(r.turma) +
+        '</strong> (' + escapar(r.origemDetalhe) + ') — este lote é anterior ao registro do cabeçalho.';
+    } else if (r.origemTurma === 'INFORMADA') {
+      comparando = 'Comparando pela turma informada: <strong>' + escapar(r.turma) + '</strong>' + semestre + '.';
+    } else {
+      comparando = 'Comparando pela turma do relatório: <strong>' + escapar(r.turma) + '</strong>' + semestre +
+        ' (' + escapar(r.origemDetalhe) + ').';
+    }
+
+    var html = '<div class="aviso aviso--info">' + comparando + '</div>' +
+      campoDeTurmaDaRevisao(r.turma);
+
+    if (r.revisado) {
+      var res = r.revisado.resumo || {};
+      // 'PARCIAL' é o Aplicar que morreu depois de já ter escrito: o que ele
+      // fez está na trilha (LOTE_REVISADO_PARCIAL), e a janela avisa que a
+      // revisão não terminou — o resto ainda está nas listas abaixo.
+      html += '<p class="texto-fraco pequeno">' +
+        (res.situacao === 'PARCIAL' ? '<strong>Revisão interrompida</strong> em ' : 'Já revisada em ') +
+        escapar(diaDe(r.revisado.em) || r.revisado.em) +
+        (r.revisado.por ? ' por ' + escapar(r.revisado.por) : '') +
+        (res.cancelados !== undefined ? ' · ' + res.cancelados + ' cancelado(s), ' + (res.excluidos || 0) +
+          ' excluído(s), ' + (res.anuladas || 0) + ' inscrição(ões) anulada(s)' : '') +
+        (res.situacao === 'PARCIAL' ? ' antes da falha — o que ficou por fazer está abaixo' : '') + '.</p>';
+    }
+
+    var lidas = (r.lidas || {});
+    var totalLido = (lidas.matriculados || 0) + (lidas.lotes || 0) + (lidas.inscricoes || 0) + (lidas.fichas || 0);
+    html += '<p class="texto-fraco pequeno" id="rev-contagem">' + r.vieram + ' vieram · <strong>' + r.candidatos +
+      ' não vieram</strong>' +
+      (r.emLoteMaisNovo ? ' · ' + r.emLoteMaisNovo + ' em importação mais nova' : '') +
+      (r.outraListaDoSemestre.length ? ' · ' + r.outraListaDoSemestre.length + ' em outra lista' + (r.semestre ? ' de ' + escapar(r.semestre) : '') : '') +
+      (r.jaCancelados.length ? ' · ' + r.jaCancelados.length + ' já cancelado(s)' : '') +
+      ' · ' + totalLido + ' documento(s) lido(s)</p>';
+
+    if (r.sumiramMaisQueVieram) {
+      html += '<div class="aviso aviso--erro"><strong>Sumiram mais alunos do que vieram</strong> (' + r.candidatos +
+        ' contra ' + r.vieram + '). Confira se o arquivo é mesmo de ' + escapar(r.turma) +
+        ', ou se é virada de semestre — importe as outras turmas antes de cancelar alguém.</div>';
+    }
+    (r.avisos || []).forEach(function (a) {
+      if (/^Sumiram mais/.test(a)) return;
+      html += '<div class="aviso aviso--atencao pequeno">' + escapar(a) + '</div>';
+    });
+
+    r.semProjeto.forEach(function (i) { REVISAO.porMatricula[i.matricula] = i.inscricoes.length; });
+    r.comProjeto.forEach(function (i) { REVISAO.porMatricula[i.matricula] = i.inscricoes.length; });
+
+    html += listaDaRevisao('sem', 'Sem projeto', r.semProjeto, false) +
+      listaDaRevisao('com', 'Com projeto', r.comProjeto, true);
+
+    if (r.outraListaDoSemestre.length) {
+      html += '<h3>Vieram em outra lista' + (r.semestre ? ' de ' + escapar(r.semestre) : '') + ' (' +
+        r.outraListaDoSemestre.length + ')</h3>' +
+        '<p class="texto-fraco pequeno">Estavam como ' + escapar(r.turma) + ' e vieram no relatório de outra ' +
+        'turma deste semestre — mudaram de turma, ou cursam a disciplina de lá. Só informação.</p>' +
+        '<div class="tabela-wrap"><table><thead><tr><th>Nome</th><th>Matrícula</th><th>Arquivo</th></tr></thead><tbody>' +
+        r.outraListaDoSemestre.map(function (i) {
+          return '<tr><td>' + escapar(i.nome) + '</td><td>' + escapar(i.matricula) + '</td><td class="pequeno">' +
+            escapar(i.lote.arquivo || i.lote.id) + (i.lote.importadoEm ? ' · ' + escapar(diaDe(i.lote.importadoEm) || i.lote.importadoEm) : '') +
+            '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    if (r.jaCancelados.length) {
+      html += '<h3>Já cancelados (' + r.jaCancelados.length + ')</h3>' +
+        '<div class="tabela-wrap"><table><thead><tr><th>Nome</th><th>Matrícula</th><th>Cancelado</th><th>Projeto</th></tr></thead><tbody>' +
+        r.jaCancelados.map(function (i) {
+          return '<tr><td>' + escapar(i.nome) + '</td><td>' + escapar(i.matricula) + '</td><td class="pequeno">' +
+            escapar(diaDe(i.cancelado_em) || i.cancelado_em) + (i.cancelado_por ? ' por ' + escapar(i.cancelado_por) : '') +
+            '</td><td class="pequeno">' + (i.inscricoes.length
+              ? projetosDaRevisao(i.inscricoes) + ' <span class="selo selo--DIVERGENCIA">ocupa vaga</span>'
+              : '<span class="texto-fraco">—</span>') + possiveisDaRevisao(i.possiveis) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    html += '<p id="rev-resumo" class="pequeno"></p>';
+    corpo.innerHTML = html;
+
+    rodape.innerHTML = '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
+      (r.candidatos
+        ? '<button class="btn btn--primario" id="modal-salvar" data-gravando="Aplicando..." ' +
+          'onclick="aoGravar(this, aplicarRevisaoUI)">Aplicar</button>'
+        : '');
+    recontarRevisao();
+  }
+
+  /** Uma das duas listas com ação. `comProjeto` acrescenta a coluna do projeto e a frase da anulação. */
+  function listaDaRevisao(lista, titulo, itens, comProjeto) {
+    var html = '<h3>' + titulo + ' (' + itens.length + ')</h3>';
+    if (!itens.length) return html + '<p class="texto-fraco pequeno">Ninguém.</p>';
+
+    html += '<p class="texto-fraco pequeno">Marcar todos: ' +
+      ['MANTER', 'CANCELAR', 'EXCLUIR'].map(function (acao) {
+        return '<button type="button" class="btn btn--pequeno" onclick="marcarTodosRevisao(\'' + lista + '\', \'' + acao + '\')">' +
+          rotuloDaAcao(acao) + '</button>';
+      }).join(' ') + '</p>' +
+      '<div class="tabela-wrap" id="rev-' + lista + '-projeto"><table><thead><tr>' +
+      '<th>Nome</th><th>Matrícula</th><th>Curso</th><th>Importado em</th><th>Último arquivo</th>' +
+      (comProjeto ? '<th>Projeto</th>' : '') + '<th>Ação</th></tr></thead><tbody>';
+
+    itens.forEach(function (i) {
+      html += '<tr><td>' + escapar(i.nome) + possiveisDaRevisao(i.possiveis) + '</td>' +
+        '<td>' + escapar(i.matriculaOficial || i.matricula) + '</td>' +
+        '<td class="pequeno">' + escapar(i.curso) + '</td>' +
+        '<td class="pequeno">' + escapar(diaDe(i.importadoEm) || i.importadoEm) + '</td>' +
+        '<td class="pequeno">' + escapar(i.lote.arquivo || i.lote.id) +
+        (i.lote.importadoEm ? ' · ' + escapar(diaDe(i.lote.importadoEm) || i.lote.importadoEm) : '') + '</td>' +
+        (comProjeto
+          ? '<td class="pequeno">' + projetosDaRevisao(i.inscricoes) +
+            '<div class="texto-fraco">a inscrição será anulada (vaga liberada)</div></td>'
+          : '') +
+        '<td><select class="rev-acao" data-rev-matricula="' + escapar(i.matricula) + '" data-rev-lista="' + lista + '" ' +
+        'onchange="recontarRevisao()">' +
+        '<option value="MANTER" selected>Manter</option>' +
+        '<option value="CANCELAR">Cancelar</option>' +
+        '<option value="EXCLUIR" title="Só para quem nunca deveria ter entrado — teste, arquivo errado.">Excluir</option>' +
+        '</select></td></tr>';
+    });
+    return html + '</tbody></table></div>';
+  }
+
+  /**
+   * "Robótica · protocolo abc123 (em espera)", uma linha por inscrição — as
+   * que trazem esta matrícula, e por isso vão ser anuladas.
+   */
+  function projetosDaRevisao(inscricoes) {
+    return inscricoes.map(function (i) {
+      return '<strong>' + escapar(i.projetoNome || i.projetoId) + '</strong> · protocolo ' + escapar(i.id) +
+        (i.emEspera ? ' (em espera)' : '');
+    }).join('<br>');
+  }
+
+  /**
+   * A linha de informação dos `possiveis`: a inscrição que NÃO traz esta
+   * matrícula e o cruzamento de Alunos ligou a esta pessoa por outro caminho
+   * (e-mail, CPF, nome). Não vai ser anulada — nome casa homônimo, e-mail casa
+   * família —, então a linha diz por quem casou, se a própria cascata ficou
+   * em dúvida (divergência) e onde conferir. Vazio quando não há nenhuma.
+   */
+  function possiveisDaRevisao(possiveis) {
+    if (!possiveis || !possiveis.length) return '';
+    return possiveis.map(function (p) {
+      return '<div class="texto-fraco pequeno rev-possivel">possível inscrição sem esta matrícula em <strong>' +
+        escapar(p.projetoNome || p.projetoId) + '</strong> (protocolo ' + escapar(p.id) +
+        (p.emEspera ? ', em espera' : '') + ', casada por ' + escapar(p.casadaPor || 'cruzamento') +
+        (p.status === 'DIVERGENCIA' ? ', em divergência' : '') + ') — não será anulada; confira no Geral.</div>';
+    }).join('');
+  }
+
+  function rotuloDaAcao(acao) {
+    return acao === 'CANCELAR' ? 'Cancelar' : acao === 'EXCLUIR' ? 'Excluir' : 'Manter';
+  }
+
+  /** Os selects da janela — de uma lista, ou de todas. */
+  function selectsDaRevisao(lista) {
+    var todos = document.querySelectorAll('[data-rev-matricula]');
+    var saida = [];
+    Array.prototype.forEach.call(todos, function (s) {
+      if (!lista || s.getAttribute('data-rev-lista') === lista) saida.push(s);
+    });
+    return saida;
+  }
+
+  /** "Marcar todos" de UMA lista — a outra não é tocada. */
+  function marcarTodosRevisao(lista, acao) {
+    selectsDaRevisao(lista).forEach(function (s) { s.value = acao; });
+    // Marcar por atalho é trabalho tanto quanto marcar um a um: o fundo e o Esc
+    // passam a perguntar antes de fechar.
+    if (acao !== 'MANTER') MODAL_COM_TRABALHO = true;
+    recontarRevisao();
+  }
+
+  /** O que está marcado agora, lido dos selects. */
+  function decisoesDaRevisao() {
+    var saida = { lista: [], cancelar: 0, excluir: 0, manter: 0, anular: 0 };
+    selectsDaRevisao().forEach(function (s) {
+      var acao = String(s.value || 'MANTER');
+      var matricula = s.getAttribute('data-rev-matricula');
+      if (acao === 'MANTER') { saida.manter++; return; }
+      saida.lista.push({ matricula: matricula, acao: acao });
+      if (acao === 'CANCELAR') saida.cancelar++; else saida.excluir++;
+      saida.anular += (REVISAO && REVISAO.porMatricula[matricula]) || 0;
+    });
+    return saida;
+  }
+
+  /** A contagem viva embaixo das listas. */
+  function recontarRevisao() {
+    var el = document.getElementById('rev-resumo');
+    if (!el) return;
+    var d = decisoesDaRevisao();
+    el.textContent = d.cancelar + ' a cancelar · ' + d.excluir + ' a excluir · ' + d.anular +
+      ' inscrições a anular · ' + d.manter + ' mantido(s)';
+  }
+
+  /**
+   * O clique em Aplicar: pergunta ANTES da única chamada, com o resumo do que
+   * vai acontecer — inclusive o alarme de "sumiram mais do que vieram", repetido
+   * aqui porque é na pergunta que os olhos estão.
+   *
+   * A resposta cai DENTRO da janela: sucesso troca as listas pelo relato e
+   * oferece "Ver Alunos"; erro fica em `#mensagem-modal` com o que JÁ foi feito
+   * (o servidor conta os parciais), e os selects continuam como estavam, para
+   * reaplicar. Nada aqui é repetido sozinho: `aplicarRevisao` está fora de
+   * `SO_LEITURA`.
+   */
+  function aplicarRevisaoUI() {
+    if (!REVISAO || !REVISAO.resposta || !REVISAO.resposta.ok) return;
+    var janela = REVISAO;
+    var r = janela.resposta;
+    var d = decisoesDaRevisao();
+
+    if (!d.lista.length) { avisar('info', 'Nada marcado: todos ficam como estão.'); return; }
+    if (d.lista.length > r.loteMaximo) {
+      avisar('erro', 'São ' + d.lista.length + ' decisões e o lote é de no máximo ' + r.loteMaximo +
+        '. Aplique em partes.');
+      return;
+    }
+
+    var pergunta = 'Aplicar a revisão de ' + r.turma + '?\n\n' +
+      (d.cancelar ? d.cancelar + ' aluno(s) serão CANCELADOS: somem das listas e do formulário; voltam ' +
+        'sozinhos se a secretaria os reenviar numa lista.\n' : '') +
+      (d.excluir ? d.excluir + ' aluno(s) serão EXCLUÍDOS: saem do banco (ficam só na cópia de excluídos ' +
+        'e no backup).\n' : '') +
+      (d.anular ? d.anular + ' inscrição(ões) serão ANULADAS: vaga liberada, histórico preservado.\n' : '') +
+      (r.sumiramMaisQueVieram ? '\nATENÇÃO: sumiram mais alunos do que vieram — ' + r.candidatos + ' contra ' +
+        r.vieram + '.\n' : '') +
+      '\nIsto não tem desfazer pela tela.';
+    if (!window.confirm(pergunta)) return;
+
+    chamar('aplicarRevisao', {
+      loteId: r.loteId,
+      turma: r.turma,
+      origemTurma: r.origemTurma,
+      decisoes: d.lista
+    }, function (resp) {
+      if (!resp) return;                    // chamar() já explicou o motivo
+      var aindaAqui = REVISAO === janela;
+
+      if (!resp.ok) {
+        var parciais = [];
+        if (resp.anuladas) parciais.push(resp.anuladas + ' inscrição(ões) anulada(s)');
+        if (resp.excluidos) parciais.push(resp.excluidos + ' excluído(s)');
+        if (resp.cancelados) parciais.push(resp.cancelados + ' cancelado(s)');
+        // Os contadores dizem quanto; `avisos` diz QUEM ("A inscrição de
+        // 9110002 (Robótica) foi anulada antes da recusa") — é por eles que a
+        // coordenação sabe quem reincluir por Alunos → Incluir aluno.
+        var nominais = (resp.avisos || []).join(' ');
+        avisar('erro', (parciais.length ? 'Feito antes da falha: ' + parciais.join(', ') + '. ' : '') +
+          (nominais ? nominais + ' ' : '') +
+          (resp.erro || 'Falha ao aplicar a revisão.'));
+        return;
+      }
+
+      var texto = 'Feito: ' + resp.cancelados + ' cancelado(s), ' + resp.excluidos + ' excluído(s), ' +
+        resp.anuladas + ' inscrição(ões) anulada(s)' +
+        (resp.jaCancelados ? ', ' + resp.jaCancelados + ' já estava(m) cancelado(s)' : '') + '.' +
+        (resp.mensagem ? ' ' + resp.mensagem : '');
+      janela.feito = texto;
+
+      if (aindaAqui) desenharResultadoDaRevisao(resp, texto);
+      else avisar('sucesso', texto + ' A ficha em Alunos atualiza no próximo Atualizar daquela aba.');
+
+      // A coluna "Revisão" e o rótulo "Revisar de novo" mudaram — e a aba pode
+      // estar atrás da janela agora.
+      carregarLotes();
+    });
+  }
+
+  /** O relato do Aplicar, no lugar das listas. */
+  function desenharResultadoDaRevisao(resp, texto) {
+    var html = '<div class="aviso aviso--sucesso">' + escapar(texto) + '</div>';
+    if (resp.pulados && resp.pulados.length) {
+      html += '<ul class="pequeno">' + resp.pulados.map(function (p) {
+        return '<li>' + escapar(p.matricula) + ' — ' + escapar(p.motivo) + '; não foi tocado.</li>';
+      }).join('') + '</ul>';
+    }
+    html += '<p class="pequeno">A ficha em <strong>Alunos</strong> atualiza no próximo Atualizar daquela aba — ' +
+      '"Ver Alunos" já faz isso.</p>';
+    document.getElementById('modal-corpo').innerHTML = html;
+    document.getElementById('modal-rodape').innerHTML =
+      '<button class="btn" onclick="fecharModal()">Fechar</button>' +
+      '<button class="btn btn--primario" onclick="verAlunosAposRevisao()">Ver Alunos</button>';
+    MODAL_COM_TRABALHO = false;
+  }
+
+  /**
+   * Fecha a janela e roda o Atualizar da aba Alunos com o relato na frente — é
+   * o cruzamento que tira o cancelado da lista. A aba é marcada como pronta
+   * ANTES da troca para `trocarAba` não disparar o carregamento simples: o
+   * Atualizar logo abaixo já carrega, cruzando, e seriam duas chamadas.
+   */
+  function verAlunosAposRevisao() {
+    var texto = (REVISAO && REVISAO.feito) || 'Revisão aplicada.';
+    fecharModal();
+    ABAS_PRONTAS.alunos = true;
+    trocarAba('alunos');
+    atualizarAlunosUI({ tipo: 'sucesso', texto: texto });
   }
 
   function carregarLog() {

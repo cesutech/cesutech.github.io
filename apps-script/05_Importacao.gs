@@ -104,6 +104,35 @@
  * confirmação. Sem ele, `matriculados` só crescia até `colecaoCompleta_`
  * (06_Reconciliacao.gs) recusar a reconciliação inteira por passar de 8.000.
  *
+ * ------------------------------ O cabeçalho do relatório vira a chave do lote
+ *
+ * Desde 21/09 o lote guarda a TURMA DO RELATÓRIO (`turma_cabecalho`) e o
+ * semestre, lidos do cabeçalho do arquivo pelo passo 1 (`cabecalhoDoArquivo_`,
+ * 05b_FormatoAcademico.gs) e conferidos pelo professor no passo 2, no campo
+ * "Turma do relatório". A secretaria emite um relatório POR TURMA, e é essa
+ * turma — e não a de cada linha — que responde "quem estava no banco como ADS41
+ * e não veio neste arquivo": a linha traz a turma do ALUNO, e o mesmo arquivo
+ * lista aluno de outra fase cursando junto. Ler a chave da linha apontaria esse
+ * aluno como sumido do relatório da turma DELE, quando ele veio no da outra.
+ *
+ * A prioridade é INFORMADA (o professor mexeu no campo) > CABECALHO > DISCIPLINA
+ * > MAIORIA das linhas (só com metade ou mais das linhas E pelo menos cinco —
+ * palpite fraco vira pergunta, nunca chave) > '' (sem chave, sem conferência).
+ * Custa 0 leituras: a turma sai do texto que o passo 1 já tinha na mão, e vai no
+ * MESMO `inserir` do lote. Linha do arquivo SEM turma recebe a do cabeçalho na
+ * gravação — só quando vazia; o ADS31 dentro da lista de ADS41 continua ADS31.
+ *
+ * Quem consome a chave é a revisão de divergências (a conferência de quem não
+ * veio), que compara pela turma do lote. Reimportar o mesmo arquivo REESCREVE o
+ * documento inteiro de cada aluno (`escreverEmLote` substitui, não mescla): a
+ * marca de cancelamento que a revisão gravou (`situacao_cadastro` e os três
+ * campos ao lado, ver `cadastroCancelado_` em 04_Inscricoes.gs) some junto, e o
+ * aluno está de volta em `matriculaConhecida` na hora, com 0 leituras. É por
+ * isso que a reativação não tem função nem deixa linha própria no log: a prova
+ * de que o aluno voltou é o `lote_id` novo e a linha IMPORTACAO. O que NÃO
+ * volta é a inscrição que a revisão anulou — ela fica em `inscricoes_anuladas`,
+ * e o caminho é Alunos → Incluir aluno.
+ *
  * ---------------------------------------------------------- O contrato duro
  *
  * `matriculados/{matricula normalizada}` — o ID DO DOCUMENTO É A MATRÍCULA,
@@ -192,6 +221,29 @@ var TEXTO_BRUTO_GUARDADO = 12000;
 var IMPORTACAO_CAMPOS = ['nome', 'cpf', 'email', 'matricula', 'telefone',
   'data_nascimento', 'curso', 'turma', 'situacao'];
 
+/**
+ * Quando a MAIORIA das linhas vale como turma do relatório.
+ *
+ * Só entra quando o cabeçalho não foi reconhecido (ver o bloco "O cabeçalho do
+ * relatório vira a chave do lote"). Metade ou mais das linhas com turma, E pelo
+ * menos cinco delas: três linhas de ADS41 num arquivo de três não são uma turma,
+ * são uma amostra — e uma chave errada aqui aponta gente como "não veio" numa
+ * turma em que nunca esteve. Abaixo disso a tela pergunta, e o lote fica sem
+ * chave se ninguém responder.
+ */
+var TURMA_MAIORIA_MINIMA = 0.5;
+var TURMA_MAIORIA_MIN_LINHAS = 5;
+
+/**
+ * Teto da turma informada no passo 2. É o mesmo 40 de `PAINEL_MAX_TURMA`
+ * (10_Painel.gs), repetido aqui porque este arquivo roda sem o painel carregado;
+ * existe teste que lê os dois e falha se divergirem.
+ */
+var TURMA_CABECALHO_MAX = 40;
+
+/** Quantas linhas da matriz viram "texto" para o cabeçalho ser procurado. */
+var LINHAS_DO_TEXTO_DA_MATRIZ = 30;
+
 // ------------------------------------------------------------ Passo 1
 
 /**
@@ -220,6 +272,13 @@ function analisarArquivo(payload) {
     else if (extensao === 'pdf') extraido = extrairDePdf_(blob, nome);
     else return { ok: false, erro: 'Formato não suportado: .' + extensao + '. Use CSV, XLSX ou PDF.' };
 
+    // A MATRIZ BRUTA, guardada ANTES de o leitor acadêmico trocá-la: no CSV e no
+    // XLSX o cabeçalho do relatório ('ADS41 - 2026/2 Relação de Alunos...') vive
+    // numa coluna repetida em toda linha, e a matriz limpa que sai de
+    // `tentarFormatoAcademico_` já não tem essa coluna. Capturar depois faria a
+    // turma do relatório cair sempre na maioria das linhas — a chave fraca.
+    var matrizBruta = extraido.matriz;
+
     // O relatório do sistema acadêmico traz nome e matrícula no mesmo campo e
     // (no CSV) repete o cabeçalho em toda linha. Se for ele, o leitor dedicado
     // devolve matriz limpa; se não for, segue o caminho genérico.
@@ -239,6 +298,22 @@ function analisarArquivo(payload) {
     var linhas = matriz.slice(1).filter(function (l) {
       return l.some(function (c) { return String(c).trim() !== ''; });
     });
+    var mapeamento = sugerirMapeamento_(cabecalhos);
+
+    // A turma do relatório. O PDF tem `texto`; CSV e XLSX não ganham um — o
+    // despachante acadêmico escolhe o caminho por `if (origem.texto)` (05b), e
+    // dar texto à planilha o mandaria pelo leitor errado. Para elas o texto é
+    // colado da matriz BRUTA, e só para esta procura.
+    var cabecalho = cabecalhoDoArquivo_(extraido.texto || textoDaMatriz_(matrizBruta));
+    if (!cabecalho.origem) {
+      // Sem cabeçalho reconhecido, a maioria das linhas é SUGESTÃO para o campo
+      // do passo 2 — nunca a chave por si. Quem decide é o professor; e no passo
+      // 2 a conta é refeita sobre os registros que vão mesmo ser gravados.
+      var coluna = mapeamento.turma;
+      cabecalho.sugestao = turmaMajoritaria_(linhas.map(function (l) {
+        return { turma: coluna === undefined ? '' : normalizarTurma(l[coluna]) };
+      }));
+    }
 
     // O teto é conferido AQUI, antes de qualquer gravação e antes até do
     // arquivo temporário: o passo 1 é onde a recusa é barata.
@@ -266,7 +341,11 @@ function analisarArquivo(payload) {
       //
       // O corte existe porque isto viaja para o Drive a cada análise e o
       // diagnóstico só precisa do começo para reconhecer a forma do texto.
-      texto_bruto: String(extraido.texto || '').slice(0, TEXTO_BRUTO_GUARDADO)
+      texto_bruto: String(extraido.texto || '').slice(0, TEXTO_BRUTO_GUARDADO),
+      // A turma do relatório viaja no temporário, e não de volta pelo payload
+      // do passo 2: o que o cliente manda é só o que o professor pode ter
+      // mudado (o campo), e a origem lida do arquivo fica fora do alcance dele.
+      cabecalho: cabecalho
     });
 
     return {
@@ -277,8 +356,9 @@ function analisarArquivo(payload) {
       cabecalhos: cabecalhos,
       amostra: amostraDe_(linhas, cabecalhos.length),
       totalLinhas: linhas.length,
-      mapeamento: sugerirMapeamento_(cabecalhos),
-      aviso: extraido.aviso || ''
+      mapeamento: mapeamento,
+      aviso: extraido.aviso || '',
+      cabecalho: cabecalho
     };
   } catch (err) {
     console.error('analisarArquivo: ' + err.message);
@@ -338,6 +418,19 @@ function confirmarImportacao(payload) {
       };
     }
 
+    // A turma do relatório, fechada ANTES de gravar: é ela que preenche a linha
+    // sem turma e vai no mesmo `inserir` do lote. Ver o cabeçalho do arquivo.
+    var cabecalho = cabecalhoDoLote_(temp.cabecalho, payload.turmaCabecalho, preparo.registros);
+    if (cabecalho.turma) {
+      preparo.registros.forEach(function (r) {
+        // SÓ a linha vazia: o CSV do sistema acadêmico perde a coluna de turma,
+        // e sem isto a turma inteira entraria sem chave. O aluno de outra fase
+        // que veio com a turma dele continua com a dele.
+        if (!r.turma) { r.turma = cabecalho.turma; cabecalho.preenchidas++; }
+        if (r.turma === cabecalho.turma) cabecalho.linhasDaTurma++;
+      });
+    }
+
     var escrita = gravarMatriculados_(preparo.registros);
 
     // O lote é registrado nos DOIS caminhos, e antes de devolver qualquer coisa:
@@ -353,7 +446,8 @@ function confirmarImportacao(payload) {
       gravados: escrita.gravados,
       previstos: preparo.registros.length,
       substituirPedido: !!payload.substituir,
-      falhou: !!escrita.falha
+      falhou: !!escrita.falha,
+      cabecalho: cabecalho
     });
 
     if (escrita.falha) {
@@ -381,6 +475,19 @@ function confirmarImportacao(payload) {
 
     descartarTemporario_(payload.tempId);
 
+    // A reimportação REATIVA quem a revisão de divergências tinha cancelado — o
+    // documento foi substituído sem a marca (ver o cabeçalho) — e a contagem de
+    // `matriculados` pode não ter mudado. O freio 1 do Atualizar da aba Alunos
+    // compara contagens (10_Painel.gs) e não perceberia; a marca é esquecida
+    // para o próximo Atualizar cruzar. Em try/catch porque a importação já está
+    // gravada e registrada: uma propriedade que falhou não pode virar "Falha na
+    // importação" na tela.
+    try {
+      esquecerMarcaDaReconciliacao_();
+    } catch (e) {
+      console.error('confirmarImportacao (marca da reconciliação): ' + e.message);
+    }
+
     return {
       ok: true,
       loteId: loteId,
@@ -393,6 +500,16 @@ function confirmarImportacao(payload) {
       repetidas: preparo.repetidas,
       substituiu: false,
       aviso: avisoDaImportacao_(preparo, !!payload.substituir),
+      // A turma do relatório como ficou no lote — a tela mostra, e é por ela que
+      // a conferência de quem não veio vai comparar.
+      cabecalho: {
+        turma: cabecalho.turma,
+        turmaBruta: cabecalho.turmaBruta,
+        semestre: cabecalho.semestre,
+        origem: cabecalho.origem,
+        linhasDaTurma: cabecalho.linhasDaTurma,
+        preenchidas: cabecalho.preenchidas
+      },
       // A importação NÃO reconcilia mais. Ver o bloco "Por que a reconciliação
       // saiu daqui", no cabeçalho. Quem faz a tela pedir o passo seguinte é esta
       // chave: o painel desenha o botão "Reconciliar agora" quando ela vem true.
@@ -552,6 +669,112 @@ function matriculaUtilizavel_(bruta) {
   return m;
 }
 
+// ------------------------------------------------------- Turma do relatório
+
+/**
+ * As primeiras linhas da matriz coladas como texto, para `cabecalhoDoArquivo_`.
+ *
+ * Só as primeiras: o cabeçalho do relatório mora no começo, e no CSV do sistema
+ * acadêmico ele se repete em toda linha — trinta bastam para achá-lo e para o
+ * caso ambíguo (dois relatórios colados) aparecer. NÃO é o `texto` da extração:
+ * este texto nunca chega ao despachante acadêmico.
+ */
+function textoDaMatriz_(matriz) {
+  return (matriz || []).slice(0, LINHAS_DO_TEXTO_DA_MATRIZ).map(function (linha) {
+    return (linha || []).map(function (c) {
+      return String(c === null || c === undefined ? '' : c);
+    }).join(' ');
+  }).join('\n');
+}
+
+/**
+ * A turma mais frequente entre os registros, e se ela vale como chave.
+ *
+ * Devolve { turma, fracao, comTurma, total, valida }. `valida` é a régua de
+ * TURMA_MAIORIA_MINIMA e TURMA_MAIORIA_MIN_LINHAS num lugar só — quem lê o
+ * resultado não refaz a conta, senão a tela e o lote discordariam do que é
+ * "maioria". A fração é sobre as linhas COM turma: cinco de cinco com turma
+ * num arquivo de trinta é 100%, e não 17% — as vazias não votam.
+ */
+function turmaMajoritaria_(registros) {
+  var contagem = {};
+  var comTurma = 0;
+  var total = 0;
+
+  (registros || []).forEach(function (r) {
+    total++;
+    var t = String((r && r.turma) || '');
+    if (!t) return;
+    comTurma++;
+    contagem[t] = (contagem[t] || 0) + 1;
+  });
+
+  var turma = '';
+  var maior = 0;
+  Object.keys(contagem).forEach(function (t) {
+    if (contagem[t] > maior) { maior = contagem[t]; turma = t; }
+  });
+
+  var fracao = comTurma ? maior / comTurma : 0;
+  return {
+    turma: turma,
+    fracao: fracao,
+    comTurma: comTurma,
+    total: total,
+    valida: Boolean(turma) && fracao >= TURMA_MAIORIA_MINIMA && comTurma >= TURMA_MAIORIA_MIN_LINHAS
+  };
+}
+
+/**
+ * A turma do relatório como vai para o lote — a decisão do passo 2.
+ *
+ * Prioridade: INFORMADA > CABECALHO > DISCIPLINA > MAIORIA > ''. "Informada" é o
+ * professor ter MUDADO o campo "Turma do relatório": o cliente manda o valor do
+ * campo, e o servidor só sabe se houve mudança comparando com o que a análise
+ * tinha achado — valor igual ao lido do arquivo continua sendo do arquivo, e
+ * valor igual à sugestão da maioria continua sendo maioria. Campo apagado de
+ * propósito (`''` explícito) é "sem turma": o professor viu a sugestão e
+ * recusou, e recusa não se sobrepõe. Campo AUSENTE do payload (tela antiga, ou
+ * chamada sem o campo) segue a cadeia automática.
+ *
+ * A maioria é REFEITA aqui, sobre os registros que vão ser gravados — depois da
+ * dedup e com o mapeamento que o professor confirmou —, e não copiada da
+ * sugestão do passo 1, que foi calculada sobre o mapeamento adivinhado.
+ */
+function cabecalhoDoLote_(doArquivo, informada, registros) {
+  var lido = doArquivo || {};
+  var automatico = { turma: '', turmaBruta: '', origem: '' };
+
+  if (lido.origem === 'CABECALHO' || lido.origem === 'DISCIPLINA') {
+    automatico = { turma: lido.turma, turmaBruta: lido.turmaBruta, origem: lido.origem };
+  } else {
+    var maioria = turmaMajoritaria_(registros);
+    if (maioria.valida) automatico = { turma: maioria.turma, turmaBruta: maioria.turma, origem: 'MAIORIA' };
+  }
+
+  var saida = {
+    turma: automatico.turma,
+    turmaBruta: automatico.turmaBruta,
+    semestre: lido.semestre || '',
+    origem: automatico.origem,
+    turmas: lido.turmas || [],
+    linhasDaTurma: 0,
+    preenchidas: 0
+  };
+
+  if (informada !== undefined && informada !== null) {
+    var digitada = String(informada).trim();
+    var chave = normalizarTurma(digitada).slice(0, TURMA_CABECALHO_MAX);
+    if (!chave) {
+      saida.turma = ''; saida.turmaBruta = ''; saida.origem = '';
+    } else if (chave !== automatico.turma) {
+      saida.turma = chave; saida.turmaBruta = digitada; saida.origem = 'INFORMADA';
+    }
+  }
+
+  return saida;
+}
+
 /**
  * Grava em blocos e devolve QUANTOS entraram.
  *
@@ -595,7 +818,12 @@ function gravarMatriculados_(registros) {
  */
 function registrarLote_(dados) {
   try {
-    inserir(LOTES_COLECAO, {
+    // A turma do relatório, nos SETE campos abaixo de `status`. Vai no mesmo
+    // `inserir`, e por isso custa zero a mais. Quem chama sem cabeçalho (o teste
+    // do painel, um lote reconstituído à mão) grava os campos vazios — vazio é
+    // "sem chave", que é o que um lote sem cabeçalho é.
+    var cab = dados.cabecalho || {};
+    var lote = {
       // `criado_em` é UTC de largura fixa, como no log: quem for listar lotes
       // ordena por ele, e nunca por `__name__` DESCENDING — que exigiria índice
       // (ver `ultimosRegistros`, 04_Log.gs). Sai do próprio id, e não de um
@@ -609,8 +837,19 @@ function registrarLote_(dados) {
       importado_por: dados.quem,
       mapeamento_json: JSON.stringify(dados.mapeamento),
       substituir_pedido: dados.substituirPedido ? 'SIM' : 'NAO',
-      status: dados.falhou ? 'PARCIAL' : 'ATUALIZOU'
-    }, dados.loteId);
+      status: dados.falhou ? 'PARCIAL' : 'ATUALIZOU',
+      turma_cabecalho: cab.turma || '',
+      turma_cabecalho_bruta: cab.turmaBruta || '',
+      semestre_cabecalho: cab.semestre || '',
+      turma_origem: cab.origem || '',
+      linhas_da_turma: String(cab.linhasDaTurma || 0),
+      linhas_sem_turma_preenchidas: String(cab.preenchidas || 0)
+    };
+    // Diagnóstico, só quando há o que diagnosticar: mais de um cabeçalho no
+    // arquivo é o motivo mais provável de a chave ter ficado vazia.
+    if (cab.turmas && cab.turmas.length > 1) lote.turmas_no_arquivo = JSON.stringify(cab.turmas);
+
+    inserir(LOTES_COLECAO, lote, dados.loteId);
   } catch (e) {
     // Mesma regra do log: a trilha não pode derrubar quem a chamou. A
     // importação já gravou os alunos; perder o registro do lote é ruim, virar
@@ -1265,7 +1504,8 @@ function salvarTemporario_(nomeArquivo, dados) {
     criado_em: agora(),
     cabecalhos: dados.cabecalhos,
     linhas: dados.linhas,
-    texto_bruto: dados.texto_bruto || ''
+    texto_bruto: dados.texto_bruto || '',
+    cabecalho: dados.cabecalho || null
   });
   var blob = Utilities.newBlob(conteudo, MimeType.PLAIN_TEXT, uid('tmp') + '.json');
   return driveCriarArquivo_(pastaTemp_(), blob).id;
@@ -1405,6 +1645,10 @@ function diagnosticarImportacao() {
 
   var academico = String(temp.cabecalhos || '') === String(CABECALHO_ACADEMICO);
   Logger.log('formato acadêmico: %s', academico ? 'SIM' : 'NÃO — a matriz é a bruta do arquivo');
+  // A turma do relatório, como a análise a leu. Vazia com `turmas` cheio é
+  // arquivo com dois relatórios; vazia com `turmas` vazio é cabeçalho que o OCR
+  // estragou — nos dois casos o passo 2 pede a turma.
+  Logger.log('turma do relatório: %s', JSON.stringify(temp.cabecalho || null));
 
   for (var i = 0; i < Math.min(3, linhas.length); i++) {
     Logger.log('  linha %s: %s', i, JSON.stringify(linhas[i]));

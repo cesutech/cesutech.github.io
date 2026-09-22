@@ -611,6 +611,148 @@ teste('a revisão é casada por documento, não por nome parecido', () => {
   igual(depois.filter((a) => a.revisado_por).length, 1, 'a decisão vazou para a homônima');
 });
 
+// ------------------------------------------------------------ O cancelado
+
+grupo('o cancelado da lista oficial — status próprio, e só sem inscrição');
+
+/** A marca como `aplicarRevisao` (05c_Revisao.gs) a grava: PATCH dos 4 campos. */
+function cancelarNaLista(amb, matricula) {
+  amb.api.atualizarEmLote('matriculados', [{
+    _id: amb.api.normalizarMatricula(matricula),
+    situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'coordenacao@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
+  }]);
+}
+
+teste('cancelado SEM inscrição vira CANCELADO, com a marca e a data copiadas', () => {
+  // Mutação que derruba: manter SO_MATRICULADO no laço dos só-matriculados —
+  // a pessoa que a lista oficial cancelou continuaria em "Todos" como se
+  // faltasse se inscrever.
+  const amb = comLista(ambiente());
+  cancelarNaLista(amb, '09110001');
+  const resumo = amb.api.reconciliar();
+
+  const ana = alunoPorNome(amb, 'Ana Paula Souza');
+  igual(ana.status, 'CANCELADO');
+  igual(ana.situacao_cadastro, 'CANCELADO');
+  igual(ana.cancelado_em, '2026-09-21 19:00:00');
+  igual(ana.curso, 'ADS', 'a ficha continua carregando curso e turma da lista');
+  igual(resumo.cancelado, 1);
+  igual(resumo.so_matriculado, 0);
+});
+
+teste('cancelado COM inscrição fica com o status da cascata — ocupa vaga — e a marca viaja', () => {
+  // Mutação que derruba: esconder o cancelado do índice da cascata — a inscrição
+  // dele viraria SO_INSCRITO e perderia curso e turma. Ou: dar CANCELADO a quem
+  // tem inscrição — sumiria de "Todos" ocupando vaga.
+  const amb = comLista(ambiente());
+  cancelarNaLista(amb, '09110001');
+  semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
+  const resumo = amb.api.reconciliar();
+
+  const ana = alunoPorNome(amb, 'Ana Paula Souza');
+  igual(ana.status, 'CONFIRMADO');
+  igual(ana.situacao_cadastro, 'CANCELADO');
+  igual(ana.cancelado_em, '2026-09-21 19:00:00');
+  igual(ana.turma, 'ADS11');
+  igual(resumo.cancelado, 0);
+  igual(resumo.confirmado, 1);
+});
+
+teste('a segunda rodada sobre o cancelado não escreve nada', () => {
+  const amb = comLista(ambiente());
+  cancelarNaLista(amb, '09110001');
+  amb.api.reconciliar();
+
+  const marca = amb.falso.requisicoes.length;
+  amb.api.reconciliar();
+  igual(escritasDesde(amb, marca).length, 0);
+});
+
+teste('fichas anteriores à marca NÃO são reescritas por causa dos dois campos novos', () => {
+  // `''` contra AUSENTE é igual em `mudou_`. Mutação que derruba: gravar
+  // `situacao_cadastro` como algo diferente de '' para o ativo — os 2.500
+  // existentes seriam regravados na primeira rodada depois do deploy.
+  const amb = comLista(ambiente());
+  amb.api.reconciliar();
+  const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
+
+  // Uma ficha "de antes": sem as duas chaves, como a rodada anterior gravava.
+  const bruto = amb.falso.documentos.get('alunos/' + id);
+  delete bruto.situacao_cadastro;
+  delete bruto.cancelado_em;
+
+  const marca = amb.falso.requisicoes.length;
+  amb.api.reconciliar();
+  igual(escritasDesde(amb, marca).length, 0, 'a ficha antiga foi reescrita só para ganhar as chaves vazias');
+});
+
+teste('a revisão humana não segura o cancelado, e as observações ficam', () => {
+  // Mutação que derruba: `preservarRevisao_` restaurando `atual.status` também
+  // quando o calculado é CANCELADO — a pessoa que saiu da lista continuaria
+  // "Confirmada". Ou: pular a função inteira para o CANCELADO — as observações
+  // da coordenação sumiriam junto.
+  // A inscrição leva a MESMA matrícula da lista: é o que faz a ficha ter o
+  // mesmo id com e sem inscrição (`chaveDePessoa_` = 'mat:9110001'). Sem isso a
+  // ficha de depois seria OUTRO documento, e não haveria o que preservar.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
+  amb.api.reconciliar();
+  const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
+  revisar(amb, id, 'DIVERGENCIA');
+  amb.api.reconciliar();
+  igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'DIVERGENCIA', 'a decisão humana vale enquanto a pessoa está na lista');
+
+  // A inscrição some (anulada pela revisão) e a lista cancela a pessoa.
+  amb.api.excluir('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
+  cancelarNaLista(amb, '09110001');
+  amb.api.reconciliar();
+
+  const cancelada = alunoPorNome(amb, 'Ana Paula Souza');
+  igual(cancelada._id, id, 'a ficha tem de ser a mesma');
+  igual(cancelada.status, 'CANCELADO');
+  igual(cancelada.observacoes, 'conferido na secretaria');
+  igual(cancelada.revisado_por, 'coordenacao@exemplo.com');
+});
+
+teste('reativada pela reimportação, a ficha sai de CANCELADO (não fica presa) e guarda as observações', () => {
+  // O gravado é CANCELADO e há `revisado_por`: restaurar `atual.status` deixaria
+  // a ficha em CANCELADO para sempre, com a pessoa de volta na lista. Mutação
+  // que derruba: tirar `atual.status !== CANCELADO` de `preservarRevisao_`.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
+  amb.api.reconciliar();
+  const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
+  revisar(amb, id, 'DIVERGENCIA');
+  amb.api.excluir('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
+  cancelarNaLista(amb, '09110001');
+  amb.api.reconciliar();
+  igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'CANCELADO');
+
+  // A reimportação: o documento da lista volta inteiro, sem a marca.
+  comLista(amb);
+  amb.api.reconciliar();
+
+  const voltou = alunoPorNome(amb, 'Ana Paula Souza');
+  igual(voltou.status, 'SO_MATRICULADO', 'o status recalculado tem de vencer o CANCELADO gravado');
+  igual(voltou.situacao_cadastro, '');
+  igual(voltou.cancelado_em, '');
+  igual(voltou.observacoes, 'conferido na secretaria');
+  igual(voltou.revisado_por, 'coordenacao@exemplo.com');
+});
+
+teste('o histograma de cursos não conta o cancelado', () => {
+  // Mutação que derruba: tirar o `return` de `atualizarAgregadoDeCursos_` —
+  // o cartão "Alunos por curso" fecharia com um total que a aba Alunos não mostra.
+  const amb = ambiente();
+  semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
+  semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADS' });
+  cancelarNaLista(amb, '09110002');
+  amb.api.reconciliar();
+
+  igual(amb.api.ler('agregados', 'cursos').ADS, '1');
+});
+
 // ------------------------------------------------------------ Remoções
 
 grupo('linhas sem origem — apagar é o caminho perigoso');

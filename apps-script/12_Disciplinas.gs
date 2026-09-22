@@ -572,7 +572,7 @@ function inscritosDaDisciplina(payload) {
  * caminho de DEPOIS do evento, quando a pergunta for de relatório e não de
  * balcão — aí `alunos` está fresca e custa quarenta leituras.
  *
- * ------------------------------------------------------------- Os três grupos
+ * ------------------------------------------------------------- Os quatro grupos
  *
  *   COM_PROJETO    está na lista oficial da turma E tem inscrição. Mostra QUAL
  *                  projeto, e o que a pessoa declarou no formulário — é aí que
@@ -580,7 +580,12 @@ function inscritosDaDisciplina(payload) {
  *   SEM_PROJETO    está na lista oficial da turma e não tem inscrição nenhuma.
  *                  É a resposta da pergunta;
  *   FORA_DA_LISTA  tem inscrição declarando ESTA disciplina e a lista oficial
- *                  desta turma não o tem.
+ *                  desta turma não o tem;
+ *   CANCELADO      (21/09) está na lista oficial da turma com a marca da revisão
+ *                  de divergências (`cadastroCancelado_`, 04_Inscricoes.gs) e
+ *                  sem inscrição. Não é "quem falta": a lista oficial já disse
+ *                  que a pessoa saiu. Com inscrição viva ela é COM_PROJETO, com
+ *                  `cancelado_em` preenchido para a tela pôr o selo.
  *
  * O terceiro grupo é o que impede a conta de perder gente, e a decisão que ele
  * carrega precisa estar escrita: quem manda em "pertence à turma" é a LISTA
@@ -665,8 +670,16 @@ function matriculadosDaDisciplina(payload) {
         ? varredura.porMatricula[chave]
         : [];
 
+      // O CANCELADO (21/09) é o quarto grupo, e só para quem tem a marca da
+      // revisão E não tem inscrição: ele continua na lista da turma (`daTurma`,
+      // para não reaparecer como FORA_DA_LISTA), mas não é "quem falta" — a
+      // coordenação não vai cobrar quem a lista oficial já disse que saiu. Com
+      // inscrição viva ele é COM_PROJETO como qualquer um (ocupa vaga), e a
+      // marca vai em `cancelado_em` para a tela pôr o selo.
+      var cancelado = cadastroCancelado_(m);
       itens.push({
-        grupo: inscricoes.length ? 'COM_PROJETO' : 'SEM_PROJETO',
+        grupo: inscricoes.length ? 'COM_PROJETO' : (cancelado ? 'CANCELADO' : 'SEM_PROJETO'),
+        cancelado_em: cancelado ? String(m.cancelado_em || '') : '',
         matricula: m.matricula || m._id || '',
         nome: m.nome || '',
         email: m.email || '',
@@ -693,6 +706,7 @@ function matriculadosDaDisciplina(payload) {
 
       itens.push({
         grupo: 'FORA_DA_LISTA',
+        cancelado_em: '',
         matricula: i.matricula || '',
         nome: i.nome || '',
         email: i.email || '',
@@ -708,11 +722,15 @@ function matriculadosDaDisciplina(payload) {
 
     itens.sort(function (a, b) { return chaveNome(a.nome).localeCompare(chaveNome(b.nome)); });
 
-    var resumo = { comProjeto: 0, semProjeto: 0, foraDaLista: 0 };
+    // `cancelados` conta a MARCA (os dois casos): é o número que a linha de
+    // resumo diz, e o cancelado com projeto está em `comProjeto` também.
+    // `semProjeto` não conta cancelado — é a resposta da pergunta da tela.
+    var resumo = { comProjeto: 0, semProjeto: 0, foraDaLista: 0, cancelados: 0 };
     itens.forEach(function (i) {
+      if (i.cancelado_em || i.grupo === 'CANCELADO') resumo.cancelados++;
       if (i.grupo === 'COM_PROJETO') resumo.comProjeto++;
       else if (i.grupo === 'SEM_PROJETO') resumo.semProjeto++;
-      else resumo.foraDaLista++;
+      else if (i.grupo === 'FORA_DA_LISTA') resumo.foraDaLista++;
     });
 
     var resposta = {
@@ -782,6 +800,10 @@ function matriculadosDaDisciplina(payload) {
  * pessoa pode estar inscrita em mais de um projeto (a chave de dedup inclui o
  * `projeto_id`, ver `chaveDedup_` em 04_Inscricoes.gs), e o último a chegar
  * apagaria o anterior.
+ *
+ * A linha leva `id` e `projeto_id` (21/09) porque a revisão de divergências
+ * (05c_Revisao.gs) reaproveita esta varredura para saber QUAIS inscrições
+ * anular ao cancelar um aluno — e anular é por id. A tela desta aba não os usa.
  */
 function varrerInscricoes_(teto) {
   var porMatricula = {};
@@ -795,6 +817,8 @@ function varrerInscricoes_(teto) {
 
     resposta.itens.forEach(function (i) {
       var linha = {
+        id: i._id || '',
+        projeto_id: i.projeto_id || '',
         matricula: i.matricula || '',
         nome: i.nome || '',
         email: i.email || '',

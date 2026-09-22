@@ -43,7 +43,7 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 // a que nunca esteve quebrada.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs',
   '03_Config.gs', '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs',
-  '05b_FormatoAcademico.gs', '07_Auth.gs', '12_Disciplinas.gs'];
+  '05b_FormatoAcademico.gs', '05c_Revisao.gs', '07_Auth.gs', '12_Disciplinas.gs'];
 
 const TOKEN = 'token-de-sessao';
 
@@ -2383,6 +2383,423 @@ teste('a chave de dedup é a mesma com e sem o zero', () => {
     api.chaveDedup_({ projeto_id: 'p1', matricula: '09110700' }),
     api.chaveDedup_({ projeto_id: 'p1', matricula: '9110700' })
   );
+});
+
+// ------------------------------------------------ A turma do relatório
+
+/**
+ * O QUE ESTE BLOCO PROTEGE: a chave da conferência de "quem estava no banco como
+ * ADS41 e não veio neste arquivo" é a TURMA DO RELATÓRIO, lida do cabeçalho do
+ * arquivo — e não a turma de cada linha, que é a do aluno. O mesmo arquivo lista
+ * aluno de outra fase cursando junto (o ADM 31 dentro do relatório de ADM 41);
+ * comparar pela linha apontaria esse aluno como sumido do relatório da turma
+ * DELE. A chave é gravada no lote, no mesmo `inserir` — 0 leituras a mais.
+ *
+ * Cada teste diz qual mutação o derruba, porque é assim que se sabe que ele
+ * prova alguma coisa.
+ */
+grupo('a turma do relatório — lida do cabeçalho, conferida no passo 2, gravada no lote');
+
+teste('o cabeçalho é lido das duas fixtures, e NÃO da primeira linha de aluno', () => {
+  // Mutação que derruba: ler a turma da primeira linha de aluno — no OCR de
+  // ADM 41 ela é PATRICIA, de ADM 31, e a chave sairia ADM31.
+  const { api } = ambiente();
+
+  const adm = api.cabecalhoDoArquivo_(ocrAchatado());
+  igual(adm.turma, 'ADM41');
+  igual(adm.turmaBruta, 'ADM 41 (MATRIZ NOVA)', 'como veio, para exibir');
+  igual(adm.semestre, '2026/2');
+  igual(adm.origem, 'CABECALHO');
+
+  const pmm = api.cabecalhoDoArquivo_(PDF_ACHATADO);
+  igual(pmm.turma, 'PMM21');
+  igual(pmm.semestre, '2026/2');
+  igual(pmm.origem, 'CABECALHO');
+});
+
+teste('travessão, espaço em volta da barra e cabeçalho colado casam; matrícula e telefone não', () => {
+  const { api } = ambiente();
+  igual(api.cabecalhoDoArquivo_('ADS41 — 2026/2 Relação').turma, 'ADS41', 'travessão');
+  igual(api.cabecalhoDoArquivo_('ADS41 – 2026 / 2 Relação').semestre, '2026/2', 'espaço em volta da barra');
+  // É `(?!\d)` e não `\b` no fim: "2026/2Relação" tem de casar, e "2026/21" não.
+  igual(api.cabecalhoDoArquivo_('ADS41-2026/2Relação').turma, 'ADS41', 'sem espaço nenhum');
+  igual(api.cabecalhoDoArquivo_('ADS41 - 2026/21 x').origem, '', '2026/21 não é semestre');
+
+  // O parêntese da matrícula e o do DDD NÃO são turma — a trava de PADRAO_TURMA
+  // (parêntese começa com letra) tem de valer também aqui.
+  const nada = api.cabecalhoDoArquivo_('FULANO (09342914) x (48)90001-0013');
+  igual(nada.turma, '');
+  igual(nada.origem, '');
+});
+
+teste('sem cabeçalho com semestre, a linha da disciplina é a segunda fonte', () => {
+  const { api } = ambiente();
+  const r = api.cabecalhoDoArquivo_('WORK EXPERIENCE (ADM 41 (MATRIZ NOVA)) Telefone Res.');
+  igual(r.turma, 'ADM41');
+  igual(r.turmaBruta, 'ADM 41 (MATRIZ NOVA)');
+  igual(r.origem, 'DISCIPLINA');
+  igual(r.semestre, '', 'a linha da disciplina não traz semestre');
+});
+
+teste('dois cabeçalhos são dois relatórios colados: ninguém é a chave, e a tela é avisada', () => {
+  const { api } = ambiente();
+  const r = api.cabecalhoDoArquivo_('ADS41 - 2026/2 Relação\nx\nADS31 - 2026/2 Relação');
+  igual(r.turma, '');
+  igual(r.origem, '');
+  igual(r.turmas, ['ADS41', 'ADS31']);
+  verdadeiro(r.aviso.indexOf('mais de um cabeçalho') !== -1, r.aviso);
+  igual(r.semestre, '2026/2', 'os dois concordam no semestre — ele ainda serve ao lote');
+
+  // Turmas diferentes E semestres diferentes: nem o semestre sobrevive.
+  igual(api.cabecalhoDoArquivo_('ADS41 - 2026/2 x ADS31 - 2026/1 y').semestre, '');
+});
+
+teste('OCR que troca 1 por l não vira turma — cai na maioria das linhas', () => {
+  const { api } = ambiente();
+  const r = api.cabecalhoDoArquivo_('ADS4l - 2026/2 Relação de Alunos');
+  igual(r.turma, '', 'ADS4L gravado como chave apontaria uma turma inteira como "não veio"');
+  igual(r.origem, '');
+});
+
+teste('a MESMA função, duas vezes seguidas sobre o mesmo texto, acha nas duas', () => {
+  // Mutação que derruba: mover as duas expressões `g` para o escopo do arquivo
+  // E sair do laço no primeiro cabeçalho (`break`). Expressão global guarda
+  // `lastIndex`, e só o zera quando `exec` devolve null — o laço de hoje vai
+  // até o fim, então o escopo do arquivo sozinho ainda passaria; é a "otimização"
+  // de parar no primeiro que faria a segunda chamada começar do meio e devolver
+  // vazio. O defeito que só aparece na segunda importação da tarde.
+  //
+  // Textos SÓ com uma das fontes: as fixtures completas têm cabeçalho E linha
+  // da disciplina, e a segunda serviria de rede para a primeira — o teste
+  // passaria com a origem trocada e ninguém veria.
+  const { api } = ambiente();
+  const soCabecalho = 'PMM21 - 2026/2 Relação de Alunos Matriculados';
+  igual(api.cabecalhoDoArquivo_(soCabecalho).origem, 'CABECALHO');
+  igual(api.cabecalhoDoArquivo_(soCabecalho).origem, 'CABECALHO', 'a segunda chamada perdeu o cabeçalho');
+  igual(api.cabecalhoDoArquivo_(soCabecalho).turma, 'PMM21');
+
+  const soDisciplina = 'PROJETO INTERDISCIPLINAR (PMM21) Telefone Res.';
+  igual(api.cabecalhoDoArquivo_(soDisciplina).origem, 'DISCIPLINA');
+  igual(api.cabecalhoDoArquivo_(soDisciplina).origem, 'DISCIPLINA', 'a segunda chamada perdeu a disciplina');
+});
+
+/**
+ * O CSV do sistema acadêmico, como ele sai: o cabeçalho do relatório numa coluna
+ * REPETIDA em toda linha, nome e matrícula no mesmo campo, e a turma da linha
+ * ao lado. `linhas` são os pares [pessoa, turma]; a coluna do cabeçalho é a
+ * primeira, constante.
+ */
+function csvAcademico(cabecalho, linhas) {
+  return [cabecalho + ',Aluno,Turma,Telefone'].concat(linhas.map(function (l, i) {
+    return cabecalho + ',' + l[0] + ',' + l[1] + ',4890001000' + (i % 10);
+  })).join('\n') + '\n';
+}
+
+const SEIS_ADS41 = [
+  ['BEATRIZ EXEMPLO MARTINS (09110001)', 'ADS41'],
+  ['BRUNO EXEMPLO DA SILVA (09110002)', 'ADS41'],
+  ['CARLA EXEMPLO (09110003)', 'ADS41'],
+  ['DANIEL EXEMPLO (09110004)', 'ADS41'],
+  ['EDUARDA EXEMPLO (09110005)', 'ADS41'],
+  ['FABIO EXEMPLO (09110006)', 'ADS41']
+];
+
+teste('CSV com o cabeçalho numa coluna constante vira lote com turma_origem CABECALHO', () => {
+  // Mutação que derruba: capturar a matriz DEPOIS de `tentarFormatoAcademico_`.
+  // A matriz limpa não tem mais a coluna do cabeçalho, e a origem cairia em
+  // MAIORIA — a chave fraca — em TODO CSV da secretaria.
+  const { api, falso } = ambiente();
+  const texto = csvAcademico('ADS41 - 2026/2 Relação de Alunos Matriculados', SEIS_ADS41);
+
+  const r = importar(api, texto, { nome: 'ads41.csv' });
+  igual(r.analise.ok, true, r.analise.erro);
+  verdadeiro(r.analise.tipo.indexOf('formato acadêmico') !== -1,
+    'o leitor acadêmico tem de continuar reconhecendo o arquivo: ' + r.analise.tipo);
+  igual(r.analise.cabecalho.origem, 'CABECALHO');
+  igual(r.analise.cabecalho.turma, 'ADS41');
+
+  const lote = documento(falso, 'lotes', r.resultado.loteId);
+  igual(lote.turma_origem, 'CABECALHO');
+  igual(lote.turma_cabecalho, 'ADS41');
+  igual(lote.semestre_cabecalho, '2026/2');
+});
+
+teste('confirmarImportacao grava os sete campos do cabeçalho no lote, e conta só a turma dele', () => {
+  const { api, falso } = ambiente();
+  // Seis de ADS41, um aluno de ADS31 cursando junto, e uma linha SEM turma (o
+  // CSV do sistema acadêmico perde a coluna de vez em quando).
+  const linhas = SEIS_ADS41.concat([
+    ['GABRIEL EXEMPLO (09110007)', 'ADS31'],
+    ['HELENA EXEMPLO (09110008)', '']
+  ]);
+  const r = importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos Matriculados', linhas),
+    { nome: 'ads41.csv' });
+  igual(r.resultado.ok, true, r.resultado.erro);
+
+  const lote = documento(falso, 'lotes', r.resultado.loteId);
+  igual(lote.turma_cabecalho, 'ADS41');
+  igual(lote.turma_cabecalho_bruta, 'ADS41');
+  igual(lote.semestre_cabecalho, '2026/2');
+  igual(lote.turma_origem, 'CABECALHO');
+  // Mutação que derruba: contar todos os registros — daria '8'. Só a turma do
+  // cabeçalho conta, e a linha vazia preenchida entra porque AGORA é ADS41.
+  igual(lote.linhas_da_turma, '7', 'seis do arquivo + a linha vazia que recebeu a turma');
+  igual(lote.linhas_sem_turma_preenchidas, '1');
+  igual(lote.turmas_no_arquivo, undefined, 'só aparece com mais de um cabeçalho');
+
+  // Mutação que derruba: preencher SEMPRE com a turma do cabeçalho — o ADS31
+  // viraria ADS41, e o aluno de outra fase sumiria da turma dele.
+  igual(documento(falso, 'matriculados', '9110008').turma, 'ADS41', 'a linha vazia recebe a do cabeçalho');
+  igual(documento(falso, 'matriculados', '9110007').turma, 'ADS31', 'quem veio com turma fica com a dele');
+
+  // A resposta diz com o que o lote ficou — é o que o passo 3 mostra.
+  igual(r.resultado.cabecalho, {
+    turma: 'ADS41', turmaBruta: 'ADS41', semestre: '2026/2', origem: 'CABECALHO',
+    linhasDaTurma: 7, preenchidas: 1
+  });
+});
+
+teste('a turma informada no passo 2 vence o cabeçalho, como INFORMADA', () => {
+  const { api, falso } = ambiente();
+  const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento,
+    // Digitada como o professor digita; a chave sai normalizada.
+    turmaCabecalho: 'ads 42'
+  });
+  igual(c.ok, true, c.erro);
+
+  const lote = documento(falso, 'lotes', c.loteId);
+  igual(lote.turma_cabecalho, 'ADS42');
+  igual(lote.turma_cabecalho_bruta, 'ads 42', 'como foi digitada');
+  igual(lote.turma_origem, 'INFORMADA');
+  igual(lote.semestre_cabecalho, '2026/2', 'o semestre continua sendo o do arquivo');
+  igual(lote.linhas_da_turma, '0', 'nenhuma linha gravada é ADS42 — a revisão vai dizer isso');
+});
+
+teste('o campo do passo 2 devolvido igual ao lido NÃO vira INFORMADA', () => {
+  // A tela manda o valor do campo sempre; mudança é diferença, não presença.
+  const { api, falso } = ambiente();
+  const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, turmaCabecalho: 'ads41'
+  });
+  igual(documento(falso, 'lotes', c.loteId).turma_origem, 'CABECALHO');
+});
+
+teste('campo apagado de propósito importa SEM turma — recusa não se sobrepõe', () => {
+  const { api, falso } = ambiente();
+  const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, turmaCabecalho: ''
+  });
+  igual(c.ok, true, c.erro);
+  const lote = documento(falso, 'lotes', c.loteId);
+  igual(lote.turma_cabecalho, '');
+  igual(lote.turma_origem, '');
+  igual(lote.linhas_da_turma, '0');
+  igual(c.cabecalho.turma, '');
+});
+
+teste('a turma informada é cortada no mesmo teto do painel', () => {
+  const { api, falso } = ambiente();
+  const analise = analisar(api, CSV_TRES);
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento,
+    turmaCabecalho: 'X'.repeat(200)
+  });
+  igual(documento(falso, 'lotes', c.loteId).turma_cabecalho.length, 40);
+});
+
+teste('TURMA_CABECALHO_MAX é o PAINEL_MAX_TURMA de 10_Painel.gs', () => {
+  // O painel não é carregado por este arquivo, então a constante é repetida em
+  // 05_Importacao.gs. Repetida pode; divergente não — o campo do painel e o
+  // corte do servidor têm de concordar.
+  const fonte = (arquivo) => fs.readFileSync(path.join(PASTA_GS, arquivo), 'utf8');
+  const daImportacao = /var TURMA_CABECALHO_MAX = (\d+);/.exec(fonte('05_Importacao.gs'));
+  const doPainel = /var PAINEL_MAX_TURMA = (\d+);/.exec(fonte('10_Painel.gs'));
+  verdadeiro(daImportacao && doPainel, 'uma das duas constantes sumiu');
+  igual(daImportacao[1], doPainel[1]);
+});
+
+teste('sem cabeçalho e com três linhas, a maioria NÃO vale — o lote fica sem chave', () => {
+  // Três de ADS41 num arquivo de três não são uma turma, são uma amostra.
+  // Mutação que derruba: tirar o mínimo de linhas da régua.
+  const { api, falso } = ambiente();
+  const r = importar(api, csv([
+    'BEATRIZ EXEMPLO MARTINS;09110001;ADS;ADS41',
+    'BRUNO EXEMPLO DA SILVA;09110002;ADS;ADS41',
+    'CARLA EXEMPLO;09110003;ADS;ADS41'
+  ]));
+  igual(r.analise.cabecalho.origem, '');
+  igual(r.analise.cabecalho.sugestao.valida, false, 'três linhas não são maioria confiável');
+
+  const lote = documento(falso, 'lotes', r.resultado.loteId);
+  igual(lote.turma_cabecalho, '');
+  igual(lote.turma_origem, '');
+});
+
+teste('sem cabeçalho e com cinco ou mais linhas, a maioria vale — e é dita como MAIORIA', () => {
+  const { api, falso } = ambiente();
+  const r = importar(api, csv([
+    'BEATRIZ EXEMPLO MARTINS;09110001;ADS;ADS41',
+    'BRUNO EXEMPLO DA SILVA;09110002;ADS;ADS41',
+    'CARLA EXEMPLO;09110003;ADS;ADS41',
+    'DANIEL EXEMPLO;09110004;ADS;ADS41',
+    'EDUARDA EXEMPLO;09110005;ADS;ADS31',
+    'FABIO EXEMPLO;09110006;ADS;ADS41'
+  ]));
+  // A análise SUGERE (para o campo do passo 2), e não decide.
+  igual(r.analise.cabecalho.sugestao.turma, 'ADS41');
+  igual(r.analise.cabecalho.sugestao.valida, true);
+  igual(r.analise.cabecalho.sugestao.comTurma, 6);
+  igual(r.analise.cabecalho.turma, '', 'a sugestão não é a chave da análise');
+
+  const lote = documento(falso, 'lotes', r.resultado.loteId);
+  igual(lote.turma_cabecalho, 'ADS41');
+  igual(lote.turma_origem, 'MAIORIA');
+  igual(lote.linhas_da_turma, '5');
+});
+
+teste('metade das linhas com turma é maioria; menos que isso, não', () => {
+  const { api } = ambiente();
+  const cinco = (turmas) => turmas.map((t) => ({ turma: t }));
+  igual(api.turmaMajoritaria_(cinco(['A1', 'A1', 'A1', 'B2', 'B2'])).valida, true, '3 de 5');
+  igual(api.turmaMajoritaria_(cinco(['A1', 'A1', 'B2', 'B2', 'C3'])).valida, false, '2 de 5');
+  // As vazias não votam: cinco com turma num arquivo de trinta é 100%.
+  const trinta = cinco(['A1', 'A1', 'A1', 'A1', 'A1']).concat(Array(25).fill({ turma: '' }));
+  const m = api.turmaMajoritaria_(trinta);
+  igual(m.valida, true);
+  igual(m.comTurma, 5);
+  igual(m.total, 30);
+});
+
+teste('o cabeçalho viaja no temporário do Drive, e não de volta pelo payload', () => {
+  // Mutação que derruba: tirar `cabecalho` de `salvarTemporario_` — o passo 2
+  // gravaria a origem '' em todo lote, e a chave do arquivo se perderia entre
+  // os dois passos.
+  const { api, drive, falso } = ambiente();
+  const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
+
+  const temporario = JSON.parse(drive.arquivos.get(analise.tempId).conteudo);
+  igual(temporario.cabecalho.turma, 'ADS41');
+  igual(temporario.cabecalho.origem, 'CABECALHO');
+  igual(analise.cabecalho.turma, 'ADS41', 'a resposta também leva, para o passo 2 mostrar');
+
+  // E é o temporário que o passo 2 lê: o payload não carrega origem nenhuma.
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento
+  });
+  igual(documento(falso, 'lotes', c.loteId).turma_origem, 'CABECALHO');
+});
+
+teste('dois cabeçalhos no arquivo: lote sem chave, e as turmas ficam registradas para diagnóstico', () => {
+  const { api, falso } = ambiente();
+  const linhas = SEIS_ADS41.map((l, i) => [l[0], l[1]]);
+  // Metade das linhas com o cabeçalho de ADS41, metade com o de ADS31 — dois
+  // relatórios colados num CSV só.
+  const texto = ['ADS41 - 2026/2 Relação,Aluno,Turma'].concat(linhas.map((l, i) =>
+    (i < 3 ? 'ADS41 - 2026/2 Relação' : 'ADS31 - 2026/2 Relação') + ',' + l[0] + ',' + l[1]
+  )).join('\n') + '\n';
+
+  const r = importar(api, texto, { nome: 'colado.csv' });
+  igual(r.analise.cabecalho.origem, '');
+  igual(r.analise.cabecalho.turmas, ['ADS41', 'ADS31']);
+  verdadeiro(r.analise.cabecalho.aviso.indexOf('mais de um cabeçalho') !== -1);
+
+  const lote = documento(falso, 'lotes', r.resultado.loteId);
+  // Sem o campo do passo 2 no payload, a cadeia automática segue até a maioria
+  // das linhas — seis de ADS41, válida.
+  igual(lote.turma_origem, 'MAIORIA');
+  igual(lote.turmas_no_arquivo, '["ADS41","ADS31"]');
+});
+
+teste('PDF: o cabeçalho sai do texto do OCR, e o lote ganha a chave', () => {
+  const { api, drive, falso } = ambiente();
+  drive.definirOcr(PDF_ACHATADO);
+
+  const analise = api.analisarArquivo({
+    token: TOKEN, filename: 'pmm21.pdf', mimeType: 'application/pdf', dataBase64: base64De('%PDF-1.4')
+  });
+  igual(analise.ok, true, analise.erro);
+  igual(analise.cabecalho.turma, 'PMM21');
+  igual(analise.cabecalho.semestre, '2026/2');
+
+  const c = api.confirmarImportacao({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento
+  });
+  igual(c.ok, true, c.erro);
+  const lote = documento(falso, 'lotes', c.loteId);
+  igual(lote.turma_cabecalho, 'PMM21');
+  igual(lote.turma_origem, 'CABECALHO');
+  igual(lote.linhas_da_turma, '2', 'BEATRIZ e CARLOS são PMM21; DANIELA é PMM41');
+});
+
+teste('a chave do lote continua custando 0 leituras', () => {
+  // A conta do cabeçalho de 05_Importacao.gs: o cabeçalho sai do texto que o
+  // passo 1 já tinha, e vai no MESMO inserir do lote.
+  const { api, falso } = ambiente();
+  const antes = falso.requisicoes.length;
+  importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
+
+  const feitas = falso.requisicoes.slice(antes);
+  igual(feitas.filter(LEITURA).length, 0);
+  verdadeiro(feitas.length <= 4, feitas.length + ' requisições — a chave do lote passou a custar ida própria');
+});
+
+// ------------------------------------------------ A reimportação reativa
+
+grupo('a reimportação reativa o cancelado — e avisa o Atualizar da aba Alunos');
+
+teste('reimportar apaga a marca de cancelamento: o documento volta inteiro, sem os 4 campos', () => {
+  // A reativação do desenho, sem função: `escreverEmLote` substitui o documento
+  // e `montarRegistro_` não conhece a marca. Mutação que derruba: gravar os
+  // matriculados por `atualizarEmLote` (mescla) — a marca sobreviveria à lista
+  // nova e a pessoa reenviada pela secretaria continuaria fora do formulário.
+  const { api } = ambiente();
+  importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
+  const antes = api.listar('matriculados', { limite: 1 }).itens[0];
+  api.atualizarEmLote('matriculados', [{
+    _id: antes._id, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L0'
+  }]);
+  igual(api.matriculaConhecida(antes._id), false);
+
+  importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41-de-novo.csv' });
+  const depois = api.ler('matriculados', antes._id);
+  igual(depois.situacao_cadastro, undefined);
+  igual(depois.cancelado_em, undefined);
+  igual(depois.cancelado_por, undefined);
+  igual(depois.cancelado_lote_id, undefined);
+  verdadeiro(depois.lote_id !== antes.lote_id, 'a prova da volta é o lote novo');
+  igual(api.matriculaConhecida(antes._id), true);
+});
+
+teste('confirmarImportacao esquece a marca da reconciliação — com -1, preservando dia, gasto e custo', () => {
+  // A reimportação que reativa não muda a contagem de `matriculados`, e o freio
+  // 1 do Atualizar (10_Painel.gs) compara contagens. Mutação que derruba: tirar
+  // a chamada — a marca ficaria com as contagens iguais e o professor leria
+  // "nada entrou desde a última vez" sobre uma lista que acabou de mudar. Ou
+  // `deleteProperty` — o gasto do dia zeraria.
+  //
+  // 10_Painel.gs entra só aqui: é dele a marca, e é ela que se quer ver mudar.
+  const { api, propriedades, falso } = ambiente({ arquivos: GS.concat(['10_Painel.gs']) });
+  propriedades.set('painel_reconciliacao', JSON.stringify({
+    inscricoes: 5, matriculados: 6, em: '2026-09-21 08:00:00', dia: '2026-09-21', gasto: 1234, custo: 617
+  }));
+
+  const antes = falso.requisicoes.length;
+  const r = importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
+  igual(r.resultado.ok, true, r.resultado.erro);
+
+  const marca = JSON.parse(propriedades.get('painel_reconciliacao'));
+  igual(marca.inscricoes, -1);
+  igual(marca.matriculados, -1);
+  igual(marca.dia, '2026-09-21');
+  igual(marca.gasto, 1234);
+  igual(marca.custo, 617);
+  igual(marca.em, '2026-09-21 08:00:00');
+  igual(falso.requisicoes.slice(antes).filter(LEITURA).length, 0, 'a marca vive em PropertiesService, não no banco');
 });
 
 // ---------------------------------------------------------------- Resultado

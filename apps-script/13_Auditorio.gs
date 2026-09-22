@@ -473,6 +473,17 @@ function resumoDoProjeto_(projetoId, emEspera) {
  * Uma linha de trilha para o lote inteiro, e não uma por id: 20 mil escritas por
  * dia no plano gratuito, e um mutirão de limpeza é justamente onde muitos ids
  * chegam de uma vez.
+ *
+ * A resposta traz `ids` — os que foram anulados DE FATO, sem os que já não
+ * existiam. A revisão de divergências (05c_Revisao.gs) precisa deles para,
+ * quando um passo seguinte dela falha, dizer QUEM ficou sem a inscrição; a
+ * contagem sozinha não diz.
+ *
+ * O `catch` devolve e loga a mensagem SEM o caminho do documento
+ * (`semCaminhoDeDocumento_`, 02_Repo.gs): o texto do Firestore num `:commit`
+ * recusado carrega 'projects/<id do projeto>/.../inscricoes_anuladas/<id>', e
+ * esta resposta vai para a tela do Auditório e, pela revisão, para a janela
+ * dela.
  */
 function anularInscricoes(payload) {
   try {
@@ -525,6 +536,7 @@ function anularInscricoes(payload) {
     return {
       ok: true,
       anuladas: apagar.length,
+      ids: apagar,
       pedidas: ids.length,
       nao_encontradas: naoEncontradas,
       // Os NÚMEROS vão em campos, e a frase fica com o que a tela não tem como
@@ -536,8 +548,8 @@ function anularInscricoes(payload) {
         : ''
     };
   } catch (err) {
-    console.error('anularInscricoes: ' + err.message);
-    return { ok: false, erro: err.message };
+    console.error('anularInscricoes: ' + semCaminhoDeDocumento_(err));
+    return { ok: false, erro: semCaminhoDeDocumento_(err) };
   }
 }
 

@@ -202,6 +202,84 @@ teste('temListaOficial_ é agregação: responde sem trazer documento', () => {
   igual(quantas(falso, CONSULTA), 0);
 });
 
+grupo('A matrícula cancelada na lista oficial — a porta pública não distingue');
+
+/** A marca que a revisão de uma importação grava (05c_Revisao.gs), como ela grava: PATCH de 4 campos. */
+function cancelar(api, matricula) {
+  api.atualizarEmLote('matriculados', [{
+    _id: matricula, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'prof@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
+  }]);
+}
+
+teste('matriculaConhecida é false para o cancelado, e ainda custa UMA leitura', () => {
+  // Mutação que derruba: `ler(...) !== null` sem olhar a marca — o cancelado
+  // continuaria passando no formulário como se estivesse na lista.
+  const { api, falso } = ambiente();
+  matricular(api, ['9110001', '9110002']);
+  cancelar(api, '9110001');
+  zerar(falso);
+
+  igual(api.matriculaConhecida('9110001'), false);
+  igual(api.matriculaConhecida('9110002'), true, 'a marca de um não pode contaminar o outro');
+  igual(quantas(falso, LEITURA_MATRICULA), 2, 'uma leitura de ponto por pergunta, como antes');
+  igual(quantas(falso, CONSULTA), 0);
+});
+
+teste('cadastroCancelado_ tolera documento sem a chave, vazio e minúsculas', () => {
+  const { api } = ambiente();
+  igual(api.cadastroCancelado_({ nome: 'X' }), false, 'documento anterior à marca é ativo');
+  igual(api.cadastroCancelado_({ situacao_cadastro: '' }), false);
+  igual(api.cadastroCancelado_(null), false);
+  igual(api.cadastroCancelado_({ situacao_cadastro: 'cancelado' }), true);
+  igual(api.cadastroCancelado_({ situacao: 'CANCELADO' }), false,
+    '`situacao` é a coluna da secretaria, e não a marca da revisão');
+});
+
+teste('BLOQUEAR responde ao cancelado a MESMA frase de "não encontrada"', () => {
+  // Mutação que derruba: uma frase própria ("está cancelada") — seria um segundo
+  // bit sobre uma pessoa entregue a quem consulta anonimamente.
+  const { api } = ambiente();
+  criarProjeto(api, 'p_1');
+  matricular(api, ['9110001']);
+  cancelar(api, '9110001');
+
+  igual(api.checarMatriculaNaLista_('9110001', 'p_1'), api.checarMatriculaNaLista_('9999999', 'p_1'));
+  verdadeiro(api.checarMatriculaNaLista_('9110001', 'p_1').indexOf('não encontrada') !== -1);
+});
+
+teste('AVISAR deixa o cancelado passar, e a inscrição entra como não conferida', () => {
+  const { api, falso } = ambiente();
+  criarProjeto(api, 'p_1');
+  matricular(api, ['9110001']);
+  cancelar(api, '9110001');
+  api.gravarConfig('modo_validacao_matricula', 'AVISAR');
+  comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(falso.documentos.get('inscricoes/' + r.protocolo).matricula_conferida.stringValue, 'NAO',
+    'cancelado na lista de hoje não é matrícula conferida');
+});
+
+teste('a reimportação apaga a marca: o documento volta inteiro, sem os 4 campos', () => {
+  // É a reativação do desenho — sem função nenhuma. Mutação que derruba:
+  // `escreverEmLote` gravando com `updateMask` (viraria mescla e a marca
+  // sobreviveria à lista nova).
+  const { api } = ambiente();
+  matricular(api, ['9110001']);
+  cancelar(api, '9110001');
+  igual(api.matriculaConhecida('9110001'), false);
+
+  api.escreverEmLote('matriculados', [{ _id: '9110001', matricula: '9110001', nome: 'Aluno 9110001', lote_id: 'L2' }]);
+  const doc = api.ler('matriculados', '9110001');
+  igual(doc.situacao_cadastro, undefined);
+  igual(doc.cancelado_em, undefined);
+  igual(doc.cancelado_por, undefined);
+  igual(doc.cancelado_lote_id, undefined);
+  igual(api.matriculaConhecida('9110001'), true);
+});
+
 grupo('checarMatriculaNaLista_ — o switch de validação por projeto');
 
 teste('projeto com validar_matricula=NAO passa sem consultar a lista', () => {

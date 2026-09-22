@@ -61,8 +61,11 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 // da aba Auditório (`inscricoesRecentes`, `filaDeEspera`) estão em SO_LEITURA, e
 // o teste dessa lista confere se toda função dela existe no servidor. Sem o
 // arquivo, ele acusaria função inexistente onde só falta carregar.
+// 05c_Revisao.gs (21/09) entrou pelo mesmo teste: `revisarLote` é leitura pura
+// e está em SO_LEITURA. Quem a exercita é testes/revisao.js; aqui ela só
+// precisa existir.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '06_Reconciliacao.gs', '07_Auth.gs',
+  '04_Inscricoes.gs', '04_Log.gs', '05c_Revisao.gs', '06_Reconciliacao.gs', '07_Auth.gs',
   '07b_LinkPorEmail.gs',
   '09_Projetos.gs', '10_Painel.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 
@@ -221,13 +224,17 @@ teste('nenhuma :runQuery — nem uma linha de aluno é trazida', () => {
   igual(consultas(amb.falso).length, 0, 'o painel varreu documentos para contar');
 });
 
-teste('custa 10 agregações e 1 leitura de ponto — o número do cabeçalho', () => {
+teste('custa 13 agregações e 1 leitura de ponto — o número do cabeçalho', () => {
   const amb = ambiente();
   semear(amb.api);
   amb.zerar();
 
+  const antesIdas = amb.falso.idas.length;
   chamar(amb, 'painelEstatisticas');
-  igual(agregacoes(amb.falso).length, 10);
+  // As três últimas são os cancelados (21/09), e saem numa ida só: `idas`
+  // conta esperas em fila, `requisicoes` conta o que o Firestore cobra.
+  igual(agregacoes(amb.falso).length, 13);
+  igual(amb.falso.idas.length - antesIdas, 12, 'as três agregações dos cancelados têm de sair juntas');
   igual(leiturasDePonto(amb.falso).length, 1, 'a leitura de ponto é o documento de agregados');
 });
 
@@ -289,6 +296,282 @@ teste('com o documento de agregados, porCurso vem ordenado e sem metadados', () 
     { curso: 'ADS', total: 2 }
   ]);
 });
+
+// ------------------------------------------------------------ O cancelado
+
+grupo('o cancelado da lista oficial — "Todos" esconde, o filtro mostra, a busca acha');
+
+/**
+ * Uma ficha como a reconciliação a grava depois de a revisão de uma importação
+ * cancelar a pessoa: status CANCELADO (sem inscrição) ou o status da cascata com
+ * a marca (`situacao_cadastro`) quando ela ainda ocupa vaga.
+ */
+function criarCancelado(api, id, campos) {
+  criarAluno(api, id, Object.assign({
+    status: 'CANCELADO', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    matricula: '9110' + id.replace(/\D/g, '').padStart(3, '0'), curso: 'ADS', turma: 'ADS41'
+  }, campos || {}));
+}
+
+teste('"Todos" não traz o status CANCELADO, o total desconta e a resposta diz quantos escondeu', () => {
+  // Mutação que derruba: tirar a linha da peneira que rejeita CANCELADO (ele
+  // volta na lista), ou tirar a segunda agregação (o total fica 6 e o rodapé
+  // promete uma página que vem vazia).
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001');
+  criarCancelado(amb.api, 'c002');
+
+  const r = chamar(amb, 'listarAlunos', {});
+  igual(r.ok, true);
+  igual(r.itens.length, 4);
+  igual(r.itens.filter((a) => a.status === 'CANCELADO').length, 0);
+  igual(r.total, 4);
+  igual(r.paginas, 1);
+  igual(r.cancelados_ocultos, 2);
+});
+
+teste('a página vem CHEIA mesmo com cancelados no meio dela', () => {
+  // 52 fichas, 2 canceladas entre as 50 primeiras por `__name__`. Página 1 tem
+  // de trazer 50 aceitos — a caminhada continua pelo cursor até preencher.
+  // Mutação que derruba: filtrar a página DEPOIS de lida (48 na tela, 2 na
+  // página seguinte que não existe).
+  const amb = ambiente();
+  semearMuitos(amb.api, 52);
+  ['m010', 'm020'].forEach((id) => {
+    amb.api.atualizar('alunos', id, { status: 'CANCELADO', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' });
+  });
+  amb.zerar();
+
+  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
+  igual(r.itens.length, 50, 'a página veio com buraco');
+  igual(r.total, 50);
+  igual(r.paginas, 1);
+  igual(r.cancelados_ocultos, 2);
+  igual(r.itens.map((a) => a.id).indexOf('m010'), -1);
+  igual(r.itens[49].id, 'm052', 'os dois últimos entraram no lugar dos cancelados');
+  // O teto de leitura é exato: 50 + os 2 escondidos, e nem um a mais.
+  igual(consultas(amb.falso).length, 2, 'uma página de 50 e a página de reposição');
+
+  const p2 = chamar(amb, 'listarAlunos', { pagina: 2, tamanho: 50 });
+  igual(p2.itens, [], 'a página 2 não existe — os 50 aceitos couberam na 1');
+});
+
+teste('sem cancelado nenhum, "Todos" custa o de sempre: uma página, sem página de reposição', () => {
+  const amb = ambiente();
+  semearMuitos(amb.api, 25);
+  amb.zerar();
+  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 10 });
+  igual(r.itens.length, 10);
+  igual(consultas(amb.falso).length, 1);
+  igual(r.cancelados_ocultos, 0);
+});
+
+teste('cancelado COM inscrição aparece em "Todos", com a marca — ele ocupa vaga', () => {
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO', nome: 'Reinscrito Exemplo' });
+
+  const r = chamar(amb, 'listarAlunos', {});
+  const ele = r.itens.filter((a) => a.nome === 'Reinscrito Exemplo')[0];
+  verdadeiro(ele, 'quem ocupa vaga sumiu da lista padrão');
+  igual(ele.status, 'CONFIRMADO');
+  igual(ele.situacao_cadastro, 'CANCELADO');
+  igual(ele.cancelado_em, '2026-09-21 19:00:00');
+  igual(r.cancelados_ocultos, 0, 'ele não está escondido');
+});
+
+teste('o filtro "Cancelados" traz os DOIS casos — pela marca, não pelo status', () => {
+  // Mutação que derruba: `filtro = { campo: 'status', valor: 'CANCELADO' }` —
+  // o cancelado que continua inscrito sumiria da única lista de quem a revisão
+  // marcou.
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001');
+  criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO' });
+  amb.zerar();
+
+  const r = chamar(amb, 'listarAlunos', { status: 'CANCELADO' });
+  igual(r.itens.map((a) => a.id).sort(), ['c001', 'c003']);
+  igual(r.total, 2);
+  const c = consultas(amb.falso)[0].corpo.structuredQuery;
+  igual(c.where.fieldFilter.field.fieldPath, 'situacao_cadastro');
+  igual(c.where.fieldFilter.value.stringValue, 'CANCELADO');
+});
+
+teste('a busca pela matrícula de um cancelado ACHA — busca nunca esconde', () => {
+  // Mutação que derruba: tirar o `!busca` da peneira — a coordenação colaria a
+  // matrícula e leria "ninguém" sobre uma pessoa que existe.
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001', { nome: 'Cancelada Exemplo', matricula: '9110777' });
+
+  igual(chamar(amb, 'listarAlunos', { busca: '9110777' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
+  igual(chamar(amb, 'listarAlunos', { busca: 'cancelada' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
+});
+
+teste('curso sozinho exclui o cancelado e o total sai exato — pela varredura do balde', () => {
+  // Mutação que derruba: voltar `curso` ao caminho de consulta — o total viria
+  // da agregação (3) e a última página, vazia.
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001', { curso: 'ADM' });
+  amb.zerar();
+
+  const r = chamar(amb, 'listarAlunos', { curso: 'ADM' });
+  igual(r.itens.map((a) => a.id).sort(), ['a003', 'a004']);
+  igual(r.total, 2);
+  igual(agregacoes(amb.falso).length, 0, 'curso sozinho não agrega mais: o total é do que foi lido');
+  igual(consultas(amb.falso)[0].corpo.structuredQuery.where.fieldFilter.field.fieldPath, 'curso');
+
+  // E com o status junto, como antes.
+  igual(chamar(amb, 'listarAlunos', { curso: 'ADM', status: 'CANCELADO' }).itens.map((a) => a.id), ['c001']);
+  igual(chamar(amb, 'listarAlunos', { curso: 'ADM', status: 'SO_INSCRITO' }).itens.map((a) => a.id), ['a003']);
+});
+
+teste('painelEstatisticas conta o status, a marca e a lista oficial — três números diferentes', () => {
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001');
+  criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO' });
+  amb.api.inserir('matriculados', { matricula: '9110001', situacao_cadastro: 'CANCELADO' }, '9110001');
+  amb.api.inserir('matriculados', { matricula: '9110002' }, '9110002');
+
+  const d = chamar(amb, 'painelEstatisticas').dados;
+  igual(d.total, 6, 'o total do cadastro continua contando todo mundo');
+  igual(d.porStatus.CANCELADO, 1);
+  igual(d.porStatus.CONFIRMADO, 2);
+  igual(d.cancelados, 2, 'a marca: os dois casos');
+  igual(d.matriculados, 2);
+  igual(d.matriculadosCancelados, 1);
+});
+
+teste('detalheAluno traz os quatro campos da marca, lidos do documento VIVO da lista', () => {
+  // Mutação que derruba: derivar `situacao_cadastro` do status da ficha — entre
+  // o Aplicar e o próximo Atualizar a ficha diria "ativo" sobre quem já foi
+  // cancelado.
+  const amb = ambiente();
+  criarAluno(amb.api, 'a050', { nome: 'Ainda Confirmada', status: 'CONFIRMADO', matricula: '9110050', matricula_id: '9110050' });
+  amb.api.inserir('matriculados', {
+    nome: 'Ainda Confirmada', matricula: '9110050', situacao_cadastro: 'CANCELADO',
+    cancelado_em: '2026-09-21 19:00:00', cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L9'
+  }, '9110050');
+
+  const r = chamar(amb, 'detalheAluno', { id: 'a050' });
+  igual(r.matriculado.situacao_cadastro, 'CANCELADO');
+  igual(r.matriculado.cancelado_em, '2026-09-21 19:00:00');
+  igual(r.matriculado.cancelado_por, 'prof@exemplo.com');
+  igual(r.matriculado.cancelado_lote_id, 'L9');
+
+  // Sem a marca: vazios, e não undefined — a tela concatena.
+  amb.api.inserir('matriculados', { nome: 'Ativa', matricula: '9110051' }, '9110051');
+  criarAluno(amb.api, 'a051', { nome: 'Ativa', matricula: '9110051', matricula_id: '9110051' });
+  const ativa = chamar(amb, 'detalheAluno', { id: 'a051' }).matriculado;
+  igual([ativa.situacao_cadastro, ativa.cancelado_em, ativa.cancelado_por, ativa.cancelado_lote_id], ['', '', '', '']);
+});
+
+teste('resolverAluno recusa o alvo CANCELADO sem escrever — a rodada desfaria', () => {
+  const amb = ambiente();
+  criarCancelado(amb.api, 'c001');
+  const antes = JSON.stringify(amb.api.ler('alunos', 'c001'));
+  amb.zerar();
+
+  const r = chamar(amb, 'resolverAluno', { id: 'c001', status: 'CONFIRMADO' });
+  igual(r.ok, false);
+  verdadeiro(/cancelado na lista oficial/.test(r.erro), r.erro);
+  igual(escritas(amb.falso).length, 0);
+  igual(JSON.stringify(amb.api.ler('alunos', 'c001')), antes);
+  igual(chamar(amb, 'resolverAluno', { id: 'c001', status: 'CANCELADO' }).erro, 'Status inválido.',
+    'CANCELADO não é um status que se peça');
+});
+
+teste('exportarCsv: a coluna "Cadastro" diz quando cancelou, e herda a peneira da tela', () => {
+  // Mutação que derruba: preencher "Cadastro" pelo status — o cancelado que
+  // ocupa vaga sairia em branco.
+  const amb = ambiente();
+  semear(amb.api);
+  criarCancelado(amb.api, 'c001', { nome: 'Cancelada Sem Vaga' });
+  criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO', nome: 'Cancelada Com Vaga' });
+
+  const todos = chamar(amb, 'exportarCsv', {});
+  igual(todos.linhas, 5, 'sem filtro, o cancelado sem inscrição não sai — como na tela');
+  const linhas = todos.csv.split('\r\n');
+  igual(linhas[0].split(';')[10], '"Cadastro"');
+  verdadeiro(!/Cancelada Sem Vaga/.test(todos.csv));
+  const comVaga = linhas.filter((l) => /Cancelada Com Vaga/.test(l))[0];
+  igual(comVaga.split(';')[9], '"Confirmado"');
+  igual(comVaga.split(';')[10], '"Cancelado em 21/09/2026"');
+  const maria = linhas.filter((l) => /Maria da Silva/.test(l))[0];
+  igual(maria.split(';')[10], '""');
+
+  const so = chamar(amb, 'exportarCsv', { status: 'CANCELADO' });
+  igual(so.linhas, 2);
+  verdadeiro(/Cancelada Sem Vaga/.test(so.csv));
+});
+
+teste('buscarMatriculado AVISA do cancelado e devolve a ficha inteira', () => {
+  // A porta da coordenação avisa; a pública (`matriculaConhecida`) recusa.
+  // Mutação que derruba: reaproveitar `matriculaConhecida` aqui — a ficha
+  // viria vazia como se a matrícula não existisse.
+  const amb = cenarioInclusao();
+  amb.api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+
+  const r = chamar(amb, 'buscarMatriculado', { matricula: '9110001' });
+  igual(r.encontrado, true);
+  igual(r.cancelado, true);
+  igual(r.cancelado_em, '2026-09-21 19:00:00');
+  igual(r.nome, 'Aluna Exemplo');
+  igual(chamar(amb, 'buscarMatriculado', { matricula: '9110999' }).cancelado, false);
+});
+
+teste('incluirInscricao grava a cancelada como não conferida e avisa que está CANCELADA', () => {
+  // Mutação que derruba: `matriculaConhecida` no lugar da leitura — o aviso
+  // diria "não está na lista", que é mentira para quem tem a lista na frente.
+  const amb = cenarioInclusao();
+  amb.api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(r.ok, true, r.erro);
+  igual(r.matricula_conferida, 'NAO');
+  verdadeiro(/CANCELADA na lista oficial \(em 21\/09\/2026\)/.test(r.aviso), r.aviso);
+  verdadeiro(!/não está na lista oficial/.test(r.aviso), 'os dois avisos não podem sair juntos');
+  igual(amb.api.ler('inscricoes', r.id).matricula_conferida, 'NAO');
+});
+
+teste('esquecerMarcaDaReconciliacao_ reescreve com -1 e preserva dia, gasto e custo', () => {
+  // Mutação que derruba: `deleteProperty` — o gasto do dia zeraria, e o freio
+  // das 15.000 leituras deixaria passar rodadas a mais.
+  const amb = cenarioAtualizarCedo();
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const antes = amb.api.marcaDaReconciliacao_();
+  verdadeiro(antes.custo > 0 && antes.gasto > 0 && antes.dia, 'a rodada não deixou marca');
+
+  amb.api.esquecerMarcaDaReconciliacao_();
+  const depois = amb.api.marcaDaReconciliacao_();
+  igual(depois.inscricoes, -1);
+  igual(depois.matriculados, -1);
+  igual(depois.dia, antes.dia);
+  igual(depois.gasto, antes.gasto);
+  igual(depois.custo, antes.custo);
+  igual(depois.em, antes.em);
+
+  // E o efeito que interessa: o próximo Atualizar cruza de novo, sem nada ter
+  // entrado.
+  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  igual(r.reconciliacao.rodou, true, 'o freio 1 continuou fechado depois de esquecer a marca');
+  igual(amb.api.marcaDaReconciliacao_().gasto, antes.gasto + antes.custo, 'a segunda rodada somou ao gasto preservado');
+});
+
+/** `cenarioAtualizar` mora mais abaixo; esta cópia pequena evita a dependência de ordem. */
+function cenarioAtualizarCedo() {
+  const amb = ambiente();
+  semearProjeto(amb.api, 'p1', 'R+ Cidades', 60);
+  semearMatriculado(amb.api, '9110701', 'Ana Lima', 'ADS', 'ADS21');
+  inscrever(amb.api, 'p1', 'R+ Cidades', {
+    matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
+  });
+  return amb;
+}
 
 // ------------------------------------------------------------ Projetos
 
@@ -1228,6 +1511,17 @@ teste('os quatro status da tela são os quatro do sistema', () => {
   });
 });
 
+teste('CANCELADO é o quinto status do sistema, e a tela NÃO o oferece como decisão', () => {
+  // O contrato com o HTML (21/09): a opção não existe no select, a ficha
+  // cancelada não desenha o select, e o filtro da aba o oferece.
+  const amb = ambiente();
+  igual(amb.api.STATUS.CANCELADO, 'CANCELADO');
+  igual(amb.api.STATUS_LABEL.CANCELADO, 'Cancelado');
+  igual(ADMIN.indexOf("opcaoStatus('CANCELADO'"), -1, 'a tela ofereceu CANCELADO como decisão');
+  verdadeiro(/r\.aluno\.status === 'CANCELADO'/.test(ADMIN), 'a ficha não distingue o cancelado');
+  verdadeiro(ADMIN.indexOf('<option value="CANCELADO">Cancelados</option>') !== -1, 'o filtro da aba Alunos não oferece Cancelados');
+});
+
 teste('a coleção de alunos é a mesma que a reconciliação vai escrever', () => {
   const amb = ambiente();
   igual(amb.api.ALUNOS_COLECAO, 'alunos');
@@ -1286,19 +1580,64 @@ teste('a importação de verdade grava lotes que este painel consegue ordenar', 
   igual(r.itens[0].importado_por, 'coordenacao@exemplo.com');
 });
 
+teste('a turma do relatório gravada por registrarLote_ é a que listarLotes devolve', () => {
+  // O outro lado do mesmo contrato: `registrarLote_` grava `turma_cabecalho`,
+  // `turma_origem`, `semestre_cabecalho` e `linhas_da_turma`; a aba Importações
+  // lê `turma`, `turma_origem`, `semestre` e `linhas_da_turma`. Mutação que
+  // derruba: renomear um campo de um lado só — a coluna "Turma" ficaria vazia
+  // em todo lote, sem erro nenhum.
+  const amb = criarAmbiente({
+    arquivos: ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
+      '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '07_Auth.gs',
+      '07b_LinkPorEmail.gs',
+      '09_Projetos.gs', '10_Painel.gs'],
+    usuario: 'coordenacao@exemplo.com'
+  });
+  const token = amb.api.criarSessao_('coordenacao@exemplo.com');
+  const base = {
+    tipo: 'CSV', gravados: 10, previstos: 10, quem: 'coordenacao@exemplo.com',
+    mapeamento: { nome: 0 }, substituirPedido: false, falhou: false
+  };
+
+  amb.api.registrarLote_(Object.assign({}, base, {
+    loteId: '20260701T090000000Z_aaa', arquivo: 'sem-cabecalho.csv', quando: '2026-07-01 09:00:00'
+  }));
+  amb.api.registrarLote_(Object.assign({}, base, {
+    loteId: '20260801T090000000Z_bbb', arquivo: 'ads41.csv', quando: '2026-08-01 09:00:00',
+    cabecalho: {
+      turma: 'ADS41', turmaBruta: 'ADS 41', semestre: '2026/2', origem: 'CABECALHO',
+      turmas: ['ADS41'], linhasDaTurma: 9, preenchidas: 1
+    }
+  }));
+
+  const r = amb.api.listarLotes({ token: token });
+  igual(r.ok, true);
+  igual(r.itens[0].arquivo, 'ads41.csv');
+  igual(r.itens[0].turma, 'ADS41');
+  igual(r.itens[0].turma_origem, 'CABECALHO');
+  igual(r.itens[0].semestre, '2026/2');
+  igual(r.itens[0].linhas_da_turma, '9');
+
+  // Lote sem cabeçalho (anterior a 21/09, ou reconstituído à mão): campos
+  // vazios, e não `undefined` — a tela concatena, e "undefined" apareceria.
+  igual(r.itens[1].turma, '');
+  igual(r.itens[1].turma_origem, '');
+  igual(r.itens[1].semestre, '');
+});
+
 // ------------------------------------------------------------ Orçamento
 
 grupo('orçamento de leitura — o número do cabeçalho, medido');
 
-teste('abrir as três abas de leitura custa 11 + 3 + 3 requisições', () => {
+teste('abrir as três abas de leitura custa 14 + 3 + 4 requisições', () => {
   const amb = ambiente();
   semear(amb.api);
   amb.api.inserir('projetos', { nome: 'R+ Cidades', vagas: '60', ativo: 'SIM', ordem: '1' }, 'p1');
   amb.zerar();
 
-  chamar(amb, 'painelEstatisticas');   // 10 agregações + 1 leitura de agregados
+  chamar(amb, 'painelEstatisticas');   // 13 agregações + 1 leitura de agregados
   const antesProjetos = amb.falso.requisicoes.length;
-  igual(antesProjetos, 11);
+  igual(antesProjetos, 14);
 
   // 1 leitura da configuração (vagas_padrao — `painelEstatisticas` não consulta
   // config nenhuma, então o cache da execução ainda está frio aqui), 1 consulta
@@ -1307,9 +1646,11 @@ teste('abrir as três abas de leitura custa 11 + 3 + 3 requisições', () => {
   igual(amb.falso.requisicoes.length - antesProjetos, 3);
 
   const antesAlunos = amb.falso.requisicoes.length;
+  const antesIdas = amb.falso.idas.length;
   chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
-  igual(amb.falso.requisicoes.length - antesAlunos, 3,
-    '1 agregação do total, 1 consulta da página, 1 leitura dos cursos');
+  igual(amb.falso.requisicoes.length - antesAlunos, 4,
+    '2 agregações (o total e os cancelados ocultos), 1 consulta da página, 1 leitura dos cursos');
+  igual(amb.falso.idas.length - antesIdas, 3, 'as duas agregações de "Todos" têm de sair na mesma ida');
 });
 
 teste('paginar é linear na página pedida — é o preço de paginar por número', () => {
@@ -1446,7 +1787,7 @@ teste('a segunda abertura do Painel não custa requisição nenhuma', () => {
   amb.zerar();
   const segunda = chamar(amb, 'painelEstatisticas');
 
-  igual(amb.falso.requisicoes.length, 0, 'as 10 agregações voltaram a sair na segunda abertura');
+  igual(amb.falso.requisicoes.length, 0, 'as 13 agregações voltaram a sair na segunda abertura');
   igual(segunda.dados, primeira.dados, 'o cache respondeu outra coisa');
 });
 
@@ -1458,7 +1799,7 @@ teste('atualizar: true fura o cache — é o botão Atualizar e o "acabei de gra
   amb.zerar();
 
   chamar(amb, 'painelEstatisticas', { atualizar: true });
-  igual(amb.falso.requisicoes.length, 11, 'o pedido explícito de atualização respondeu do cache');
+  igual(amb.falso.requisicoes.length, 14, 'o pedido explícito de atualização respondeu do cache');
 });
 
 teste('atualizar: true REESCREVE o cache — o professor seguinte também vê o novo', () => {
@@ -1494,7 +1835,7 @@ teste('a janela é de 30 segundos, e ela REABRE', () => {
   amb.relogio.avancar(2 * 1000);
   amb.zerar();
   chamar(amb, 'painelEstatisticas');
-  igual(amb.falso.requisicoes.length, 11, 'passados os 30 s o painel precisa voltar ao banco');
+  igual(amb.falso.requisicoes.length, 14, 'passados os 30 s o painel precisa voltar ao banco');
 });
 
 teste('resolver uma divergência derruba o cache na hora', () => {
@@ -1525,7 +1866,7 @@ teste('resposta de erro não entra no cache', () => {
   amb.zerar();
   const depois = chamar(amb, 'painelEstatisticas');
   igual(depois.ok, true, 'a falha ficou guardada e o painel não se recuperou sozinho');
-  igual(amb.falso.requisicoes.length, 11);
+  igual(amb.falso.requisicoes.length, 14);
 });
 
 teste('sem token, o cache quente não entrega número nenhum', () => {
@@ -1553,7 +1894,7 @@ teste('CacheService ausente devolve o painel ao caminho sem cache', () => {
   igual(chamar(amb, 'painelEstatisticas').dados.total, 4);
   amb.zerar();
   igual(chamar(amb, 'painelEstatisticas').dados.total, 4);
-  igual(amb.falso.requisicoes.length, 11, 'sem cache o custo é o de antes — e a resposta, correta');
+  igual(amb.falso.requisicoes.length, 14, 'sem cache o custo é o de antes — e a resposta, correta');
 });
 
 // ------------------------------------------------ A lista de cursos sob demanda
@@ -1570,7 +1911,7 @@ teste('cursos: false economiza a leitura de ponto', () => {
   igual(r.ok, true);
   igual(r.cursos, undefined, 'mandou a lista que a tela já tinha');
   igual(leiturasDePonto(amb.falso).length, 0, 'leu o documento de agregados sem precisar');
-  igual(amb.falso.requisicoes.length, 2, '1 agregação do total + 1 consulta da página');
+  igual(amb.falso.requisicoes.length, 3, '2 agregações (total e cancelados ocultos) + 1 consulta da página');
 });
 
 teste('o padrão continua sendo mandar — quem não conhece o parâmetro não perde nada', () => {
@@ -1661,11 +2002,16 @@ teste('SO_LEITURA só tem leitura, e toda função dela existe no servidor', () 
   // cada Tab faria o painel esquecer as abas carregadas. A irmã dela,
   // `incluirInscricao`, GRAVA e fica de fora (ver o teste das funções que
   // escrevem, abaixo).
+  // `revisarLote` (05c_Revisao.gs) entrou em 21/09 com a revisão de
+  // divergências: leitura pura por contrato E por desenho — a turma que ela
+  // deduz de um lote antigo NÃO é gravada (testes/revisao.js conta as
+  // requisições). A irmã dela, `aplicarRevisao`, cancela e exclui, e fica de
+  // fora (ver abaixo).
   igual(nomes.sort(), ['buscarMatriculado', 'detalheAluno', 'filaDeEspera', 'inscricoesRecentes',
     'inscritosDaDisciplina', 'inscritosDoProjeto', 'lerConfiguracoes',
     'listarAdmins', 'listarAlunos', 'listarDisciplinas', 'listarLog', 'listarLotes',
     'matriculadosDaDisciplina', 'modoDeAcesso', 'painelEstatisticas', 'painelProjetos',
-    'sessaoAtiva'],
+    'revisarLote', 'sessaoAtiva'],
   'entrou (ou saiu) função da lista de leituras — confira se ela realmente não grava');
 
   // `listarBanners` PARECE leitura e não é: ela passa por `drivePasta_`, que cria
@@ -2923,8 +3269,9 @@ teste('dez cliques seguidos custam dez pares de agregações, e não dez cruzame
   for (let i = 0; i < 10; i++) chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
 
   // Sem o freio, cada clique releria `inscricoes`, `matriculados` e `alunos`
-  // inteiras. Com ele, o clique é do tamanho de uma listagem.
-  verdadeiro(amb.falso.requisicoes.length < 60,
+  // inteiras. Com ele, o clique é do tamanho de uma listagem: as duas
+  // agregações do freio e as quatro requisições de "Todos" (ver o cabeçalho).
+  verdadeiro(amb.falso.requisicoes.length < 70,
     'dez cliques custaram ' + amb.falso.requisicoes.length + ' requisições');
   igual(amb.falso.requisicoes.filter((r) => r.metodo === 'POST' && /:commit/.test(r.url)).length, 0,
     'houve escrita em lote: algum clique cruzou de novo sem ter o que cruzar');
@@ -3091,7 +3438,10 @@ teste('as funções que escrevem NÃO são leitura: elas fazem o painel esquecer
   // seria REPETIDA depois de um soluço de rede — e a repetição gravaria a mesma
   // pessoa de novo (o 409 segura, mas a resposta que a coordenação lê seria a
   // recusa, e não o protocolo) — e a aba Projetos ficaria com a ocupação de antes.
-  ['atualizarAlunos', 'editarAluno', 'incluirInscricao'].forEach((funcao) => {
+  // `aplicarRevisao` (05c_Revisao.gs, 21/09) anula inscrições, cancela e exclui
+  // da lista oficial: repetida depois de uma resposta perdida, refaria o
+  // estrago sobre quem já foi tocado.
+  ['atualizarAlunos', 'editarAluno', 'incluirInscricao', 'aplicarRevisao'].forEach((funcao) => {
     igual(bloco[1].indexOf(funcao), -1,
       funcao + ' escreve: declarada como leitura, a lista ficaria mostrando o valor de antes');
   });

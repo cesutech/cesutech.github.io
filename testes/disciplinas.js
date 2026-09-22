@@ -42,7 +42,7 @@ const FONTE = fs.readFileSync(path.join(PASTA_GS, '12_Disciplinas.gs'), 'utf8');
 
 // Na ordem alfabética em que o editor do Apps Script carrega os arquivos.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '07_Auth.gs', '09_Projetos.gs', '12_Disciplinas.gs'];
+  '04_Inscricoes.gs', '04_Log.gs', '05c_Revisao.gs', '07_Auth.gs', '09_Projetos.gs', '12_Disciplinas.gs'];
 
 function ambiente(opcoes) {
   const amb = criarAmbiente(Object.assign(
@@ -734,6 +734,70 @@ teste('inscrição em QUALQUER projeto conta, e não só nesta disciplina', () =
   igual(maria.declarou, 'XYZ99 - OUTRA COISA (2026/1)',
     'o que ela declarou fica à vista — é o que permite ver a divergência');
   igual(r.resumo.semProjeto, 0);
+});
+
+teste('cancelado na lista oficial e SEM inscrição é o quarto grupo — não é quem falta', () => {
+  // A marca da revisão de uma importação (21/09). Mutação que derruba: ignorar
+  // `cadastroCancelado_` — a coordenação cobraria quem a lista oficial já
+  // disse que saiu; ou tirá-lo de `daTurma` — ele reapareceria FORA_DA_LISTA
+  // se tivesse declarado a disciplina.
+  const { api } = ambiente();
+  const token = tokenAdmin(api);
+  const id = disciplinaDaTurma(api, token, 'ADS11');
+
+  matricular(api, '9110001', { nome: 'Maria de Souza' });
+  matricular(api, '9110002', { nome: 'Joao Lima' });
+  api.atualizarEmLote('matriculados', [{
+    _id: '9110002', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'coordenacao@exemplo.com', cancelado_lote_id: 'L2'
+  }]);
+
+  const r = cruzar(api, token, id);
+  const joao = linhaDe(r, 'Joao Lima');
+  verdadeiro(joao !== null, 'o cancelado sumiu da resposta — a tela não teria como contá-lo');
+  igual(joao.grupo, 'CANCELADO');
+  igual(joao.cancelado_em, '2026-09-21 19:00:00');
+  igual(linhaDe(r, 'Maria de Souza').grupo, 'SEM_PROJETO');
+  igual(linhaDe(r, 'Maria de Souza').cancelado_em, '', 'vazio, e não undefined — a tela concatena');
+  igual(r.resumo.semProjeto, 1, 'o cancelado não conta como quem falta');
+  igual(r.resumo.cancelados, 1);
+  igual(r.resumo.comProjeto, 0);
+});
+
+teste('cancelado na lista oficial COM inscrição é COM_PROJETO, e a marca vai junto', () => {
+  // Ocupa vaga: fica no grupo de quem está em projeto, e `cancelado_em` é o que
+  // faz a tela pôr o selo pequeno para a coordenação decidir.
+  const { api } = ambiente();
+  const token = tokenAdmin(api);
+  const id = disciplinaDaTurma(api, token, 'ADS11');
+
+  matricular(api, '9110001', { nome: 'Maria de Souza' });
+  api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+  inscrever(api, { matricula: '9110001', nome: 'Maria de Souza', curso_fase: 'ADS11 - PRATICA EXTENSIONISTA (2026/1)' });
+
+  const r = cruzar(api, token, id);
+  const maria = linhaDe(r, 'Maria de Souza');
+  igual(maria.grupo, 'COM_PROJETO');
+  igual(maria.cancelado_em, '2026-09-21 19:00:00');
+  igual(r.resumo.comProjeto, 1);
+  igual(r.resumo.cancelados, 1, 'a marca conta nos dois casos');
+  igual(r.resumo.semProjeto, 0);
+});
+
+teste('varrerInscricoes_ leva o id e o projeto_id de cada inscrição — é por eles que a revisão anula', () => {
+  // Mutação que derruba: tirar `id` da linha — `aplicarRevisao` (05c) não
+  // teria o que mandar a `anularInscricoes`.
+  const { api } = ambiente();
+  const gravada = inscrever(api, { matricula: '9110001', nome: 'Maria de Souza', curso_fase: 'ADS11 - X' });
+
+  const v = api.varrerInscricoes_(100);
+  igual(v.porMatricula['9110001'].length, 1);
+  igual(v.porMatricula['9110001'][0].id, gravada.id);
+  igual(v.porMatricula['9110001'][0].projeto_id, 'p1');
+  igual(v.todas[0].id, gravada.id);
+  // A linha NÃO leva o CPF: ninguém o lê — a revisão (05c) anula só pela
+  // matrícula da própria inscrição, e não junta pessoas por CPF ou e-mail.
+  igual('cpf' in v.todas[0], false, 'a linha traz cpf sem ninguém ler');
 });
 
 teste('quem se inscreveu e a lista oficial NÃO tem não some da conta', () => {

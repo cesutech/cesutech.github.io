@@ -96,6 +96,19 @@
  * lista oficial importada com a coluna de matrícula errada — que a importação já
  * recusa (05_Importacao.gs).
  *
+ * ------------------------------------------------------- O cancelado (21/09)
+ *
+ * A revisão de uma importação (05c_Revisao.gs) marca em `matriculados` quem
+ * estava na lista oficial de uma turma e não veio no relatório novo
+ * (`situacao_cadastro = 'CANCELADO'`, lido só por `cadastroCancelado_`,
+ * 04_Inscricoes.gs). Esta rodada NÃO tira o cancelado do índice — ele casa por
+ * matrícula como qualquer um, senão a inscrição dele viraria SO_INSCRITO e
+ * perderia curso e turma. O que muda é o status de quem sobrou sem inscrição:
+ * `STATUS.CANCELADO` em vez de SO_MATRICULADO. Com inscrição viva o status é o
+ * da cascata (ocupa vaga) e a marca viaja em `situacao_cadastro`/`cancelado_em`,
+ * que `montarAluno_` copia. Reativar é reimportar: o documento do matriculado
+ * volta sem a marca e a rodada seguinte recalcula — sem função e sem log.
+ *
  * ------------------------------------------------------- Contrato com o painel
  *
  * 10_Painel.gs lê esta coleção e depende de três coisas, todas cumpridas aqui e
@@ -192,7 +205,12 @@ var RECONCILIACAO_MAX_CURSOS = 100;
 var ALUNO_CAMPOS = ['cpf', 'nome', 'email', 'telefone', 'data_nascimento',
   'matricula', 'matricula_conferida', 'projeto', 'curso', 'turma', 'situacao',
   'status', 'metodo_match', 'score_match', 'inscricao_id', 'matricula_id',
-  'revisado_por', 'revisado_em', 'observacoes'];
+  'revisado_por', 'revisado_em', 'observacoes',
+  // A marca de cancelamento da lista oficial (21/09), copiada do matriculado.
+  // Entram na comparação para a rodada enxergar quem foi cancelado e quem
+  // voltou; `''` contra AUSENTE é igual em `mudou_`, então os documentos
+  // anteriores à marca NÃO são reescritos por causa dela.
+  'situacao_cadastro', 'cancelado_em'];
 
 // ------------------------------------------------------------ A rodada
 
@@ -258,7 +276,14 @@ function reconciliar() {
     // o matriculado de fora (homônimo ambíguo) mas a chave da pessoa é a mesma.
     if (calculados[chave]) return;
 
-    calculados[chave] = montarAluno_(null, mat, '', 0, STATUS.SO_MATRICULADO);
+    // Cancelado na lista oficial E sem inscrição: é o CANCELADO de verdade — não
+    // ocupa vaga e sai da lista padrão. O cancelado COM inscrição passou pela
+    // cascata acima e ficou com o status dela (ocupa vaga); a marca dele viaja
+    // em `situacao_cadastro`, que `montarAluno_` copia. Esconder o cancelado do
+    // índice, em vez disto, faria a inscrição dele virar SO_INSCRITO e perder
+    // curso e turma — a pessoa continua existindo na lista, só está marcada.
+    var status = cadastroCancelado_(mat) ? STATUS.CANCELADO : STATUS.SO_MATRICULADO;
+    calculados[chave] = montarAluno_(null, mat, '', 0, status);
     ordem.push(chave);
   });
 
@@ -609,7 +634,12 @@ function montarAluno_(insc, mat, metodo, score, status) {
     matricula_id: mat._id || '',
     revisado_por: '',
     revisado_em: '',
-    observacoes: ''
+    observacoes: '',
+    // A marca da lista oficial, copiada e não interpretada: 'CANCELADO' ou ''.
+    // A reimportação apaga a marca do matriculado, e a rodada seguinte zera as
+    // duas aqui — é assim que "reativar" acontece sem função nenhuma.
+    situacao_cadastro: cadastroCancelado_(mat) ? 'CANCELADO' : '',
+    cancelado_em: cadastroCancelado_(mat) ? String(mat.cancelado_em || '') : ''
   };
 }
 
@@ -630,11 +660,28 @@ function montarAluno_(insc, mat, metodo, score, status) {
  *
  * `revisado_por` é o sinal de que houve gente: `resolverAluno` (10_Painel.gs)
  * sempre o preenche, e a reconciliação nunca.
+ *
+ * CANCELADO (21/09) passa por cima da decisão humana nos DOIS sentidos, e só o
+ * status — observações, quem revisou e quando ficam:
+ *
+ *   - calculado CANCELADO: a lista oficial cancelou a pessoa e ela não tem
+ *     inscrição. O status humano (um CONFIRMADO de uma divergência resolvida)
+ *     não pode segurá-la na lista padrão — ela sairia da lista oficial e
+ *     continuaria "confirmada" na tela;
+ *   - gravado CANCELADO: a pessoa voltou (reimportada, ou se inscreveu de novo).
+ *     O que está gravado é o cancelamento, e restaurá-lo deixaria a ficha PRESA
+ *     em CANCELADO para sempre — a revisão humana anterior ao cancelamento já
+ *     foi sobrescrita pela rodada que cancelou, e não há de onde trazê-la de
+ *     volta sem um campo a mais. Vale o status recalculado; a observação e o
+ *     "revisado por" continuam na ficha, e a coordenação decide de novo se for
+ *     o caso.
  */
 function preservarRevisao_(novo, atual) {
   if (!atual || !String(atual.revisado_por || '')) return;
 
-  novo.status = atual.status;
+  if (novo.status !== STATUS.CANCELADO && atual.status !== STATUS.CANCELADO) {
+    novo.status = atual.status;
+  }
   novo.observacoes = String(atual.observacoes || '');
   novo.revisado_por = String(atual.revisado_por);
   novo.revisado_em = String(atual.revisado_em || '');
@@ -692,11 +739,11 @@ function planejarRemocoes_(existentes, calculados, totalCalculado) {
   return { ids: ids, recusa: '' };
 }
 
-/** Os quatro números que o painel e a importação mostram. */
+/** Os quatro números que o painel e a importação mostram — e o quinto, cancelado. */
 function resumoDe_(lista) {
   var resumo = {
     total: lista.length,
-    confirmado: 0, so_inscrito: 0, so_matriculado: 0, divergencia: 0
+    confirmado: 0, so_inscrito: 0, so_matriculado: 0, divergencia: 0, cancelado: 0
   };
 
   lista.forEach(function (a) {
@@ -704,6 +751,7 @@ function resumoDe_(lista) {
     else if (a.status === STATUS.SO_INSCRITO) resumo.so_inscrito++;
     else if (a.status === STATUS.SO_MATRICULADO) resumo.so_matriculado++;
     else if (a.status === STATUS.DIVERGENCIA) resumo.divergencia++;
+    else if (a.status === STATUS.CANCELADO) resumo.cancelado++;
   });
 
   return resumo;
@@ -729,6 +777,9 @@ function resumoDe_(lista) {
 function atualizarAgregadoDeCursos_(lista) {
   var contagem = {};
   lista.forEach(function (a) {
+    // O cancelado da lista oficial não conta no "Alunos por curso": ele saiu da
+    // lista padrão e o cartão fecharia com um total que a aba Alunos não mostra.
+    if (a.status === STATUS.CANCELADO) return;
     // O rótulo de quem não tem curso é o mesmo do sistema atual, e precisa ser
     // um nome de verdade: nome de campo vazio não é endereçável no Firestore.
     var curso = String(a.curso || '').trim() || '(sem curso)';

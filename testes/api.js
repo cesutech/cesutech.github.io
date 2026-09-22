@@ -70,7 +70,7 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 //     arquivo, a rota de login respondia a falha genérica, e o teste dela media o
 //     caminho de erro achando que media o de sucesso.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs',
+  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs', '05c_Revisao.gs',
   '06_Reconciliacao.gs', '07_Auth.gs', '07b_LinkPorEmail.gs', '08_Api.gs', '09_Projetos.gs',
   '10_Painel.gs', '11_Banners.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 
@@ -826,6 +826,25 @@ teste('modo AVISAR responde bloqueia:false', () => {
   a.api.gravarConfig('modo_validacao_matricula', 'AVISAR');
 
   igual(corpoDe(get(a, { api: 'matricula', m: '9999999', p: 'p1' })).bloqueia, false);
+});
+
+teste('matrícula CANCELADA na lista oficial responde o corpo IDÊNTICO ao de inexistente', () => {
+  // A marca da revisão de uma importação (21/09). Mutação que derruba:
+  // acrescentar `cancelada: true` à resposta, ou trocar `listaDisponivel` —
+  // "existe e está cancelada" é um segundo bit sobre uma pessoa, entregue a
+  // quem consulta anonimamente, e o oráculo passaria a distinguir quem saiu.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+  a.api.atualizarEmLote('matriculados', [{
+    _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
+    cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L2'
+  }]);
+
+  const cancelada = get(a, { api: 'matricula', m: '9110001', p: 'p1' }).getContent();
+  const inexistente = get(a, { api: 'matricula', m: '9999999', p: 'p1' }).getContent();
+  igual(cancelada, inexistente, 'os dois corpos têm de ser byte a byte iguais');
+  igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, false);
 });
 
 teste('projeto que não valida matrícula nem consulta a lista', () => {

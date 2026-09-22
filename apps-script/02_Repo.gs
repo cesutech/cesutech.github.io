@@ -3,9 +3,10 @@
  *
  * Este arquivo é o ÚNICO caminho de dados do sistema. Não existe planilha por
  * baixo, não existe segundo repositório: tudo que é lido ou gravado passa por
- * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar` e
- * `escreverEmLote`. Se uma função de negócio precisa tocar em dado, ela chama
- * uma destas sete.
+ * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar`,
+ * `escreverEmLote`, `excluirEmLote` e `atualizarEmLote` (mais `contarVarios`,
+ * que é `contar` em paralelo). Se uma função de negócio precisa tocar em dado,
+ * ela chama uma destas.
  *
  * A API pública é deliberadamente a mesma que o projeto irmão
  * (o sistema anterior, sobre Google Sheets) expõe sobre o Google Sheets. Lá
@@ -314,6 +315,24 @@ function fsErro_(codigo, texto, metodo, caminho) {
   return erro;
 }
 
+/**
+ * A mensagem de erro SEM o caminho do documento — o que pode sair para a tela
+ * e para o log de execução.
+ *
+ * `fsErro_` (acima) monta a mensagem com o texto do Firestore, e esse texto
+ * carrega o caminho inteiro: 'projects/<id do projeto>/databases/(default)/
+ * documents/matriculados/9110001'. O caminho é duas coisas que não saem
+ * daqui: a matrícula (o id do documento) e o id do projeto Cloud — o começo
+ * da trilha para quem quiser sondar (ver `fsProjeto_`). Mora ao lado de quem
+ * monta a mensagem, e não em quem a mostra, para todo ramo de erro que
+ * responde ou loga ter a mesma régua (decisão D-27; a revisão, 05c, e o
+ * Auditório, 13, passam por aqui). Aceita o Error ou só o texto.
+ */
+function semCaminhoDeDocumento_(erro) {
+  var texto = (erro && erro.message) || erro || 'erro desconhecido';
+  return String(texto).replace(/projects\/\S+/g, '(documento)');
+}
+
 function fsValeRetentar_(erro) {
   if (erro.status === FS_STATUS_RETENTAVEL) return true;
   return FS_CODIGOS_RETENTAVEIS.indexOf(Number(erro.codigo)) !== -1;
@@ -365,11 +384,19 @@ function paraDocumento_(objeto) {
  * Devolve sempre texto, inclusive quando o campo veio tipado — é o mesmo
  * contrato de `lerTudo` no projeto atual, que garante que nada além de string
  * circula pelo `google.script.run`.
+ *
+ * `_versao` é o `updateTime` que o banco carimbou na última escrita do
+ * documento — metadado de leitura como `_id` e `_nome` (prefixo `_`: não volta
+ * para o banco, não entra em backup nem em máscara). Quem relê um documento e
+ * quer gravar SÓ se ele ainda for aquele passa a versão de volta em
+ * `atualizarEmLote`/`excluirEmLote`, e o `:commit` recusa se alguém escreveu
+ * no meio tempo. Vem tanto de `ler` quanto de `listar` (o `:runQuery` devolve
+ * o documento inteiro, com o carimbo).
  */
 function paraObjeto_(documento) {
   if (!documento) return null;
 
-  var obj = { _id: fsIdDe_(documento.name), _nome: documento.name || '' };
+  var obj = { _id: fsIdDe_(documento.name), _nome: documento.name || '', _versao: documento.updateTime || '' };
   var campos = documento.fields || {};
   Object.keys(campos).forEach(function (chave) {
     obj[chave] = fsTexto_(campos[chave]);
@@ -498,12 +525,111 @@ function escreverEmLote(colecao, objetos) {
 }
 
 /**
+ * PATCH em massa, em blocos de 500 — o `atualizar` de muitos documentos numa
+ * requisição, e com uma precondição que `atualizar` não tem.
+ *
+ * Nasceu para a revisão de divergências (05c_Revisao.gs): cancelar N alunos da
+ * lista oficial é gravar QUATRO campos em N documentos que já existem. Os dois
+ * caminhos que já havia servem mal, cada um por um motivo:
+ *
+ *   `atualizar` ........ um PATCH por documento — N requisições em fila, e um
+ *                        PATCH no Firestore CRIA o documento que não existe: a
+ *                        tela de revisão aberta desde antes de uma exclusão
+ *                        gravaria um matriculado fantasma só com a marca;
+ *   `escreverEmLote` ... um `:commit`, mas `update` SEM `updateMask` substitui o
+ *                        documento inteiro — para não perder nome, CPF e
+ *                        `raw_json` seria preciso reler cada documento e mandar
+ *                        tudo de volta, e o que foi relido pode já estar velho
+ *                        quando chega (uma reimportação no meio do caminho seria
+ *                        sobrescrita pelo retrato de antes).
+ *
+ * Aqui cada escrita leva `updateMask.fieldPaths` = exatamente as chaves do
+ * objeto (só elas mudam; o resto do documento fica como está, sem releitura) e
+ * uma PRECONDIÇÃO, que depende do que o objeto traz:
+ *
+ *   com `_versao` ..... `currentDocument: { updateTime: _versao }` — o documento
+ *                       tem de existir E estar no mesmo carimbo em que foi lido
+ *                       (`paraObjeto_` o traz de toda leitura). Um documento
+ *                       reescrito no meio tempo — a reimportação que trouxe a
+ *                       pessoa de volta, um Editar — faz o `:commit` voltar 400
+ *                       FAILED_PRECONDITION. `exists:true` não distingue "o
+ *                       mesmo documento" de "o documento reescrito", e é essa a
+ *                       diferença entre marcar quem sumiu e marcar quem acabou
+ *                       de voltar;
+ *   sem `_versao` ..... `currentDocument: { exists: true }` — se algum documento
+ *                       do bloco sumiu, o `:commit` volta 404 NOT_FOUND.
+ *
+ * Nos dois casos o BLOCO INTEIRO não é aplicado. Não é limitação, é a garantia
+ * que se quer: "alguém foi reimportado ou excluído enquanto a tela estava
+ * aberta" é a resposta certa, e não meio lote gravado.
+ *
+ * `_id` é obrigatório em todo objeto e é conferido ANTES de qualquer requisição:
+ * um patch sem endereço não tem o que atualizar, e sortear um id (como
+ * `escreverEmLote` faz) só criaria uma escrita fadada ao 404 — ou, sem a
+ * precondição, um fantasma. Objeto sem campo nenhum além dos metadados é pulado
+ * (não há o que mandar), e não conta no total devolvido.
+ *
+ * Idempotente por construção — aplicar o mesmo patch duas vezes deixa o mesmo
+ * documento —, o que é o que torna seguro passar pela retentativa de `fsFetch_`.
+ * Como os irmãos, NÃO é atômico ENTRE blocos: cada bloco de 500 é tudo ou nada,
+ * e o segundo pode falhar depois de o primeiro ter entrado. Devolve quantos
+ * patches foram enviados.
+ */
+function atualizarEmLote(colecao, objetos) {
+  if (!objetos || !objetos.length) return 0;
+
+  // Nome de RECURSO, sem host — ver fsRecurso_().
+  var raiz = fsRecurso_();
+  var escritas = [];
+
+  objetos.forEach(function (objeto) {
+    if (!objeto || !objeto._id) {
+      throw new Error('atualizarEmLote: todo objeto precisa de _id — um patch sem endereço não tem o que atualizar');
+    }
+    var documento = paraDocumento_(objeto);
+    var chaves = Object.keys(documento.fields);
+    if (!chaves.length) return;
+
+    documento.name = raiz + '/' + colecao + '/' + objeto._id;
+    escritas.push({
+      update: documento,
+      updateMask: { fieldPaths: chaves },
+      currentDocument: fsPrecondicao_(objeto)
+    });
+  });
+
+  for (var inicio = 0; inicio < escritas.length; inicio += FS_LOTE_MAXIMO) {
+    fsFetch_('post', ':commit', { writes: escritas.slice(inicio, inicio + FS_LOTE_MAXIMO) });
+  }
+  return escritas.length;
+}
+
+/**
+ * A precondição de uma escrita em lote, a partir do que o objeto traz.
+ *
+ * Com `_versao` (o `updateTime` lido por `paraObjeto_`), o banco só aplica se o
+ * documento ainda estiver naquele carimbo; sem ela, só exige que exista. É o
+ * mesmo par para o patch e para o delete.
+ */
+function fsPrecondicao_(objeto) {
+  var versao = String((objeto && objeto._versao) || '');
+  return versao ? { updateTime: versao } : { exists: true };
+}
+
+/**
  * Remoção em massa, em blocos de 500 — o espelho de `escreverEmLote`.
  *
  * Existe por um motivo só, e é bom que seja o único: `expurgarLote`
  * (05_Importacao.gs) precisa apagar milhares de matriculados de uma lista velha,
  * e `excluir()` um a um seriam 2.500 requisições, muito além dos 6 minutos de
  * execução. Em blocos são 5.
+ *
+ * Cada item é um id (texto) OU um objeto `{ _id, _versao }` lido do banco. Com
+ * a versão, o delete leva `currentDocument: { updateTime }` e o banco recusa o
+ * bloco inteiro (400 FAILED_PRECONDITION) se o documento foi reescrito depois
+ * da leitura — a revisão (05c_Revisao.gs) apaga o matriculado que RELEU, e não
+ * o que uma reimportação acabou de gravar no mesmo id. Sem versão o delete é o
+ * de sempre: sem precondição, apagar o que não existe é 200.
  *
  * Como o `escreverEmLote`, NÃO é atômico entre blocos: o terceiro pode falhar
  * depois de dois terem apagado. Aqui isso é aceitável de um jeito que não era na
@@ -520,8 +646,12 @@ function excluirEmLote(colecao, ids) {
 
   for (var inicio = 0; inicio < ids.length; inicio += FS_LOTE_MAXIMO) {
     var bloco = ids.slice(inicio, inicio + FS_LOTE_MAXIMO);
-    var escritas = bloco.map(function (id) {
-      return { delete: raiz + '/' + colecao + '/' + id };
+    var escritas = bloco.map(function (item) {
+      var objeto = (item && typeof item === 'object') ? item : { _id: item };
+      if (!objeto._id) throw new Error('excluirEmLote: todo item precisa de id');
+      var escrita = { delete: raiz + '/' + colecao + '/' + objeto._id };
+      if (objeto._versao) escrita.currentDocument = { updateTime: String(objeto._versao) };
+      return escrita;
     });
 
     fsFetch_('post', ':commit', { writes: escritas });

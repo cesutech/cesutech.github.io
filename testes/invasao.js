@@ -52,7 +52,7 @@ const { teste, grupo, igual, verdadeiro, resultado, criarAmbiente, criarRelogio 
 // painel referencia funções de 05, 06, 09, 10, 11 e 12, e com meia lista o mapa
 // estouraria — o teste mediria o caminho de erro achando que mede o de sucesso.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs',
+  '04_Inscricoes.gs', '04_Log.gs', '05_Importacao.gs', '05b_FormatoAcademico.gs', '05c_Revisao.gs',
   '06_Reconciliacao.gs', '07_Auth.gs', '07b_LinkPorEmail.gs', '08_Api.gs', '09_Projetos.gs',
   '10_Painel.gs', '11_Banners.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 

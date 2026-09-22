@@ -186,6 +186,9 @@
   .selo--SO_INSCRITO { background: var(--vinho-claro); color: var(--vinho); }
   .selo--SO_MATRICULADO { background: var(--roxo-fundo); color: var(--roxo); }
   .selo--DIVERGENCIA { background: var(--ambar-fundo); color: var(--ambar); }
+  /* Cancelado na lista oficial (21/09): cinza, porque é gente que saiu, e não
+     uma pendência — o selo não pode competir com a divergência por atenção. */
+  .selo--CANCELADO { background: var(--fundo); color: var(--texto-fraco); border: 1px solid var(--borda); }
 
   /* ---------------------------------------------------- Painel */
 
@@ -212,6 +215,7 @@
   .kpi--vinho .kpi__valor { color: var(--vinho); }
   .kpi--roxo .kpi__valor { color: var(--roxo); }
   .kpi--ambar .kpi__valor { color: var(--ambar); }
+  .kpi--cinza .kpi__valor { color: var(--texto-fraco); }
 
   .filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
   .filtros .campo { margin-bottom: 0; }
@@ -473,6 +477,7 @@
     .impressao__selo--COM_PROJETO { border-color: var(--verde); color: var(--verde); }
     .impressao__selo--SEM_PROJETO { border-color: var(--roxo); color: var(--roxo); }
     .impressao__selo--FORA_DA_LISTA { border-color: var(--vinho); color: var(--vinho); }
+    .impressao__selo--CANCELADO { border-color: var(--texto-fraco); color: var(--texto-fraco); }
 
     .impressao__rodape {
       margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--borda);
