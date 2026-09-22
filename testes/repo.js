@@ -642,6 +642,332 @@ teste('o falso: caminho na máscara e ausente no corpo é apagado, como no Fires
   verdadeiro(falso.documentos.has('teste_patch/9110001'));
 });
 
+grupo('Commit misto — escreverAtomico');
+
+/**
+ * A inscrição como o site a grava — na FORMA do dado, com nome inventado. É o
+ * documento INTEIRO que a troca de projeto copia para a quarentena, e é por
+ * isso que ele é semeado com mais do que o id: um resumo não serviria.
+ */
+function semearInscricao(api, id, extras) {
+  api.escreverEmLote('teste_inscricoes', [Object.assign({
+    _id: id,
+    matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com',
+    projeto_id: 'p_x', projeto_nome: 'Robótica na Escola',
+    origem: 'SITE', em_espera: 'NAO'
+  }, extras || {})]);
+  return api.ler('teste_inscricoes', id);
+}
+
+teste('os três verbos saem num :commit só, cada um com a SUA precondição e nome de recurso', () => {
+  // Mutação que derruba: aplicar `fsPrecondicao_` ao objeto lido na cópia — ela
+  // levaria o `updateTime` de OUTRA coleção (ou o `exists:true` do fallback) e a
+  // primeira troca de todas morreria, porque a cópia ainda não existe lá.
+  // Também derruba: mandar `updateMask` na cópia — a quarentena guardaria um
+  // documento pela metade.
+  const { api, falso } = criarAmbiente();
+  const antiga = semearInscricao(api, 'i_antiga');
+  falso.requisicoes.length = 0;
+
+  const r = api.escreverAtomico([
+    { gravar: { colecao: 'teste_anuladas', id: antiga._id, objeto: Object.assign({}, antiga, {
+      anulado_em: '2026-09-22 19:00:00', anulado_por: 'aluno', anulado_motivo: 'TROCA', trocado_para: 'i_nova'
+    }) } },
+    { apagar: { colecao: 'teste_inscricoes', id: antiga._id } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: {
+      matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com',
+      projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', trocada_de: 'i_antiga'
+    } } }
+  ]);
+
+  igual(r, { aplicado: true, jaExistia: false, retentou: false, id: 'i_nova', escritas: 3 });
+
+  const commits = falso.requisicoes.filter((req) => req.url.indexOf(':commit') !== -1);
+  igual(commits.length, 1, 'a troca inteira tem de caber em UMA requisição');
+  const writes = commits[0].corpo.writes;
+  igual(writes.length, 3);
+
+  igual(writes[0].update.name, RECURSO + '/teste_anuladas/i_antiga', 'nome de RECURSO, sem host');
+  igual(writes[0].currentDocument, undefined, 'a cópia é upsert: sem precondição nenhuma');
+  igual(writes[0].updateMask, undefined, 'a cópia grava o documento inteiro, não uma máscara');
+  igual(writes[0].update.fields._versao, undefined, 'metadado de leitura não volta para o banco');
+  igual(writes[0].update.fields._id, undefined);
+  igual(writes[1], { delete: RECURSO + '/teste_inscricoes/i_antiga' },
+    'o apagar da troca vai SEM precondição — ver o cabeçalho');
+  igual(writes[2].update.name, RECURSO + '/teste_inscricoes/i_nova');
+  igual(writes[2].currentDocument, { exists: false }, 'o 409 de sempre, na forma que o :commit aceita');
+
+  igual(api.ler('teste_inscricoes', 'i_antiga'), null);
+  igual(api.ler('teste_inscricoes', 'i_nova').projeto_nome, 'Horta Comunitária');
+  const copia = api.ler('teste_anuladas', 'i_antiga');
+  igual(copia.anulado_motivo, 'TROCA');
+  igual(copia.trocado_para, 'i_nova');
+  igual(copia.projeto_nome, 'Robótica na Escola', 'a cópia guarda o documento inteiro, e não um resumo');
+  igual(copia.email, 'aluno@exemplo.com');
+});
+
+teste('com `versao`, gravar e apagar levam updateTime — e o carimbo velho derruba o commit inteiro', () => {
+  // Mutação que derruba: tirar a `versao` do corpo da escrita — a promoção da
+  // fila (13_Auditorio.gs) gravaria por cima do documento que outra execução
+  // acabou de reescrever, que é o "X ressuscita" que a precondição impede.
+  const { api, falso } = criarAmbiente();
+  const antiga = semearInscricao(api, 'i_antiga');
+
+  // Alguém reescreve a inscrição entre a leitura e o commit.
+  semearInscricao(api, 'i_antiga', { em_espera: 'SIM' });
+
+  const e = lancou(() => api.escreverAtomico([
+    { gravar: { colecao: 'teste_inscricoes', id: 'i_antiga',
+                objeto: Object.assign({}, antiga, { em_espera: 'NAO' }), versao: antiga._versao } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]), 'FAILED_PRECONDITION');
+  igual(e.status, 'FAILED_PRECONDITION');
+  igual(ultima(falso).corpo.writes[0].currentDocument, { updateTime: antiga._versao });
+  igual(api.ler('teste_inscricoes', 'i_antiga').em_espera, 'SIM', 'o commit recusado aplicou a primeira escrita');
+  igual(api.ler('teste_inscricoes', 'i_nova'), null, 'e criou a segunda');
+
+  // Com o carimbo de agora, entra — e o `apagar` versionado usa a mesma régua.
+  const agora = api.ler('teste_inscricoes', 'i_antiga');
+  igual(api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga', versao: agora._versao } }
+  ]), { aplicado: true, jaExistia: false, retentou: false, id: '', escritas: 1 });
+  igual(ultima(falso).corpo.writes[0].currentDocument, { updateTime: agora._versao });
+  igual(api.ler('teste_inscricoes', 'i_antiga'), null);
+});
+
+teste('id novo já ocupado: o 409 vira jaExistia sem lançar, e NADA do lote entrou', () => {
+  // Mutação que derruba: montar o `criar` sem `currentDocument` — a inscrição
+  // de outra pessoa no mesmo id seria sobrescrita, a antiga apagada e a cópia
+  // gravada, e a resposta ainda diria "criado". Ou tratar ALREADY_EXISTS como
+  // erro: o aluno veria "Erro ao registrar" depois de um reenvio inofensivo.
+  const { api, falso } = criarAmbiente();
+  const antiga = semearInscricao(api, 'i_antiga');
+  semearInscricao(api, 'i_nova', { nome: 'Bruno Teixeira', projeto_id: 'p_y' });
+  const documentosAntes = falso.documentos.size;
+  falso.requisicoes.length = 0;
+
+  const r = api.escreverAtomico([
+    { gravar: { colecao: 'teste_anuladas', id: 'i_antiga', objeto: antiga } },
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga' } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001', projeto_id: 'p_y' } } }
+  ]);
+
+  igual(r, { aplicado: false, jaExistia: true, retentou: false, id: 'i_nova', escritas: 3 });
+  igual(falso.requisicoes.length, 1, 'ALREADY_EXISTS não é retentado — é a unicidade funcionando');
+  igual(api.ler('teste_anuladas', 'i_antiga'), null, 'a cópia entrou apesar da recusa');
+  igual(api.ler('teste_inscricoes', 'i_antiga').projeto_nome, 'Robótica na Escola', 'a antiga foi apagada apesar da recusa');
+  igual(api.ler('teste_inscricoes', 'i_nova').nome, 'Bruno Teixeira', 'o documento do id ocupado foi sobrescrito');
+  igual(falso.documentos.size, documentosAntes);
+});
+
+teste('NOT_FOUND e FAILED_PRECONDITION lançam, e a mensagem sai sem o caminho do documento', () => {
+  // Mutação que derruba: tratar NOT_FOUND como `jaExistia` — "alguém mexeu
+  // nisto enquanto você decidia" viraria "você já estava inscrito", com a
+  // inscrição nova nunca criada. E deixar a mensagem crua: ela carrega
+  // `projects/<id do projeto Cloud>/.../teste_inscricoes/<id>`, que é o começo
+  // da trilha para quem quiser sondar e, numa inscrição, o protocolo do aluno.
+  const { api, falso } = criarAmbiente();
+
+  const e = lancou(() => api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'sumiu', versao: '2026-08-05T00:00:00.000009Z' } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]), 'NOT_FOUND');
+  igual(e.status, 'NOT_FOUND', 'quem decide é o status, nunca o texto');
+  igual(e.codigo, 404);
+  igual(e.message.indexOf('projects/'), -1, 'a mensagem carrega o caminho: ' + e.message);
+  verdadeiro(e.message.indexOf('(documento)') !== -1, 'e o caminho tinha de virar o marcador de sempre');
+  igual(falso.requisicoes.length, 1, 'NOT_FOUND não é retentado');
+  igual(api.ler('teste_inscricoes', 'i_nova'), null, 'a recusa de uma escrita derruba o lote inteiro');
+
+  // O carimbo velho tem o mesmo desfecho, com o outro status — e a mesma régua
+  // na mensagem.
+  const antiga = semearInscricao(api, 'i_antiga');
+  semearInscricao(api, 'i_antiga', { em_espera: 'SIM' });
+  const velha = lancou(() => api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga', versao: antiga._versao } }
+  ]), 'FAILED_PRECONDITION');
+  igual(velha.status, 'FAILED_PRECONDITION');
+  igual(velha.message.indexOf('projects/'), -1, 'a mensagem carrega o caminho: ' + velha.message);
+  verdadeiro(falso.documentos.has('teste_inscricoes/i_antiga'), 'o documento reescrito foi apagado');
+});
+
+teste('503 é retentado como em toda escrita, e a retentativa que encontra o documento devolve jaExistia', () => {
+  // A segunda metade é o caso do cabeçalho: se o 503 vier na resposta de um
+  // commit que o banco já aplicou, a retentativa encontra o documento novo no
+  // lugar. `jaExistia` é a leitura certa do estado do banco, ainda que a
+  // primeira resposta tenha sido perdida — e vem com `retentou`, que é o que
+  // separa "outra pessoa" de "eu mesmo" (os dois testes logo abaixo).
+  const { api, falso, esperas } = criarAmbiente();
+  semearInscricao(api, 'i_antiga');
+  falso.requisicoes.length = 0;
+  falso.forcar(503, 'UNAVAILABLE');
+
+  igual(api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga' } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]).aplicado, true);
+  igual(falso.requisicoes.length, 2, 'uma recusada e uma que entrou');
+  igual(esperas.length, 1);
+  igual(api.ler('teste_inscricoes', 'i_antiga'), null);
+  igual(api.ler('teste_inscricoes', 'i_nova').matricula, '9110001');
+
+  falso.forcar(503, 'UNAVAILABLE');
+  igual(api.escreverAtomico([
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]).jaExistia, true);
+});
+
+/**
+ * O 503 QUE CHEGA DEPOIS DE O BANCO APLICAR — os três testes abaixo.
+ *
+ * `forcar` responde o erro SEM deixar a escrita acontecer, e por isso ele não
+ * sabe dizer este caso: aqui o `:commit` ENTRA e é a resposta que se perde no
+ * caminho de volta. A retentativa manda a mesma precondição, que o efeito
+ * anterior acabou de invalidar, e recebe um status que diz "alguém mexeu" sobre
+ * uma mudança que foi minha. É a diferença entre "nada aconteceu" e "aconteceu
+ * tudo", com o mesmo status na mão — e é por isso que `retentou` existe.
+ */
+teste('a resposta perdida depois do commit: `criar` volta jaExistia COM a marca da retentativa', () => {
+  // Mutação que derruba: não repassar `retentou` no ramo ALREADY_EXISTS — quem
+  // chama volta a ler "já estava lá" como se outra pessoa tivesse gravado.
+  const { api, falso } = criarAmbiente();
+  semearInscricao(api, 'i_antiga');
+  falso.requisicoes.length = 0;
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga' } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]);
+
+  igual(r.jaExistia, true);
+  igual(r.retentou, true, 'sem isto, "já existia" é indistinguível de outra pessoa ter gravado');
+  igual(falso.requisicoes.length, 2, 'uma aplicada com a resposta perdida, e a retentativa');
+
+  // E o efeito ENTROU na primeira: é este o estado que a resposta negava.
+  igual(api.ler('teste_inscricoes', 'i_antiga'), null, 'o commit perdido não foi aplicado');
+  igual(api.ler('teste_inscricoes', 'i_nova').matricula, '9110001');
+});
+
+teste('a resposta perdida depois do commit: a precondição de VERSÃO lança com `retentou`', () => {
+  // Mutação que derruba: apagar `erro.retentou = tentativa > 1` de `fsFetch_` —
+  // os dois promotores voltam a anunciar "ninguém foi promovido" com a fila
+  // inteira promovida.
+  const { api, falso } = criarAmbiente();
+  const antiga = semearInscricao(api, 'i_antiga', { em_espera: 'SIM' });
+  falso.requisicoes.length = 0;
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const promovida = Object.assign({}, antiga);
+  delete promovida.em_espera;
+
+  const e = lancou(() => api.escreverAtomico([
+    { gravar: { colecao: 'teste_inscricoes', id: 'i_antiga', objeto: promovida, versao: antiga._versao } }
+  ]), 'FAILED_PRECONDITION');
+
+  igual(e.status, 'FAILED_PRECONDITION');
+  igual(e.retentou, true, 'a marca tem de sobreviver à limpeza da mensagem (D-27)');
+  igual(e.message.indexOf('projects/'), -1, 'e a mensagem continua sem o caminho do documento');
+  igual(api.ler('teste_inscricoes', 'i_antiga').em_espera, undefined,
+    'a escrita que o erro nega é exatamente a que entrou');
+});
+
+teste('`escritaIndeterminada_` separa "alguém mexeu" de "não sei se fui eu"', () => {
+  // Mutação que derruba: devolver `corridaDeEscrita_(erro)` sozinho — a recusa
+  // de primeira (em que NADA entrou, e isso se sabe) passaria a responder "não
+  // consigo confirmar", e a coordenação deixaria de receber a única frase que
+  // ela pode agir em cima.
+  const { api } = criarAmbiente();
+
+  igual(api.escritaIndeterminada_({ status: 'FAILED_PRECONDITION', retentou: true }), true);
+  igual(api.escritaIndeterminada_({ status: 'NOT_FOUND', retentou: true }), true);
+  igual(api.escritaIndeterminada_({ status: 'FAILED_PRECONDITION' }), false,
+    'sem retentativa, a precondição recusada é corrida de verdade');
+  igual(api.escritaIndeterminada_({ status: 'RESOURCE_EXHAUSTED', retentou: true }), false,
+    'cota estourada não é corrida: nada foi aplicado e o erro é outro');
+  igual(api.escritaIndeterminada_(null), false);
+});
+
+teste('as guardas recusam ANTES de mandar: dois `criar`, duas escritas no mesmo documento, escrita sem endereço', () => {
+  // Mutação que derruba: deixar passar. Dois `criar` no mesmo lote fazem o 409
+  // deixar de dizer QUAL documento já existia — e a mensagem que diria é
+  // justamente a que sai daqui sem o caminho. Duas escritas no mesmo documento
+  // o Firestore recusa inteiras (o teste do falso, logo abaixo), gastando a ida
+  // dentro do lock para receber um INVALID_ARGUMENT genérico.
+  const { api, falso } = criarAmbiente();
+
+  const e = lancou(() => api.escreverAtomico([
+    { criar: { colecao: 'teste_inscricoes', id: 'i_1', objeto: { matricula: '9110001' } } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_2', objeto: { matricula: '9110002' } } }
+  ]), 'um `criar`');
+
+  const noMesmo = lancou(() => api.escreverAtomico([
+    { gravar: { colecao: 'teste_inscricoes', id: 'i_1', objeto: { em_espera: 'SIM' } } },
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_1' } }
+  ]), 'mesmo documento');
+  igual(noMesmo.message.indexOf('i_1'), -1,
+    'a guarda nomeia a coleção e nunca o id: o id de uma inscrição é o protocolo do aluno');
+
+  lancou(() => api.escreverAtomico([{ apagar: { colecao: 'teste_inscricoes' } }]), 'colecao e id');
+  lancou(() => api.escreverAtomico([{ gravar: { id: 'i_1', objeto: {} } }]), 'colecao e id');
+  lancou(() => api.escreverAtomico([{ mudar: { colecao: 'teste_inscricoes', id: 'i_1' } }]), 'cada escrita é UM');
+  lancou(() => api.escreverAtomico([{
+    criar: { colecao: 'teste_inscricoes', id: 'i_1', objeto: {} },
+    apagar: { colecao: 'teste_inscricoes', id: 'i_2' }
+  }]), 'cada escrita é UM');
+
+  igual(falso.requisicoes.length, 0, 'alguma guarda recusou só DEPOIS de mandar');
+  igual(falso.documentos.size, 0);
+  verdadeiro(e.message.indexOf('i_2') === -1, 'nem a guarda dos dois `criar` diz o id');
+
+  // O MESMO id em coleções diferentes é o caso normal da troca, e passa: a
+  // cópia da quarentena guarda o id da inscrição de propósito.
+  igual(api.escreverAtomico([
+    { gravar: { colecao: 'teste_anuladas', id: 'i_1', objeto: { matricula: '9110001' } } },
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_1' } }
+  ]).escritas, 2);
+});
+
+teste('501 escritas lançam antes de qualquer requisição: esta é a primitiva que NÃO fatia', () => {
+  // Mutação que derruba: fatiar em blocos de 500 como os irmãos fazem — seriam
+  // dois `:commit`, duas idas dentro do lock e nenhuma atomicidade justamente
+  // no lote grande, que é quando ela mais importa.
+  const { api, falso } = criarAmbiente();
+  const escritas = [];
+  for (let i = 0; i < 501; i++) escritas.push({ apagar: { colecao: 'teste_inscricoes', id: 'i' + i } });
+
+  lancou(() => api.escreverAtomico(escritas), '500');
+  igual(falso.requisicoes.length, 0);
+
+  // 500 é o teto e cabe num commit só. Sem `versao`, apagar o que não existe é
+  // 200 — o delete continua idempotente, como em `excluirEmLote`.
+  igual(api.escreverAtomico(escritas.slice(0, 500)), { aplicado: true, jaExistia: false, retentou: false, id: '', escritas: 500 });
+  igual(falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1).length, 1);
+});
+
+teste('lista vazia não chama a API', () => {
+  const { api, falso } = criarAmbiente();
+  igual(api.escreverAtomico([]), { aplicado: false, jaExistia: false, retentou: false, id: '', escritas: 0 });
+  igual(api.escreverAtomico(null).escritas, 0);
+  igual(falso.requisicoes.length, 0);
+});
+
+teste('o falso: duas escritas no mesmo documento no mesmo :commit são recusadas, como no Firestore', () => {
+  // É a razão de existir da guarda acima — e sem isto o falso seria mais
+  // permissivo que o banco, que é a classe de erro que já passou por 491 testes
+  // verdes neste projeto (ver o comentário do `:commit` em apoio.js). Chamado
+  // pelo transporte, porque a primitiva recusa antes e nunca manda.
+  const { api, falso } = criarAmbiente();
+  semearInscricao(api, 'i_antiga');
+
+  const e = lancou(() => api.fsFetch_('post', ':commit', { writes: [
+    { update: { name: RECURSO + '/teste_inscricoes/i_antiga', fields: { em_espera: { stringValue: 'SIM' } } } },
+    { delete: RECURSO + '/teste_inscricoes/i_antiga' }
+  ] }), 'INVALID_ARGUMENT');
+  verdadeiro(e.message.indexOf('more than once') !== -1, e.message);
+  igual(api.ler('teste_inscricoes', 'i_antiga').em_espera, 'NAO', 'e nada do lote foi aplicado');
+});
+
 // ---------------------------------------------------------------- Resultado
 
 process.exit(resultado());

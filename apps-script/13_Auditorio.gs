@@ -84,9 +84,63 @@
  * operação sem adivinhação: o id É a chave de dedup (`chaveDedup_`,
  * 04_Inscricoes.gs), então voltar com o mesmo id é voltar para o mesmo lugar, e
  * uma segunda restauração esbarra no 409 do banco em vez de duplicar a pessoa.
+ *
+ * ------------------------------------ A quarentena tem TRÊS produtores (22/09)
+ *
+ * Esta coleção deixou de ser só desta aba. Escrevem nela:
+ *
+ *   esta aba ............. `anulado_por` = o e-mail de quem clicou;
+ *   a revisão de divergências (05c_Revisao.gs, que chama `anularInscricoes`)
+ *                          ..... o e-mail de quem aplicou a revisão;
+ *   O PRÓPRIO ALUNO, pela troca de projeto (04_Inscricoes.gs, com
+ *   `aluno_projeto_unico` em SIM) ..... `anulado_por` = 'aluno', uma SENTINELA
+ *                          que não é endereço de ninguém, mais `anulado_motivo`
+ *                          = 'TROCA' e `trocado_para` = o id da inscrição nova.
+ *
+ * A cópia da troca é UPSERT SEM PRECONDIÇÃO, de propósito: `criar`
+ * (`exists:false`) faria o `:commit` inteiro voltar ALREADY_EXISTS quando a
+ * coordenação já tivesse anulado aquela inscrição, e o aluno receberia "você já
+ * estava inscrito" sem que a inscrição nova existisse.
+ *
+ * DOIS SENTIDOS DE INTERCALAÇÃO, e os dois são de TRILHA, nunca do aluno:
+ *
+ *   (i) a troca comita primeiro — a coordenação (ou a revisão) grava a cópia
+ *       dela por cima, e `escreverEmLote` é update SEM `updateMask`, isto é,
+ *       substituição inteira: `anulado_motivo` e `trocado_para` somem, e o
+ *       `excluirEmLote` seguinte apaga o que já não existe (no-op de 200) e
+ *       relata "anulada" uma inscrição que ele não tirou;
+ *  (ii) a coordenação anula primeiro — a cópia da troca sobrescreve a dela, e a
+ *       marca de QUEM anulou se perde.
+ *
+ * Nos dois sentidos o ALUNO fica correto: ele está no projeto novo, e restaurar
+ * recusa devolver a inscrição antiga enquanto ele estiver em outro projeto ativo
+ * (ver `restaurarUma_`). A cópia órfã que sobra o próprio `restaurarInscricoes`
+ * cura sozinho, tratando-a como `jaEstavam`. O que se perde é a TRILHA — e é por
+ * isso que a linha `INSCRICAO_TROCADA` do log (04_Inscricoes.gs) deixou de ser
+ * redundante e passou a ser a ÚNICA prova durável da troca.
+ *
+ * REGRA OPERACIONAL que sai daí: não rodar a Revisão de divergências com a
+ * janela de inscrição aberta. É a janela de "segundos a minutos" entre a
+ * releitura e o apaga (05c_Revisao.gs) que transforma a intercalação de caso
+ * raro em caso provável.
+ *
+ * `anularInscricoes` NÃO foi convertida para `escreverAtomico`, e continua
+ * passando ids CRUS ao `excluirEmLote`: com versão, um único documento mexido
+ * derrubaria o lote de 200 DEPOIS de as cópias já terem sido escritas, deixando
+ * cópias órfãs numa coleção que o painel não lista em lugar nenhum — e, dentro
+ * de `aplicarRevisao`, recusaria a revisão inteira no passo 4. Trocar um caso
+ * raro de trilha perdida por uma recusa total com lixo invisível é o negócio
+ * errado.
  */
 
-/** Quarentena: o que foi anulado, com o id original preservado. */
+/**
+ * Quarentena: o que foi anulado, com o id original preservado.
+ *
+ * TRÊS produtores escrevem aqui (esta aba, a revisão de divergências e o próprio
+ * aluno pela troca de projeto) e a cópia de cada um traz marcas diferentes — ver
+ * o cabeçalho do arquivo, que também descreve o que a intercalação entre eles
+ * custa e o que ela não custa.
+ */
 var INSCRICOES_ANULADAS_COLECAO = 'inscricoes_anuladas';
 
 /**
@@ -569,8 +623,9 @@ function anularInscricoes(payload) {
  * A ordem é insere-depois-limpa, pelo mesmo motivo do anular: morrer no meio
  * deixa a cópia na quarentena (que a próxima chamada resolve), e não um sumiço.
  *
- * `anulado_em` e `anulado_por` não voltam — o documento restaurado é a inscrição,
- * não o registro da anulação. Quem quiser a história tem a trilha.
+ * As marcas da anulação não voltam — o documento restaurado é a inscrição, não o
+ * registro da anulação. Quem quiser a história tem a trilha. O que conta como
+ * marca, e o que é campo da inscrição e sobrevive, está em `restaurarUma_`.
  */
 function restaurarInscricoes(payload) {
   try {
@@ -638,8 +693,12 @@ function restaurarInscricoes(payload) {
       mensagem: mensagemDaRestauracao_(emEspera, jaEstavam, recusadas)
     };
   } catch (err) {
-    console.error('restaurarInscricoes: ' + err.message);
-    return { ok: false, erro: err.message };
+    // A mesma régua do `anular` (D-27): a mensagem de um `:commit` ou de uma
+    // leitura recusada carrega o caminho do documento — o id do projeto Cloud e
+    // o protocolo do aluno —, e daqui ela vai para a faixa da tela e para o log
+    // de execução.
+    console.error('restaurarInscricoes: ' + semCaminhoDeDocumento_(err));
+    return { ok: false, erro: semCaminhoDeDocumento_(err) };
   }
 }
 
@@ -653,12 +712,37 @@ function restaurarInscricoes(payload) {
  * espera e encontra vaga aberta na volta entra CONFIRMADO; quem estava
  * confirmado e não cabe mais volta para a fila, se ela estiver ligada. Copiar as
  * marcas velhas gravaria uma verdade de ontem e desalinharia a contagem.
+ *
+ * ------------------------------------- O que fica para trás, e o que sobrevive
+ *
+ * A lista de descarte é de NEGAÇÃO, e o critério é UM: sai daqui TUDO O QUE A
+ * QUARENTENA ACRESCENTA, e só isso. São as quatro marcas da anulação
+ * (`anulado_em`, `anulado_por`, `anulado_motivo`, `trocado_para`) mais as duas
+ * de fila, que são recalculadas logo abaixo.
+ *
+ * Os contraexemplos, nomeados porque a tentação é trocar isto por uma lista de
+ * permissão: `incluido_por` (quem a coordenação usou para incluir a pessoa) e
+ * `trocada_de` (a inscrição que o aluno trocou por esta) são campos DA
+ * INSCRIÇÃO, não da quarentena, e TÊM de voltar. Uma lista de permissão apagaria
+ * os dois em silêncio na primeira restauração, e a trilha de quem entrou por
+ * onde morreria sem ninguém perceber.
+ *
+ * ------------------------------------------ A regra de um projeto por aluno
+ *
+ * Com `aluno_projeto_unico` em SIM, restaurar pode criar a SEGUNDA inscrição
+ * ativa de uma matrícula — a pessoa foi anulada, se inscreveu em outro projeto,
+ * e agora a coordenação desfaz a anulação. A guarda roda DENTRO do lock, pela
+ * CONSULTA que a troca usa (`inscricoesAtivasDe_`, 04_Inscricoes.gs), e não pelo
+ * ponteiro `trocado_para` da cópia: o ponteiro só conhece o primeiro salto, e um
+ * aluno que trocou duas vezes (X -> Y -> Z) tem em `trocado_para` de X um Y que
+ * já não existe. A consulta sempre acha onde a pessoa ESTÁ.
  */
 function restaurarUma_(id, guardada) {
   var campos = {};
   Object.keys(guardada).forEach(function (chave) {
     if (chave.charAt(0) === '_') return;
     if (chave === 'anulado_em' || chave === 'anulado_por') return;
+    if (chave === 'anulado_motivo' || chave === 'trocado_para') return;
     if (chave === 'em_espera' || chave === 'espera_de') return;
     campos[chave] = guardada[chave];
   });
@@ -670,6 +754,9 @@ function restaurarUma_(id, guardada) {
   }
 
   return reservarVaga(projetoId, function (projeto, emEspera) {
+    var ocupado = outroProjetoAtivoDe_(campos, projetoId);
+    if (ocupado) return { ok: false, erro: 'já está em outro projeto ativo (' + ocupado + ')' };
+
     if (emEspera) {
       campos.em_espera = 'SIM';
       campos.espera_de = projetoId;
@@ -677,6 +764,42 @@ function restaurarUma_(id, guardada) {
     var gravacao = inserir(INSCRICOES_COLECAO, campos, id);
     return { ok: true, duplicada: gravacao.jaExistia, id: id, em_espera: Boolean(emEspera) };
   });
+}
+
+/**
+ * Com a regra ligada: em que OUTRO projeto ativo esta matrícula já está, se
+ * estiver. Devolve o nome, ou '' quando a restauração pode seguir.
+ *
+ * Uma consulta, dentro do lock, e só com a chave em SIM: com ela em NAO —
+ * o padrão — esta função não lê nada e restaurar custa o que sempre custou.
+ *
+ * Os projetos são LIDOS (o contexto vai com `dentroDoLock: false`) de propósito,
+ * e aqui o nome do campo engana: ele diz "o conjunto já foi consentido na
+ * rodada 1, não pague leitura", que é verdade no caminho do aluno e falso aqui —
+ * a coordenação não passou por rodada nenhuma. Sem ler, uma inscrição num
+ * projeto do semestre PASSADO contaria como ativa e recusaria a restauração.
+ * São poucas leituras, uma ação de coordenação, fora do pico.
+ */
+function outroProjetoAtivoDe_(campos, projetoId) {
+  if (String(config('aluno_projeto_unico', 'NAO')).toUpperCase() !== 'SIM') return '';
+
+  var ctx = {
+    matricula: normalizarMatricula(campos.matricula),
+    email: normalizarEmail(campos.email),
+    alvo: String(projetoId),
+    trocarDe: [],
+    cancelada: false,
+    mapa: {},
+    dentroDoLock: false,
+    ativasNoLock: null,
+    nomeDoAlvo: ''
+  };
+  if (!ctx.matricula) return '';
+
+  var ativas = inscricoesAtivasDe_(ctx);
+  if (!ativas.outras.length) return '';
+
+  return resumoDasAtivas_(ctx, ativas.outras).map(function (a) { return a.projeto_nome; }).join(', ');
 }
 
 /**
@@ -728,6 +851,34 @@ function motivosResumidos_(recusadas) {
 }
 
 // ------------------------------------------------------------ Promover
+
+/**
+ * O que `promoverDentroDoLock_` devolve quando o `:commit` foi recusado porque
+ * uma das inscrições mudou depois de lida.
+ *
+ * Um objeto próprio, comparado por IDENTIDADE: os outros dois retornos são
+ * `null` (o lock não veio) e a lista de ids promovidos, e nenhuma lista pode ser
+ * igual a este objeto por acidente. Um `[]` para dizer "ninguém foi promovido"
+ * se confundiria com "o lote inteiro foi recusado por falta de vaga", que é
+ * sucesso e tem outra resposta.
+ */
+var PROMOCAO_EM_CORRIDA = { corrida: true };
+
+/**
+ * O irmão do de cima, para quando NÃO SE SABE se o lote entrou.
+ *
+ * Mesma recusa de precondição, uma diferença que muda tudo: houve retentativa
+ * antes dela (`escritaIndeterminada_`, 02_Repo.gs). O 503 pode ter chegado na
+ * RESPOSTA de um `:commit` que o banco já aplicou, e a segunda tentativa, com a
+ * mesma versão na mão, bate na precondição que o meu próprio efeito acabou de
+ * mudar. Deste lado do fio, "outra pessoa mexeu" e "fui eu, e deu certo" têm o
+ * mesmo status.
+ *
+ * Existe porque a resposta dos dois casos NÃO pode ser a mesma: "ninguém foi
+ * promovido" é verdade num e é o contrário do que aconteceu no outro — e foi
+ * exatamente o que esta aba chegou a dizer com a fila inteira promovida.
+ */
+var PROMOCAO_INDETERMINADA = { indeterminada: true };
 
 /**
  * Promove quem está na fila para vaga de verdade.
@@ -809,6 +960,46 @@ function promoverDaEspera(payload) {
               'ninguém foi promovido.'
       };
     }
+    if (promovidas === PROMOCAO_EM_CORRIDA) {
+      // A precondição por versão recusou o lote inteiro, e a recusa veio na
+      // PRIMEIRA tentativa: uma das inscrições mudou entre a leitura e a escrita
+      // — ela foi editada, anulada, ou o aluno trocou de projeto. Aqui sim
+      // NINGUÉM foi promovido: nenhum `:commit` deste pedido chegou a ser
+      // aplicado, e a tela precisa saber que o que ela mostra é de antes. Sem
+      // retentativa automática, de propósito: reler as 200 dentro do lock
+      // custaria o auditório parado.
+      return {
+        ok: false,
+        erro: 'A lista da tela é de antes: alguém saiu da fila enquanto você promovia — ' +
+              'ninguém foi promovido. Recarregue e tente de novo.'
+      };
+    }
+    if (promovidas === PROMOCAO_INDETERMINADA) {
+      // E aqui NÃO SE SABE. Houve retentativa antes da recusa, e o 503 pode ter
+      // chegado na resposta de um commit já aplicado — caso em que a fila inteira
+      // FOI promovida e dizer "ninguém foi" seria mandar a coordenação promover
+      // de novo gente que já está com vaga. A frase não afirma nenhum dos dois
+      // lados e manda fazer a única coisa que resolve: olhar a lista.
+      //
+      // E a linha do log sai MESMO ASSIM, porque num ramo indeterminado o efeito
+      // pode ter entrado sem nenhuma trilha — o `registrar` de sucesso fica
+      // depois daqui, e quem sai por este caminho passaria por fora dele. São
+      // TRÊS os ramos com essa propriedade, e todos registram antes de
+      // responder: este, a promoção do Incluir aluno (10_Painel.gs) e a troca de
+      // projeto do aluno (`decorarComATroca_`, 04_Inscricoes.gs). `registrar` é
+      // à prova de falha (04_Log.gs) e a linha diz o que se sabe: o que foi
+      // tentado, por quem, e que o resultado não foi confirmado.
+      registrar('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
+        'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
+        'pode ter entrado — por ' + quemMexeu_(payload.token) +
+        ' — candidatos: ' + candidatos.map(function (i) { return i._id; }).join(','));
+
+      return {
+        ok: false,
+        erro: 'A resposta do banco se perdeu no meio da promoção: NÃO consigo confirmar se ela ' +
+              'entrou. Recarregue a lista e confira antes de tentar de novo.'
+      };
+    }
 
     if (promovidas.length) {
       registrar('PROMOCAO_ESPERA', 'inscricao', promovidas[0],
@@ -828,8 +1019,12 @@ function promoverDaEspera(payload) {
         (recusadas.length ? fraseDeQuemFicou_(recusadas) : '')
     };
   } catch (err) {
-    console.error('promoverDaEspera: ' + err.message);
-    return { ok: false, erro: err.message };
+    // Sem o caminho do documento na tela nem no log de execução (D-27,
+    // `semCaminhoDeDocumento_` em 02_Repo.gs): a mensagem de um `:commit`
+    // recusado carrega 'projects/<id do projeto Cloud>/.../inscricoes/<hash>',
+    // que é o id do projeto Cloud e o protocolo de um aluno.
+    console.error('promoverDaEspera: ' + semCaminhoDeDocumento_(err));
+    return { ok: false, erro: semCaminhoDeDocumento_(err) };
   }
 }
 
@@ -841,19 +1036,54 @@ function promoverDaEspera(payload) {
  * decisões do mesmo lote porque quem decrementa o saldo é este laço, e ninguém
  * mais escreve enquanto o lock é nosso.
  *
- * A escrita é `escreverEmLote`, e ela SUBSTITUI o documento inteiro — por isso o
- * que vai é o documento LIDO, campo por campo, com as duas marcas de fila
- * mudadas. Mandar só os dois campos apagaria todo o resto da inscrição. É a
- * mesma faca que a `updateMask` do `atualizar` embainha; aqui ela fica exposta,
- * em troca de UMA requisição para o lote inteiro em vez de uma por pessoa dentro
- * do lock.
+ * A escrita SUBSTITUI o documento inteiro — por isso o que vai é o documento
+ * LIDO, campo por campo, com as duas marcas de fila mudadas. Mandar só os dois
+ * campos apagaria todo o resto da inscrição. É a mesma faca que a `updateMask`
+ * do `atualizar` embainha; aqui ela fica exposta, em troca de UMA requisição
+ * para o lote inteiro em vez de uma por pessoa dentro do lock.
  *
- * A janela que isso abre, conhecida e aceita: entre a leitura (fora) e a escrita
- * (aqui), a mesma inscrição pode ter sido editada ou anulada por outra aba do
- * painel. A escrita então reverte a edição, ou ressuscita a anulada com a cópia
- * ainda na quarentena — a mesma duplicata inofensiva do `anular`, e visível na
- * trilha. Fechar a janela exigiria ler as 200 dentro do lock, que é trocar um
- * caso raro entre duas telas da coordenação por minutos de auditório parado.
+ * ------------------------------------------- A precondição, e por que é VERSÃO
+ *
+ * Cada escrita leva `currentDocument: { updateTime }` — o carimbo que a leitura
+ * trouxe (`_versao`, 02_Repo.gs). Se QUALQUER uma das inscrições mudou entre a
+ * leitura (fora do lock, ~0,5 s por id) e este commit, o `:commit` volta
+ * FAILED_PRECONDITION (ou NOT_FOUND, se ela sumiu), NINGUÉM é promovido, e a
+ * resposta manda recarregar. Nada é aplicado pela metade — é o `:commit` inteiro
+ * que o banco recusa.
+ *
+ * Com uma ressalva que não é detalhe: o recusado é ESTE `:commit`. Se `fsFetch_`
+ * já tinha retentado (503, 429, ABORTED), a tentativa ANTERIOR pode ter sido
+ * aplicada e só a resposta ter se perdido — e aí a precondição que não bate mais
+ * é a marca do próprio efeito, a fila inteira está promovida, e "ninguém foi
+ * promovido" seria o contrário do que aconteceu. Por isso são DOIS marcadores:
+ * `PROMOCAO_EM_CORRIDA` para a recusa de primeira (nada entrou, e isso se sabe)
+ * e `PROMOCAO_INDETERMINADA` para a que veio depois de uma retentativa
+ * (`escritaIndeterminada_`, 02_Repo.gs), em que a única frase verdadeira é
+ * "não consigo confirmar; recarregue e confira".
+ *
+ * A janela existia e não era inofensiva. `escreverEmLote` sem precondição
+ * nenhuma REESCREVE o documento lido por cima do que houver: reverte a edição de
+ * outra aba, ressuscita a inscrição que o `anular` acabou de mandar para a
+ * quarentena e — desde a troca de projeto (item 4) — devolve à vida a inscrição
+ * que o aluno trocou, agora SEM as marcas de fila, isto é, OCUPANDO VAGA. O
+ * aluno fica com duas ativas, a cópia em `inscricoes_anuladas` fica órfã e o
+ * teto do projeto vai a +1. Fechar isso relendo as 200 dentro do lock custaria
+ * minutos de auditório parado; a precondição custa zero leitura, porque o
+ * carimbo já vem de graça de toda leitura.
+ *
+ * É VERSÃO e não `exists:true` porque `exists:true` não distingue "o mesmo
+ * documento" de "o documento REESCRITO" — a frase é de `atualizarEmLote`
+ * (02_Repo.gs), e é a mesma escolha que a revisão de divergências já fez.
+ *
+ * O preço, dito: um lote de 200 é recusado inteiro quando UMA das 200 mudou.
+ * Isso é o desenho, e não o acidente — a alternativa é promover por cima do que
+ * mudou. Sem retentativa automática: recusa clara e clique de novo é mais barato
+ * do que reler 200 dentro do lock.
+ *
+ * E é UM `:commit` só, sem fatiar: `AUDITORIO_LOTE_MAXIMO` é 200 e o teto do
+ * `:commit` é 500, então o lote da tela sempre cabe inteiro numa requisição —
+ * que é a condição para "ninguém é promovido" ser verdade. `escreverAtomico`
+ * recusa antes de mandar se algum dia esses dois números se cruzarem.
  *
  * O invariante NÃO depende dessa janela: quem decide vaga é a contagem lida aqui
  * dentro. Duas promoções simultâneas da mesma pessoa gastam saldo duas vezes na
@@ -862,7 +1092,13 @@ function promoverDaEspera(payload) {
  * `incluirInscricao` (10_Painel.gs) promove UMA inscrição do mesmo jeito — as
  * duas marcas apagadas, o documento lido reescrito inteiro —, sem o lock e por
  * fora do teto e da situação, porque é a coordenação decidindo por fora. Quem
- * mudar o que "promover" escreve no documento muda nos dois lugares.
+ * mudar o que "promover" escreve no documento muda nos dois lugares — inclusive
+ * a PRECONDIÇÃO: ele também grava com `versao` (o ramo da duplicada), e recusa
+ * com a frase dele, "a ficha é de antes: esta inscrição mudou enquanto a janela
+ * estava aberta". E inclusive a LINHA DO LOG do indeterminado: lá, como aqui,
+ * ela sai antes da resposta, porque é o único rastro que sobra de uma promoção
+ * que pode ter entrado. A janela de lá é maior que esta, e não menor: sem lock,
+ * o documento é lido e reescrito com segundos de Apps Script no meio.
  */
 function promoverDentroDoLock_(candidatos, projetos, recusadas) {
   // A pergunta da fila é feita AQUI, antes do `waitLock`, e não é para usar a
@@ -909,7 +1145,33 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
       promover.push(inscricao);
     });
 
-    if (promover.length) escreverEmLote(INSCRICOES_COLECAO, promover);
+    if (promover.length) {
+      try {
+        escreverAtomico(promover.map(function (inscricao) {
+          return {
+            gravar: {
+              colecao: INSCRICOES_COLECAO,
+              id: inscricao._id,
+              objeto: inscricao,
+              // O carimbo que a leitura de FORA do lock trouxe.
+              versao: inscricao._versao
+            }
+          };
+        }));
+      } catch (err) {
+        // Alguém mexeu numa delas enquanto a tela estava aberta. Nada foi
+        // aplicado — nem as que vieram antes no lote —, e quem chama devolve a
+        // recusa que manda recarregar. Qualquer outro erro (rede, cota) segue
+        // subindo para o `catch` de `promoverDaEspera`, que é onde ele sempre
+        // terminou.
+        if (!corridaDeEscrita_(err)) throw err;
+        // E se houve RETENTATIVA antes da recusa, nem isso se sabe: o 503 pode
+        // ter chegado depois de o banco aplicar o commit, e a precondição que
+        // não bate mais é a marca do próprio efeito. Os dois marcadores existem
+        // para que a resposta não invente o que não sabe.
+        return escritaIndeterminada_(err) ? PROMOCAO_INDETERMINADA : PROMOCAO_EM_CORRIDA;
+      }
+    }
 
     return promover.map(function (i) { return i._id; });
   } finally {
@@ -996,6 +1258,14 @@ function tetoDaLeitura_(bruto, padrao) {
  * `raw_json` fica de fora: é o payload inteiro do formulário repetido dentro do
  * documento, e mandá-lo em mil linhas engordaria a resposta sem acrescentar nada
  * que a conferência use.
+ *
+ * A PROCEDÊNCIA vai junto, e são dois campos que a tela usa como selo:
+ * `incluido_por` (a coordenação incluiu esta pessoa) e `trocada_de` (o aluno
+ * trocou de projeto, e este é o id da inscrição anulada). Sem eles a inscrição
+ * que nasceu de uma troca é indistinguível de uma comum na aba Geral, e a
+ * pergunta "de onde veio esta linha?" só teria resposta no log. Os dois são
+ * texto e podem não existir — `origem` continua dizendo por ONDE, e estes dizem
+ * POR QUEM e DE ONDE.
  */
 function resumoParaAuditorio_(inscricao) {
   return {
@@ -1009,6 +1279,8 @@ function resumoParaAuditorio_(inscricao) {
     projeto_id: inscricao.projeto_id || '',
     projeto_nome: inscricao.projeto_nome || '',
     origem: inscricao.origem || '',
+    incluido_por: inscricao.incluido_por || '',
+    trocada_de: inscricao.trocada_de || '',
     em_espera: String(inscricao.em_espera).toUpperCase() === 'SIM'
   };
 }

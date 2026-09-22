@@ -2243,6 +2243,54 @@ teste('o caminho inteiro de um aluno, com o cache frio, custa 33 leituras', () =
   igual(conta.reduce((s, c) => s + c.leituras, 0), 33, 'a soma escrita no cabeçalho de 08_Api.gs');
 });
 
+teste('com `aluno_projeto_unico=SIM`, o POST comum custa 7 e a troca inteira custa 15 — os números do cabeçalho', () => {
+  // A conta que autoriza ligar a chave, medida e não afirmada. Mutação que
+  // derruba: rodar a consulta do conjunto ativo SÓ fora do lock (o POST comum
+  // voltaria a 6, e duas abas com a primeira inscrição gravariam as duas — é o
+  // corte de §10 do plano); ou perguntar a troca DENTRO do lock (a rodada 1
+  // deixaria de ser leitura pura e o número de idas na região protegida subiria).
+  const a = montar();
+  ['p1', 'p2', 'p3', 'p4', 'p5'].forEach((id) => criarProjeto(a.api, id, { vagas: '60' }));
+  matricular(a.api, ['9110001']);
+  a.api.gravarConfig('aluno_projeto_unico', 'SIM');
+
+  function postar(corpo) {
+    return corpoDe(requisicao(a, () => a.api.doPost({
+      postData: { type: 'text/plain', contents: JSON.stringify(corpo) }
+    })));
+  }
+
+  // O POST comum com SIM: as 6 de sempre mais a consulta do conjunto ativo, que
+  // roda DENTRO do lock — é ela que impede duas abas de gravarem a primeira
+  // inscrição em dois projetos. Sem outra inscrição, a consulta volta vazia e
+  // cobra o mínimo de 1.
+  const primeira = postar(Object.assign({ projeto_id: 'p1' }, INSCRICAO_VALIDA));
+  igual(primeira.ok, true, primeira.erro);
+  const comum = leiturasCobradas(a);
+  igual(comum, 7);
+
+  // Rodada 1 da troca: pergunta, e não escreve nada. Custa as leituras da
+  // decisão mais a situação de p1 lida FORA do lock (cortesia: quem decide é a
+  // contagem de dentro) — e nenhuma ida à região protegida.
+  const pergunta = postar(Object.assign({ projeto_id: 'p2' }, INSCRICAO_VALIDA));
+  igual(pergunta.troca_pendente, true, pergunta.erro);
+  const rodada1 = leiturasCobradas(a);
+
+  // Rodada 2: decide dentro do lock e escreve num `:commit` só.
+  const troca = postar(Object.assign({ projeto_id: 'p2', trocar_de: ['p1'] }, INSCRICAO_VALIDA));
+  igual(troca.ok, true, troca.erro);
+  verdadeiro(troca.trocada && troca.trocada.de.length === 1, JSON.stringify(troca.trocada));
+  const rodada2 = leiturasCobradas(a);
+
+  igual([rodada1, rodada2], [7, 8], 'as duas rodadas, medidas');
+  igual(rodada1 + rodada2, 15, 'a troca inteira, como está no cabeçalho de 08_Api.gs');
+
+  // E UMA requisição de escrita na rodada 2 — a primitiva `escreverAtomico`, e
+  // não três idas (copiar, apagar, gravar). Mutação que derruba: voltar a
+  // escrever a cópia, o delete e a inserção em requisições separadas.
+  igual(a.falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1).length, 1);
+});
+
 teste('com o cache quente, as duas rotas de leitura custam zero', () => {
   const a = montar();
   ['p1', 'p2', 'p3', 'p4', 'p5'].forEach((id) => criarProjeto(a.api, id));

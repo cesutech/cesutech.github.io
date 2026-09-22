@@ -3817,6 +3817,68 @@ teste('sem fila nenhuma, o cabeçalho mostra a LOTAÇÃO em vez de ficar vazio',
   igual(cena.texto('auditorio-alerta'), '', 'sem fila não há o que oferecer');
 });
 
+
+teste('a linha do Geral diz DE ONDE veio a inscrição: "incluída pela coordenação" e "trocou de projeto"', () => {
+  // Depois da troca, a inscrição em Y é indistinguível de uma comum na tela: o
+  // documento sabe (`trocada_de`), `resumoParaAuditorio_` repassa, e ninguém
+  // mostrava. A pergunta "por que esta pessoa está aqui?" só tinha resposta no
+  // Histórico — que é por AÇÃO, não por inscrição, e que ninguém abre no meio de
+  // uma conferência de lista.
+  //
+  // Mutação que derruba: tirar `selosDaProcedencia_` da linha (as três linhas
+  // ficam iguais), ou trocar o campo pelo `origem` — `origem: 'COORDENACAO'`
+  // não diz nada sobre a troca, que nasce pelo SITE.
+  const cena = abrirAuditorio((api) => {
+    auditorioBase(api);
+    api.inserir('inscricoes', {
+      criado_em: '2026-08-14 21:00:06', origem: 'COORDENACAO', projeto_id: 'p1',
+      projeto_nome: 'Robótica', matricula: '110005', nome: 'Elisa Prado',
+      email: 'elisa@exemplo.com', matricula_conferida: 'SIM',
+      incluido_por: 'coordenacao@exemplo.com'
+    }, 'i6');
+    api.inserir('inscricoes', {
+      criado_em: '2026-08-14 21:00:07', origem: 'SITE', projeto_id: 'p1',
+      projeto_nome: 'Robótica', matricula: '110006', nome: 'Felipe Nunes',
+      email: 'felipe@exemplo.com', matricula_conferida: 'SIM',
+      trocada_de: 'i_antiga'
+    }, 'i7');
+  });
+
+  /** O pedaço de HTML de UMA linha da lista — o selo tem de estar na linha certa. */
+  function linhaDe(id) {
+    const html = cena.html('auditorio-recentes');
+    const inicio = html.indexOf('id="linha-recentes-' + id + '"');
+    verdadeiro(inicio !== -1, 'a linha de ' + id + ' não está na lista');
+    const fim = html.indexOf('<button', inicio + 1);
+    return html.slice(inicio, fim === -1 ? html.length : fim);
+  }
+
+  verdadeiro(linhaDe('i6').indexOf('incluída pela coordenação') !== -1, linhaDe('i6'));
+  igual(linhaDe('i6').indexOf('trocou de projeto'), -1, 'selo trocado de linha');
+  verdadeiro(linhaDe('i7').indexOf('trocou de projeto') !== -1, linhaDe('i7'));
+  igual(linhaDe('i7').indexOf('incluída pela coordenação'), -1, 'selo trocado de linha');
+
+  // A inscrição comum do site não ganha selo nenhum — se ganhasse, o selo não
+  // diria mais nada.
+  igual(linhaDe('i1').indexOf('incluída pela coordenação'), -1, linhaDe('i1'));
+  igual(linhaDe('i1').indexOf('trocou de projeto'), -1, linhaDe('i1'));
+
+  // E o e-mail de quem incluiu NÃO vai para a tela: a trilha guarda quem, a
+  // lista diz só que foi pela coordenação.
+  igual(cena.html('auditorio-recentes').indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail de quem incluiu vazou para a lista');
+
+  // Os selos reusam classe que já existe: `docs/painel/estilos.css` é gêmeo byte
+  // a byte do `<style>` de apps-script/Estilos.html, e classe nova aqui
+  // obrigaria a regenerar o gêmeo — que é o teste ao lado, em painel-site.js.
+  const css = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'docs', 'painel', 'estilos.css'), 'utf8');
+  (cena.html('auditorio-recentes').match(/selo selo--[A-Z_]+/g) || []).forEach((uso) => {
+    const classe = uso.split(' ')[1];
+    verdadeiro(css.indexOf('.' + classe + ' ') !== -1, 'a lista usa ' + classe + ', que o CSS não tem');
+  });
+});
+
 // ============================ Os filtros do Auditório, e as três travas
 //
 // O QUE ESTE BLOCO PROTEGE, e por que ele nasceu em 27/08.
@@ -5844,6 +5906,139 @@ teste('projeto cheio e a coordenação diz NÃO: nada é gravado e o formulário
   verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado depois do não');
 });
 
+teste('as DUAS perguntas em sequência — o teto e o outro projeto — terminam em UMA escrita', () => {
+  // O laço que `confirmar_campo` veio fechar: a tela respondia `confirmar_teto`
+  // a QUALQUER `precisa_confirmar`, então a pergunta da duplicidade voltaria
+  // para sempre e nada seria gravado nunca. Mutação que derruba: mandar sempre
+  // `confirmar_teto: true` (a terceira chamada volta a perguntar a duplicidade,
+  // e a inscrição não entra), ou não ACUMULAR — responder só a última pergunta
+  // faria o teto voltar a perguntar no terceiro envio.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('aluno_projeto_unico', 'SIM');
+      // A Ana já está em Origem, com a matrícula dela.
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE'
+      });
+    }
+  });
+  abrirInclusao(cena, 'p2');                     // Lotado, 2/2
+  sairDaMatricula(cena, '9110001');
+  cena.respostaConfirm = true;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, [
+    'Este projeto está com 2/2. Incluir deixa 3/2. Continuar?',
+    'Cada aluno participa de um projeto por semestre. Este aluno já está inscrito em Origem. ' +
+      'Incluir aqui deixa ele em DOIS. Continuar?'
+  ]);
+
+  const envios = chamadasDe(cena, 'incluirInscricao');
+  igual(envios.length, 3, 'era uma pergunta, outra pergunta e a gravação');
+  igual(envios.map((c) => [c.args[0].confirmar_teto, c.args[0].confirmar_outro_projeto]),
+    [[undefined, undefined], [true, undefined], [true, true]],
+    'o terceiro envio perdeu um "sim" já dado — é o laço');
+
+  igual(cena.api.contarInscritos_('p2'), 3, 'a inclusão não aconteceu');
+  // Duas: a que o cenário base já tinha em Origem e a da Ana. Esta porta
+  // INCLUI, e não troca: a inscrição anterior fica exatamente onde estava.
+  igual(cena.api.contarInscritos_('p1'), 2, 'a inscrição em Origem foi mexida — esta porta não troca nada');
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(aviso.indexOf('Lotado ficou 3/2') !== -1, aviso);
+  verdadeiro(aviso.indexOf('Origem') !== -1, 'o aviso de sempre continua nomeando o outro projeto: ' + aviso);
+});
+
+teste('a coordenação diz NÃO à segunda pergunta: nada é gravado, e o formulário fica como estava', () => {
+  // O "não" vale para a pergunta que está na tela, seja ela qual for. Mutação
+  // que derruba: gravar assim que o primeiro "sim" for dado.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('aluno_projeto_unico', 'SIM');
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE'
+      });
+    }
+  });
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+  cena.digitar('inc-observacoes', 'chegou atrasada');
+  // O primeiro "sim" e o segundo "não": o falso responde o mesmo a todo
+  // `confirm`, então a recusa vem da primeira pergunta — e é o que basta para
+  // provar que nada é gravado sem TODAS as respostas.
+  cena.respostaConfirm = false;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes.length, 1);
+  igual(chamadasDe(cena, 'incluirInscricao').length, 1, 'reenviou depois do não');
+  igual(cena.api.contarInscritos_('p2'), 2, 'gravou depois do não');
+  igual(cena.documento.getElementById('inc-observacoes').value, 'chegou atrasada', 'o formulário se perdeu');
+  verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado depois do não');
+});
+
+teste('servidor que repete a MESMA pergunta não vira diálogo sem fim: a tela para e diz', () => {
+  // A guarda do laço, do lado de cá. Um servidor que peça de novo um campo já
+  // marcado está com defeito, e reenviar transformaria o defeito numa janela de
+  // confirmação que a coordenação não consegue fechar — com uma requisição por
+  // clique. Mutação que derruba: reenviar sem olhar o que já foi confirmado.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      incluirInscricao: () => ({
+        ok: false, precisa_confirmar: true, confirmar_campo: 'confirmar_teto',
+        inscritos: 2, vagas: 2, erro: 'Este projeto está com 2/2. Incluir deixa 3/2.'
+      })
+    }
+  });
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+  cena.respostaConfirm = true;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes.length, 1, 'perguntou de novo o que já tinha sido respondido');
+  igual(requisicoesDe(cena, 'incluirInscricao').length, 2, 'ficou reenviando');
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(aviso.indexOf('já tinha sido respondida') !== -1, aviso);
+  verdadeiro(aviso.indexOf('nada foi incluído') !== -1, aviso);
+  verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado sem requisição em voo');
+});
+
+teste('nome de campo que não é `confirmar_*` não vira chave do pedido', () => {
+  // `confirmar_campo` vem do servidor e vira CHAVE do payload seguinte. A régua
+  // é de forma, e não de lista, para a terceira pergunta que nascer no servidor
+  // funcionar sem mexer na tela. Mutação que derruba: marcar o que vier —
+  // `token: true` sairia no pedido, e o servidor passaria a receber um campo
+  // que ele próprio mandou marcar.
+  const cena = abrirPainel({
+    semear: cadastroParaIncluir,
+    respostas: {
+      incluirInscricao: (corpo, c) => {
+        delete c.respostas.incluirInscricao;
+        return { ok: false, precisa_confirmar: true, confirmar_campo: 'token', vagas: 2, inscritos: 2,
+          erro: 'Este projeto está com 2/2. Incluir deixa 3/2.' };
+      }
+    }
+  });
+  abrirInclusao(cena, 'p2');
+  sairDaMatricula(cena, '9110001');
+  cena.respostaConfirm = true;
+
+  botaoSalvar(cena).click();
+
+  // Pela REDE, e não por `chamadas`: a primeira resposta é de mentira e nunca
+  // chegou ao servidor, então só a segunda está lá.
+  const envios = requisicoesDe(cena, 'incluirInscricao').map((r) => JSON.parse(r.corpo).dados);
+  igual(envios.length, 2);
+  igual(envios[1].confirmar_teto, true, 'o nome torto devia ter caído no padrão, que é o teto');
+  igual(envios[1].token, undefined, 'o token do pedido virou `true`');
+});
+
 teste('sucesso reabre a lista do projeto com o aluno nela, e a tabela atrás mostra a ocupação nova', () => {
   // Mutação que derruba: fechar a janela em vez de reabrir a lista (a
   // coordenação não veria o aluno entrar), não recarregar a aba Projetos (a
@@ -6109,7 +6304,12 @@ teste('todo campo que a janela manda é lido pelo servidor — o contrato dos do
   const fs = require('fs');
   const path = require('path');
   const fonte = fs.readFileSync(path.join(__dirname, '..', 'apps-script', '10_Painel.gs'), 'utf8');
-  ['projeto_id', 'matricula', 'nome', 'email', 'whatsapp', 'curso_fase', 'observacoes', 'confirmar_teto']
+  // `confirmar_outro_projeto` entrou em 22/09: é o segundo campo de confirmação,
+  // e o nome dele viaja NA RESPOSTA (`confirmar_campo`) — se os dois lados
+  // divergirem, a tela marca um campo que ninguém lê e a pergunta volta para
+  // sempre.
+  ['projeto_id', 'matricula', 'nome', 'email', 'whatsapp', 'curso_fase', 'observacoes',
+    'confirmar_teto', 'confirmar_outro_projeto']
     .forEach((chave) => {
       verdadeiro(fonte.indexOf('payload.' + chave) !== -1,
         '10_Painel.gs não lê payload.' + chave + ' — a tela manda um campo que ninguém recebe');
@@ -6469,6 +6669,13 @@ teste('trocar o projeto no select enquanto a pergunta do teto viaja: o "sim" NÃ
   // perguntado (a inscrição entra em Origem, 2/1, sem pergunta — o segundo
   // envio aqui teria `p1` com `confirmar_teto`); ou tirar a guarda e mandar o
   // perguntado às cegas (gravaria em Lotado com a tela dizendo Origem).
+  //
+  // A frase perdeu o "do teto" em 22/09, e não por gosto: com
+  // `aluno_projeto_unico` em SIM existe uma SEGUNDA pergunta (a duplicidade), a
+  // guarda vale para as duas, e "a pergunta do teto" seria falsa na metade dos
+  // casos. Mutação que derruba: aplicar a guarda só a `confirmar_teto` — o "sim"
+  // da duplicidade, dado sobre os projetos de uma pessoa NAQUELE projeto, sairia
+  // para um projeto onde ela pode nem estar.
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
@@ -6496,7 +6703,7 @@ teste('trocar o projeto no select enquanto a pergunta do teto viaja: o "sim" NÃ
   igual(cena.api.contarInscritos_('p2'), 2, 'gravou em Lotado com a tela dizendo Origem');
   verdadeiro(janelaAberta(cena), 'a janela fechou sem ter gravado nada');
   const aviso = cena.texto('mensagem-modal');
-  verdadeiro(aviso.indexOf('A pergunta do teto era sobre Lotado') !== -1, aviso);
+  verdadeiro(aviso.indexOf('A pergunta era sobre Lotado') !== -1, aviso);
   verdadeiro(aviso.indexOf('nada foi incluído') !== -1, aviso);
   verdadeiro(/aviso--erro/.test(cena.html('mensagem-modal')));
   verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado sem requisição em voo');
@@ -6514,6 +6721,51 @@ teste('trocar o projeto no select enquanto a pergunta do teto viaja: o "sim" NÃ
   verdadeiro(!janelaAberta(cena));
   verdadeiro(/^Incluído\. Protocolo [0-9a-f]{16}\. Origem ficou 2\/1\./.test(cena.texto('mensagem-global')),
     cena.texto('mensagem-global'));
+});
+
+teste('a guarda do projeto vale para a pergunta da DUPLICIDADE também: o "sim" não migra para o projeto novo', () => {
+  // A guarda nasceu para a pergunta do teto, e com `aluno_projeto_unico=SIM`
+  // existe uma segunda. O "sim" da duplicidade foi dado sobre "esta pessoa já
+  // está em Lotado, incluir em ORIGEM deixa ela em dois" — e o projeto da tela
+  // virou Lotado enquanto a pergunta viajava: a pessoa JÁ está nele, e o
+  // reenvio cego cairia no teto de Lotado sem ninguém ter perguntado.
+  //
+  // Mutação que derruba: aplicar a guarda só quando `confirmar_teto` está entre
+  // os confirmados — o reenvio sai para Lotado, o servidor pergunta o teto, o
+  // mesmo "sim" responde por ele e a inscrição entra 3/2.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroParaIncluir(api);
+      api.gravarConfig('aluno_projeto_unico', 'SIM');
+      api.gravarInscricao({
+        matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
+        projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
+      });
+    },
+    respostas: {
+      incluirInscricao: (corpo, c) => {
+        delete c.respostas.incluirInscricao;
+        escolherProjeto(c, 'p2');                          // a troca, com o pedido em voo
+        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+      }
+    }
+  });
+  abrirInclusaoPelaAba(cena);
+  escolherProjeto(cena, 'p1');                             // Origem, com vaga: só a duplicidade pergunta
+  sairDaMatricula(cena, '9110001');
+  cena.respostaConfirm = true;
+
+  botaoSalvar(cena).click();
+
+  igual(cena.confirmacoes, ['Cada aluno participa de um projeto por semestre. ' +
+    'Este aluno já está inscrito em Lotado. Incluir aqui deixa ele em DOIS. Continuar?']);
+  igual(requisicoesDe(cena, 'incluirInscricao').length, 1, 'reenviou para um projeto sobre o qual ninguém perguntou');
+  igual(cena.api.contarInscritos_('p1'), 1, 'gravou em Origem depois de a tela mudar de projeto');
+  igual(cena.api.contarInscritos_('p2'), 3, 'a inscrição entrou em Lotado, por cima do teto, sem pergunta');
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(aviso.indexOf('A pergunta era sobre Origem') !== -1, aviso);
+  verdadeiro(aviso.indexOf('nada foi incluído') !== -1, aviso);
+  verdadeiro(!botaoSalvar(cena).disabled, 'o botão ficou travado sem requisição em voo');
 });
 
 teste('a marca "(este projeto)" segue o projeto escolhido: trocar o select redesenha o aviso de já-inscrito, sem consultar de novo', () => {

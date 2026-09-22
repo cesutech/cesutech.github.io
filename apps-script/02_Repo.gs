@@ -4,9 +4,13 @@
  * Este arquivo é o ÚNICO caminho de dados do sistema. Não existe planilha por
  * baixo, não existe segundo repositório: tudo que é lido ou gravado passa por
  * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar`,
- * `escreverEmLote`, `excluirEmLote` e `atualizarEmLote` (mais `contarVarios`,
- * que é `contar` em paralelo). Se uma função de negócio precisa tocar em dado,
- * ela chama uma destas.
+ * `escreverEmLote`, `excluirEmLote`, `atualizarEmLote` e `escreverAtomico`
+ * (mais `contarVarios`, que é `contar` em paralelo). Se uma função de negócio
+ * precisa tocar em dado, ela chama uma destas.
+ *
+ * Todas menos uma são recortes do mesmo pedido: um verbo, uma coleção.
+ * `escreverAtomico` é a exceção e a única escrita multidocumento atômica que
+ * existe aqui — verbos e coleções diferentes num `:commit` só, tudo ou nada.
  *
  * A API pública é deliberadamente a mesma que o projeto irmão
  * (o sistema anterior, sobre Google Sheets) expõe sobre o Google Sheets. Lá
@@ -174,6 +178,17 @@ function fsFetch_(metodo, caminho, corpo) {
     if (codigo >= 200 && codigo < 300) return texto ? JSON.parse(texto) : {};
 
     erro = fsErro_(codigo, texto, metodo, caminho);
+
+    // HOUVE RETENTATIVA ANTES DESTE ERRO? A marca sai daqui porque só este laço
+    // sabe, e ela muda o SIGNIFICADO da recusa que vem depois numa escrita com
+    // precondição: um 503 pode chegar na RESPOSTA de um `:commit` que o banco já
+    // aplicou, e aí a segunda tentativa manda a mesma precondição — que já não
+    // bate — e volta FAILED_PRECONDITION/ALREADY_EXISTS. Sem a marca, quem lê
+    // esse status conclui "outra pessoa mexeu" e anuncia "nada foi feito" sobre
+    // um efeito que ENTROU. Com ela, o estado é o que é: indeterminado. Ver
+    // `escreverAtomico`, que a repassa, e os dois promotores, que a traduzem.
+    erro.retentou = tentativa > 1;
+
     if (!fsValeRetentar_(erro)) throw erro;
     if (tentativa < FS_MAX_TENTATIVAS) Utilities.sleep(fsEspera_(tentativa));
   }
@@ -331,6 +346,52 @@ function fsErro_(codigo, texto, metodo, caminho) {
 function semCaminhoDeDocumento_(erro) {
   var texto = (erro && erro.message) || erro || 'erro desconhecido';
   return String(texto).replace(/projects\/\S+/g, '(documento)');
+}
+
+/**
+ * Este erro é "alguém mexeu no documento enquanto você decidia"?
+ *
+ * As duas precondições de escrita falham com status próprio: `exists:true` e
+ * `updateTime` num documento que sumiu dão NOT_FOUND, e `updateTime` divergente
+ * dá FAILED_PRECONDITION. Nos dois casos NADA do `:commit` foi aplicado, e a
+ * resposta certa é sempre a mesma em espírito — "a lista da tela é de antes;
+ * recarregue" —, mas a FRASE é de quem chama: o Auditório fala de promoção, o
+ * painel fala de ficha, a revisão tem a sua (`fraseSegura_`, 05c_Revisao.gs).
+ *
+ * Mora aqui, e não em cada chamador, para 13 e 10 não precisarem importar o
+ * arquivo da revisão só por causa de dois nomes de status — e para que a régua
+ * seja UMA quando os status forem medidos contra o banco de verdade
+ * (`escreverAtomico` diz, por escrito, que eles são A MEDIR).
+ *
+ * Decide por `status`, NUNCA por texto: a mensagem já sai limpa de
+ * `escreverAtomico` (D-27), e quem a lê para decidir erra na primeira vez em que
+ * ela mudar de idioma ou de forma.
+ */
+function corridaDeEscrita_(erro) {
+  var status = String((erro && erro.status) || '');
+  return status === 'NOT_FOUND' || status === 'FAILED_PRECONDITION';
+}
+
+/**
+ * Esta corrida pode ter sido comigo mesmo?
+ *
+ * Quando `fsFetch_` retentou (503, 429, ABORTED) e a tentativa seguinte bateu
+ * numa precondição, há DOIS estados possíveis e nenhum jeito de distingui-los
+ * daqui: ou outra pessoa mexeu no documento, ou o primeiro `:commit` foi
+ * APLICADO e só a resposta se perdeu — e aí a precondição que já não bate é a
+ * marca do meu próprio efeito. A diferença não é acadêmica: no primeiro caso
+ * "nada foi feito" é verdade, no segundo é o contrário do que aconteceu.
+ *
+ * Quem recebe `true` aqui não pode afirmar nenhum dos dois. A única resposta
+ * verdadeira é "não consigo confirmar; releia" — e reler é barato, porque quem
+ * chama já tem a tela na frente.
+ *
+ * Mora ao lado de `corridaDeEscrita_` pelo mesmo motivo dela: a régua é UMA, e
+ * os dois promotores (13_Auditorio.gs e 10_Painel.gs) a usam com a frase de
+ * cada um.
+ */
+function escritaIndeterminada_(erro) {
+  return corridaDeEscrita_(erro) && Boolean(erro && erro.retentou);
 }
 
 function fsValeRetentar_(erro) {
@@ -658,6 +719,198 @@ function excluirEmLote(colecao, ids) {
     apagados += bloco.length;
   }
   return apagados;
+}
+
+/**
+ * VÁRIOS verbos, VÁRIAS coleções, UM `:commit`: tudo entra ou nada entra.
+ *
+ * É a única escrita multidocumento ATÔMICA do sistema, e existe por um par que
+ * não pode ser dividido: a troca de projeto do aluno (item 4) copia a inscrição
+ * antiga para `inscricoes_anuladas`, APAGA a antiga em `inscricoes` e CRIA a
+ * nova — três escritas, duas coleções. Partir isso em requisições separadas não
+ * é resolvido pelo lock: o lock serializa a decisão, mas não impede a execução
+ * de morrer entre duas escritas, e cada meio-estado possível é um desastre
+ * diferente (o aluno sem projeto nenhum, o aluno em dois, a vaga do antigo
+ * presa). O `:commit` é o que garante o EFEITO inteiro contra qualquer falha.
+ *
+ * Nenhuma das primitivas em lote acima serve, e é bom dizer por quê antes que
+ * alguém tente de novo: `escreverEmLote` é update-only e sem precondição
+ * nenhuma; `atualizarEmLote` é PATCH de UMA coleção e sempre com precondição;
+ * `excluirEmLote` é delete-only. Nenhuma delas MISTURA verbos, e nenhuma
+ * atravessa coleções na mesma chamada. Marcar a antiga como anulada no próprio
+ * documento, em vez de apagá-la, também está fechado: `contarInscritos_`
+ * (09_Projetos.gs) conta por igualdade em `projeto_id` só, e um segundo filtro
+ * pediria índice composto.
+ *
+ * Os três verbos, e a precondição de cada um:
+ *
+ *   { criar:  { colecao, id, objeto } } ........ update + `exists:false` — o
+ *                 mesmo 409 de `inserir`, na forma explícita: o `createDocument`
+ *                 que `inserir` usa é um endpoint próprio, e dentro de um
+ *                 `:commit` a precondição tem de vir escrita;
+ *   { gravar: { colecao, id, objeto, versao } } . update sem `updateMask`, isto
+ *                 é, o documento INTEIRO: upsert, cria ou substitui. Com
+ *                 `versao`, leva `currentDocument: { updateTime }` e o banco só
+ *                 aplica se o documento ainda estiver naquele carimbo; SEM
+ *                 `versao`, vai sem precondição nenhuma — nem `exists:true`;
+ *   { apagar: { colecao, id, versao } } ........ delete, com a mesma escolha de
+ *                 precondição. Sem `versao` é idempotente: apagar o que não
+ *                 existe é 200.
+ *
+ * POR QUE A VERSÃO É PARÂMETRO E NÃO `fsPrecondicao_(objeto)`. Esta é a
+ * primeira primitiva que escreve em mais de uma COLEÇÃO na mesma chamada, e
+ * `_versao` é carimbo de UM documento de UMA coleção. A cópia da troca é um
+ * objeto lido de `inscricoes` e gravado em `inscricoes_anuladas` sob o mesmo
+ * id: `fsPrecondicao_` mandaria o `updateTime` do documento ERRADO, e a troca
+ * morreria em FAILED_PRECONDITION; e o fallback `exists:true` dela quebraria
+ * esse mesmo upsert na primeira troca de todas, quando a cópia ainda não
+ * existe. Por isso quem chama diz explicitamente qual carimbo vale, e
+ * `fsPrecondicao_` fica intocada (a revisão de divergências depende dela).
+ *
+ * E é de propósito que o `apagar` da troca vá SEM `versao`, mesmo com a versão
+ * de graça na mão: se a coordenação anulou a inscrição antiga entre a consulta
+ * e o commit, um delete versionado derrubaria o commit INTEIRO e o aluno
+ * ficaria sem nada — a antiga já na quarentena e a nova nunca criada.
+ *
+ * As três guardas, todas antes de qualquer requisição:
+ *
+ *   não FATIA em blocos de 500 — lança acima de `FS_LOTE_MAXIMO`. Os irmãos
+ *   fatiam porque são idempotentes e ninguém prometeu atomicidade entre blocos;
+ *   aqui fatiar transformaria "um commit" em dois, e a promessa cairia junto
+ *   com a conta de idas dentro do lock (são 3, e não podem virar 4);
+ *
+ *   no máximo UM `criar` por chamada — o 409 não diz QUAL escrita falhou, e a
+ *   mensagem que diria é justamente a que sai daqui sem o caminho do documento.
+ *   Com um `criar` só, `{ jaExistia: true }` é inequívoco;
+ *
+ *   duas escritas no MESMO documento são recusadas — o Firestore recusa o
+ *   commit inteiro ('Document cannot be written more than once per
+ *   transaction'), e é mais barato e mais claro recusar aqui, com o nome do
+ *   defeito, do que gastar a ida para receber um INVALID_ARGUMENT genérico.
+ *
+ * Retorno simétrico a `inserir`, porque a unicidade é a mesma: ALREADY_EXISTS
+ * é resultado esperado e volta como `{ jaExistia: true }` sem lançar; qualquer
+ * outra recusa (NOT_FOUND, FAILED_PRECONDITION) lança. 429, 503 e ABORTED já
+ * são retentados por `fsFetch_`, e isto aqui não muda nada disso.
+ *
+ * O QUE A RETENTATIVA TRAZ DE VOLTA, e como esta função o devolve. Se o 503 vier
+ * na RESPOSTA de um `:commit` que o banco já aplicou, a segunda tentativa manda
+ * as mesmas precondições — que já não batem — e recebe ALREADY_EXISTS (no
+ * `criar`) ou FAILED_PRECONDITION/NOT_FOUND (numa `versao`). Nos dois casos o
+ * status diz "alguém mexeu" e o estado de verdade é OUTRO: pode ter sido a
+ * tentativa anterior, e o efeito ENTROU. Ninguém aqui dentro sabe distinguir os
+ * dois, e por isso esta função não escolhe: ela REPASSA a marca `retentou` que
+ * `fsFetch_` põe no erro — no retorno (`{ jaExistia: true, retentou: true }`) e
+ * no erro que lança. Quem chama decide o que dizer, e o que NÃO pode dizer é
+ * "nada aconteceu": a única frase verdadeira nesse ramo é que o resultado é
+ * indeterminado e a tela tem de ser relida. Sem `retentou`, o caso é
+ * indistinguível de uma corrida de verdade — e foi assim que a promoção chegou
+ * a anunciar "ninguém foi promovido" com todo mundo promovido.
+ *
+ * A MEDIR contra o banco de verdade: os status exatos das precondições DENTRO
+ * de um `:commit` misto. A prova já está escrita — `provaCommitMisto`
+ * (20_Prova.gs), ao lado de `provaAtualizarEmLote` —, e rodá-la é o item 1 do
+ * checklist de ligar `aluno_projeto_unico=SIM` (README). O falso dos testes imita `exists:false` com o documento no
+ * lugar como 409 ALREADY_EXISTS, `exists:true` em documento ausente como 404
+ * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
+ * divergir, corrigem-se o falso e esta função — nunca o contrário.
+ *
+ * Devolve `{ aplicado, jaExistia, retentou, id, escritas }`. `id` é o do `criar`,
+ * quando houve um — e como há no máximo um, ele é o único que o 409 pode ter
+ * recusado.
+ */
+function escreverAtomico(escritas) {
+  if (!escritas || !escritas.length) {
+    return { aplicado: false, jaExistia: false, retentou: false, id: '', escritas: 0 };
+  }
+
+  if (escritas.length > FS_LOTE_MAXIMO) {
+    throw new Error(
+      'escreverAtomico: ' + escritas.length + ' escritas passam do limite de ' + FS_LOTE_MAXIMO +
+      ' de um :commit, e fatiar quebraria a atomicidade que esta função promete'
+    );
+  }
+
+  // Nome de RECURSO, sem host — ver fsRecurso_().
+  var raiz = fsRecurso_();
+  var enderecos = {};
+  var idCriado = '';
+  var writes = [];
+
+  escritas.forEach(function (pedido) {
+    var criar = pedido && pedido.criar;
+    var gravar = pedido && pedido.gravar;
+    var apagar = pedido && pedido.apagar;
+    var alvo = criar || gravar || apagar;
+
+    if (!alvo || (criar && gravar) || (criar && apagar) || (gravar && apagar)) {
+      throw new Error('escreverAtomico: cada escrita é UM de { criar }, { gravar } ou { apagar }');
+    }
+    if (!alvo.colecao || !alvo.id) {
+      throw new Error('escreverAtomico: toda escrita precisa de colecao e id — escrita sem endereço não tem alvo');
+    }
+
+    // O endereço, e não o id: duas coleções podem ter o mesmo id de propósito, e
+    // é exatamente o caso da troca (a cópia da quarentena guarda o id da
+    // inscrição). As mensagens das guardas nomeiam a coleção e não o id, porque
+    // o id de uma inscrição é o PROTOCOLO do aluno e isto aqui pode virar log.
+    var endereco = alvo.colecao + '/' + alvo.id;
+    if (enderecos[endereco]) {
+      throw new Error(
+        'escreverAtomico: duas escritas no mesmo documento (' + alvo.colecao +
+        ') na mesma chamada — o Firestore recusa o commit inteiro'
+      );
+    }
+    enderecos[endereco] = true;
+
+    if (apagar) {
+      var remocao = { delete: raiz + '/' + apagar.colecao + '/' + apagar.id };
+      if (apagar.versao) remocao.currentDocument = { updateTime: String(apagar.versao) };
+      writes.push(remocao);
+      return;
+    }
+
+    if (criar && idCriado) {
+      throw new Error('escreverAtomico: no máximo um `criar` por chamada — com dois, ALREADY_EXISTS não diz qual documento já existia');
+    }
+
+    var documento = paraDocumento_(alvo.objeto);
+    documento.name = raiz + '/' + alvo.colecao + '/' + alvo.id;
+
+    var escrita = { update: documento };
+    if (criar) {
+      idCriado = criar.id;
+      escrita.currentDocument = { exists: false };
+    } else if (gravar.versao) {
+      escrita.currentDocument = { updateTime: String(gravar.versao) };
+    }
+    writes.push(escrita);
+  });
+
+  try {
+    fsFetch_('post', ':commit', { writes: writes });
+  } catch (e) {
+    if (e.status === 'ALREADY_EXISTS') {
+      // `retentou` viaja junto: com ele verdadeiro, "já existia" pode ser obra
+      // da tentativa anterior desta mesma chamada, e não de outra pessoa.
+      return {
+        aplicado: false, jaExistia: true, retentou: Boolean(e.retentou),
+        id: idCriado, escritas: writes.length
+      };
+    }
+    // A mensagem do Firestore carrega o caminho inteiro do documento recusado —
+    // o id do projeto Cloud e, numa inscrição, o protocolo do aluno. Quem chama
+    // responde e loga, então a régua D-27 vale já na saída daqui
+    // (`semCaminhoDeDocumento_`). `status`, `codigo` e `retentou` seguem
+    // intactos: é por eles que se decide, nunca pelo texto.
+    var limpo = new Error(semCaminhoDeDocumento_(e));
+    limpo.status = e.status;
+    limpo.codigo = e.codigo;
+    limpo.retentou = Boolean(e.retentou);
+    throw limpo;
+  }
+
+  return { aplicado: true, jaExistia: false, retentou: false, id: idCriado, escritas: writes.length };
 }
 
 // ---------------------------------------------------------------- Leitura

@@ -278,6 +278,33 @@ teste('semear duas vezes seguidas: a segunda não escreve nada', () => {
   igual(falso.requisicoes.length, escritas, 'a segunda passada não pode custar escrita');
 });
 
+teste('a descrição de `aluno_projeto_unico` cobre as DUAS portas — é ela que a coordenação lê antes de virar a chave', () => {
+  // A tela de Configurações lista as chaves de CONFIG_PADRAO com a descrição
+  // daqui (`lerConfiguracoes`, 10_Painel.gs): ela é o único lugar em que a
+  // coordenação lê o que a chave faz antes de virá-la. A frase antiga ("SIM
+  // impede o mesmo aluno de se inscrever em mais de um projeto. NAO apenas
+  // sinaliza no painel") ficou falsa dos dois lados — o formulário não impede,
+  // ele PERGUNTA e troca cancelando a anterior; e o painel não só sinaliza, ele
+  // pergunta antes de gravar.
+  //
+  // Mutação que derruba: descrever só a porta do aluno. Quem virasse a chave
+  // não saberia que a troca CANCELA a inscrição anterior, que o e-mail é a
+  // condição dela, nem que o Incluir da coordenação passou a perguntar — e o
+  // checklist do README, que existe porque a base de hoje tem duplicidades,
+  // não seria lido por ninguém.
+  const { api } = ambiente();
+  const chave = api.CONFIG_PADRAO.filter((c) => c.chave === 'aluno_projeto_unico')[0];
+  verdadeiro(chave, 'a chave sumiu de CONFIG_PADRAO');
+
+  igual(chave.valor, 'NAO', 'o padrão tem de continuar NAO: publicar esta versão não muda nada');
+  ['formulário', 'TROCAR', 'cancela', 'e-mail', 'coordenação', 'Incluir aluno', 'README']
+    .forEach((palavra) => {
+      verdadeiro(chave.descricao.indexOf(palavra) !== -1,
+        'a descrição não fala de "' + palavra + '": ' + chave.descricao);
+    });
+  verdadeiro(chave.descricao.length > 400, 'descrição de uma linha não cobre duas portas');
+});
+
 grupo('configLista');
 
 teste('cursos_fases semeado vira lista de opções, sem espaço sobrando', () => {

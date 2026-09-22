@@ -36,8 +36,13 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 // Na ordem alfabética em que o editor do Apps Script carrega os arquivos —
 // 04_Inscricoes.gs vem ANTES de 04_Log.gs e de 09_Projetos.gs, e é essa ordem
 // que decide qual declaração de INSCRICOES_COLECAO sobrevive.
+//
+// 13_Auditorio.gs entrou com a troca de projeto: o nome canônico da QUARENTENA
+// (`INSCRICOES_ANULADAS_COLECAO`) é de lá, e é para lá que a troca copia a
+// inscrição antiga. Sem o arquivo, a cópia iria para uma coleção chamada
+// "undefined" e o teste continuaria verde sobre um banco que não existe.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
-  '04_Inscricoes.gs', '04_Log.gs', '07_Auth.gs', '09_Projetos.gs'];
+  '04_Inscricoes.gs', '04_Log.gs', '07_Auth.gs', '09_Projetos.gs', '13_Auditorio.gs'];
 
 function ambiente(opcoes) {
   return criarAmbiente(Object.assign({ arquivos: GS, usuario: '' }, opcoes || {}));
@@ -81,6 +86,15 @@ const LEITURA_MATRICULA = (r) => r.metodo === 'GET' && r.url.indexOf('/matricula
 const AGREGACAO = (r) => r.url.indexOf(':runAggregationQuery') !== -1;
 const CONSULTA = (r) => r.url.indexOf(':runQuery') !== -1;
 const ESCRITA_INSCRICAO = (r) => r.metodo === 'POST' && r.url.indexOf('/inscricoes?') !== -1;
+const COMMIT = (r) => r.url.indexOf(':commit') !== -1;
+const ESCRITA_LOG = (r) => r.metodo === 'POST' && r.url.indexOf('/log?') !== -1;
+
+/** Os índices das requisições que casam — para saber o que caiu dentro do lock. */
+function indices(falso, casa) {
+  const achados = [];
+  falso.requisicoes.forEach((r, i) => { if (casa(r)) achados.push(i); });
+  return achados;
+}
 
 /**
  * As ações da trilha, na ordem em que foram gravadas.
@@ -95,6 +109,16 @@ function acoesDoLog(falso) {
     if (chave.indexOf('log/') === 0) acoes.push(campos.acao.stringValue);
   });
   return acoes;
+}
+
+/** O detalhe da primeira linha desta ação — a gêmea de testes/auditorio.js. */
+function detalheDoLog(falso, acao) {
+  let achado = '';
+  falso.documentos.forEach((campos, chave) => {
+    if (achado || chave.indexOf('log/') !== 0) return;
+    if (campos.acao.stringValue === acao) achado = campos.detalhe.stringValue;
+  });
+  return achado;
 }
 
 function criarProjeto(api, id, campos) {
@@ -1001,12 +1025,19 @@ teste('em modo AVISAR a inscrição entra marcada como não conferida', () => {
     'é isto que separa cadastro confiável de palpite');
 });
 
-teste('aluno_projeto_unico=SIM recusa quem já está em outro projeto', () => {
+// A recusa SECA morreu com o item 4: quem já está em outro projeto recebe a
+// PERGUNTA, e é ela que abre a segunda rodada. Mutação que derruba: devolver a
+// recusa de antes — o aluno lê "cada aluno pode participar de um projeto por
+// semestre" e não tem o que fazer com a informação.
+teste('aluno_projeto_unico=SIM pergunta a quem já está em outro projeto, em vez de recusar', () => {
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1');
-  criarProjeto(api, 'p_2', { nome: 'Arte Digital Floripa' });
+  criarProjeto(api, 'p_2', { nome: 'Arte Digital Floripa', codigo: 'arte' });
   matricular(api, ['9110001']);
-  api.inserir('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', matricula: '9110001' }, 'i_outra');
+  api.inserir('inscricoes', {
+    projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa',
+    matricula: '9110001', email: 'maria@exemplo.com', origem: 'SITE'
+  }, 'i_outra');
   api.gravarConfig('aluno_projeto_unico', 'SIM');
   comLock(api, falso);
 
@@ -1014,7 +1045,9 @@ teste('aluno_projeto_unico=SIM recusa quem já está em outro projeto', () => {
 
   igual(r, {
     ok: false,
-    erro: 'Você já está inscrito em Arte Digital Floripa. Cada aluno pode participar de um projeto por semestre.'
+    troca_pendente: true,
+    erro: 'Você já está inscrito em Arte Digital Floripa.',
+    de: [{ projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', codigo: 'arte', em_espera: false }]
   });
   igual(inscricoesGravadas(falso).length, 1);
 });
@@ -1367,6 +1400,946 @@ teste('reenvio de quem está na fila devolve o mesmo protocolo, sem segunda linh
   igual(segunda.protocolo, primeira.protocolo);
   igual(api.contarEmEspera_('p_1'), 1, 'o reenvio criou uma segunda pessoa na fila');
 });
+
+// ============================================================================
+
+/**
+ * Um projeto ATIVO por matrícula, com troca confirmada (item 4).
+ *
+ * O que se prova aqui, em ordem de importância:
+ *   1. NADA É CANCELADO SEM CONSENTIMENTO NOMEADO. A pergunta sai antes de
+ *      qualquer escrita e diz QUAIS projetos sairiam; a confirmação só cancela
+ *      exatamente aqueles, e o conjunto é relido DEPOIS de esperar na fila do
+ *      lock — se mudou, pergunta-se de novo;
+ *   2. a troca é UM `:commit`: a cópia para a quarentena, o delete da antiga e a
+ *      criação da nova entram juntos ou não entram. Três requisições dentro do
+ *      lock seriam três meios-estados possíveis, e o lock não protege contra a
+ *      execução morrer entre duas escritas;
+ *   3. o e-mail é a prova de posse, e a recusa por e-mail divergente NÃO nomeia
+ *      projeto nenhum — a matrícula é quase sequencial, e o lado da troca é
+ *      destrutivo;
+ *   4. sem vaga no projeto novo, NADA MUDA: a inscrição antiga continua de pé, e
+ *      a troca nunca cai na lista de espera;
+ *   5. com a chave em NAO — o padrão — tudo isto desaparece: mesma região de
+ *      lock, mesmo documento, mesmo número de requisições de sempre.
+ */
+grupo('Um projeto ATIVO por matrícula, com troca confirmada');
+
+/**
+ * O cenário das trocas: dois projetos com CÓDIGO próprio (o site guarda o
+ * código, não o id — ver `lembrarInscricao` em docs/assets/app.js) e duas
+ * matrículas na lista oficial. A chave vem por parâmetro porque metade destes
+ * testes existe para provar que com ela em NAO nada disto acontece.
+ */
+function cenarioDaTroca(chave) {
+  const amb = ambiente();
+  criarProjeto(amb.api, 'p_x', { nome: 'Robótica na Escola', codigo: 'robotica' });
+  criarProjeto(amb.api, 'p_y', { nome: 'Horta Comunitária', codigo: 'horta' });
+  matricular(amb.api, ['9110001', '9110002']);
+  if (chave) amb.api.gravarConfig('aluno_projeto_unico', chave);
+  return amb;
+}
+
+/** Uma inscrição já gravada, com os campos que o servidor grava. */
+function inscreverEm(api, id, campos) {
+  const doc = Object.assign({
+    criado_em: '2026-09-20 10:00:00',
+    origem: 'SITE',
+    projeto_id: 'p_x',
+    projeto_nome: 'Robótica na Escola',
+    matricula: '9110001',
+    matricula_conferida: 'SIM',
+    nome: 'Maria da Silva',
+    email: 'maria@exemplo.com',
+    whatsapp: '48999998888',
+    curso_fase: 'WORK EXPERIENCE - ADM21',
+    declara_ciencia: 'SIM',
+    autoriza_imagem: 'SIM',
+    consentimento_lgpd: 'SIM',
+    raw_json: '{}'
+  }, campos || {});
+
+  // As duas marcas da fila andam juntas — é assim que `gravarInscricao` as
+  // escreve, e é o par que `contarEmEspera_` conta.
+  if (doc.em_espera === 'SIM') doc.espera_de = doc.projeto_id;
+  api.inserir('inscricoes', doc, id);
+  return id;
+}
+
+/** Os ids que estão na quarentena. */
+function anuladas(falso) {
+  const ids = [];
+  falso.documentos.forEach((_campos, chave) => {
+    if (chave.indexOf('inscricoes_anuladas/') === 0) ids.push(chave.split('/')[1]);
+  });
+  return ids.sort();
+}
+
+// A chave em NAO é o padrão, e é como o evento vai rodar: o que se prova aqui é
+// que NADA disto acontece com ela desligada — nem uma requisição a mais, nem um
+// campo a mais no documento. Mutação que derruba: rodar a consulta da regra com
+// a chave em NAO — a região do lock vira 3, e a promessa "byte a byte o de hoje"
+// cai junto com a conta de fila de 09_Projetos.gs.
+teste('com a chave em NAO, `trocar_de` no payload não muda nada: região de 2, e nenhuma consulta lá dentro', () => {
+  const { api, falso } = cenarioDaTroca('NAO');
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso);
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.aviso, 'Atenção: você também consta inscrito em Robótica na Escola.', 'o aviso de sempre');
+  igual(r.trocada, undefined);
+
+  const pegou = marco(eventos, 'pegou');
+  const soltou = marco(eventos, 'soltou');
+  igual(soltou - pegou, 2, 'contar e gravar — a região é a mesma de antes do item 4');
+  igual(indices(falso, CONSULTA).filter((i) => i >= pegou && i < soltou).length, 0,
+    'a consulta da regra entrou no lock com a chave desligada');
+  igual(quantas(falso, COMMIT), 0, 'sem troca não há `:commit`');
+
+  igual(inscricoesGravadas(falso).sort(), ['i_x', r.protocolo].sort(), 'a antiga tem de continuar lá');
+  igual(anuladas(falso), []);
+  const gravado = documento(falso, r.protocolo);
+  igual(gravado.trocada_de, undefined, 'documento de sempre, campo por campo');
+  igual(gravado.raw_json.stringValue.indexOf('trocar_de'), -1,
+    'o campo do payload ficou guardado no documento: ele é apagado no servidor');
+});
+
+teste('a rodada 1 PERGUNTA, fora do lock: o conjunto que sairia, sem protocolo e sem escrita nenhuma', () => {
+  // Mutação que derruba: pedir o lock para perguntar — `eventos` deixa de estar
+  // vazio, e cada pergunta passa a pôr um aluno na fila do auditório. Ou
+  // devolver o protocolo da inscrição antiga em `de`: a igualdade é ESTRITA, e
+  // ele é um dado que quem só acertou matrícula e e-mail não tinha.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso);
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r, {
+    ok: false,
+    troca_pendente: true,
+    erro: 'Você já está inscrito em Robótica na Escola.',
+    de: [{ projeto_id: 'p_x', projeto_nome: 'Robótica na Escola', codigo: 'robotica', em_espera: false }]
+  });
+  igual(eventos.length, 0, 'perguntar não disputa vaga com ninguém');
+  igual(quantas(falso, ESCRITA_INSCRICAO), 0);
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso), ['i_x']);
+});
+
+teste('a rodada 1 não convida para uma troca impossível: projeto cheio recusa com o que ficou mantido', () => {
+  // Mutação que derruba: perguntar sem contar as vagas do projeto novo — o
+  // aluno confirmaria uma troca que só pode terminar em recusa, e teria de
+  // decidir duas vezes para ficar onde estava.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_y', { vagas: '1' });
+  inscreverEm(api, 'i_x');
+  inscreverEm(api, 'i_cheio', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', matricula: '9110002' });
+  const eventos = comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r.ok, false);
+  igual(r.situacao, 'ESGOTADO');
+  igual(r.troca_pendente, undefined, 'não se convida para uma troca que não cabe');
+  igual(r.mantida, [{ projeto_id: 'p_x', projeto_nome: 'Robótica na Escola', codigo: 'robotica', em_espera: false }]);
+  igual(eventos.length, 0, 'a recusa da rodada 1 não gasta lock');
+  igual(inscricoesGravadas(falso).sort(), ['i_cheio', 'i_x']);
+});
+
+teste('e-mail diferente do da inscrição anterior: recusa SEM nomear projeto nenhum, sem lock e sem escrita', () => {
+  // Mutação que derruba: nomear o projeto na recusa — a matrícula é quase
+  // sequencial, e quem varresse a faixa saberia em que projeto cada aluno está.
+  // Ou deixar passar: aí o número de outra pessoa bastaria para cancelar a
+  // inscrição dela.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x', { email: 'outro@exemplo.com' });
+  const eventos = comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r, {
+    ok: false,
+    campo: 'email',
+    erro: 'Já existe uma inscrição com esta matrícula feita com outro e-mail. Se é você, ' +
+          'use o mesmo e-mail da inscrição anterior ou procure a coordenação do CESUTECH.'
+  });
+  igual(r.erro.indexOf('Robótica'), -1, 'o nome do projeto vazou na recusa: ' + r.erro);
+  igual(eventos.length, 0);
+  igual(inscricoesGravadas(falso), ['i_x']);
+});
+
+teste('inscrição feita PELA COORDENAÇÃO não é trocável pelo aluno, mesmo com o e-mail batendo', () => {
+  // J4-2. O e-mail dela veio da lista oficial e o institucional é derivável da
+  // matrícula: ele não prova posse de nada. Mutação que derruba: tratar
+  // COORDENACAO como SITE — o aluno cancela sozinho a inscrição que a
+  // coordenação incluiu à mão para ele.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x', { origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com' });
+  const eventos = comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r, {
+    ok: false,
+    erro: 'Sua inscrição no projeto Robótica na Escola foi feita pela coordenação do CESUTECH. ' +
+          'Para trocar de projeto, procure a coordenação.'
+  });
+  igual(eventos.length, 0, 'a recusa sai antes do lock');
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso), ['i_x'], 'a inscrição da coordenação foi mexida');
+
+  // E a mesma inscrição, feita pelo SITE, troca normalmente.
+  api.excluir('inscricoes', 'i_x');
+  inscreverEm(api, 'i_x');
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
+});
+
+teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na quarentena e a nova com trocada_de', () => {
+  // Mutação que derruba: três requisições (copiar, apagar, gravar) em vez do
+  // `:commit` — a contagem de `:commit` deixa de ser 1, e cada morte no meio
+  // vira um desastre diferente. Ou tirar o `trocada_de` do documento novo: a
+  // inscrição que nasceu de uma troca fica indistinguível de uma comum.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso);
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, false);
+  igual(r.trocada, { de: [{ projeto_nome: 'Robótica na Escola', codigo: 'robotica' }] });
+  verdadeiro(r.mensagem.indexOf('anterior em Robótica na Escola foi cancelada') !== -1,
+    'a frase foi: ' + r.mensagem);
+
+  const pegou = marco(eventos, 'pegou');
+  const soltou = marco(eventos, 'soltou');
+  igual(soltou - pegou, 3, 'consulta, agregação e escrita — é a conta de fila do cabeçalho de 09');
+  const commits = indices(falso, COMMIT);
+  igual(commits.length, 1, 'a troca inteira tem de caber em UMA requisição');
+  verdadeiro(commits[0] >= pegou && commits[0] < soltou, 'o commit caiu fora do lock: ' + commits[0]);
+  igual(falso.requisicoes[commits[0]].corpo.writes.length, 3, 'cópia, delete e create');
+  verdadeiro(indices(falso, AGREGACAO)[0] < commits[0], 'a contagem de vagas tem de vir antes de escrever');
+  verdadeiro(indices(falso, ESCRITA_LOG).every((i) => i >= soltou), 'o log ficou dentro do lock');
+
+  igual(inscricoesGravadas(falso), [r.protocolo], 'a antiga continua viva em `inscricoes`');
+  igual(anuladas(falso), ['i_x']);
+  igual(acoesDoLog(falso), ['INSCRICAO_PROJETO', 'INSCRICAO_TROCADA']);
+
+  const guardada = api.ler('inscricoes_anuladas', 'i_x');
+  igual(guardada.anulado_por, 'aluno', 'a sentinela do aluno é o que separa a troca da anulação');
+  igual(guardada.anulado_motivo, 'TROCA');
+  igual(guardada.trocado_para, r.protocolo);
+  igual(guardada.anulado_em.length, 19, 'o carimbo é o de `agora()`');
+  igual(guardada.nome, 'Maria da Silva', 'a cópia guarda o documento inteiro, e não um resumo');
+  igual(guardada.curso_fase, 'WORK EXPERIENCE - ADM21');
+
+  const nova = api.ler('inscricoes', r.protocolo);
+  igual(nova.projeto_id, 'p_y');
+  igual(nova.projeto_nome, 'Horta Comunitária');
+  igual(nova.trocada_de, 'i_x');
+  igual(api.resumoParaAuditorio_(nova).trocada_de, 'i_x', 'a aba Geral precisa do selo para mostrar a procedência');
+});
+
+teste('sem outra inscrição ativa, a regra custa UMA consulta a mais — e ela roda dentro do lock', () => {
+  // Mutação que derruba: mover a consulta para fora do lock — o índice dela cai
+  // antes de `pegou`, e duas abas com a primeira inscrição de cada leem vazio e
+  // gravam as duas.
+  const { api, falso } = cenarioDaTroca('SIM');
+  const eventos = comLock(api, falso);
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  const pegou = marco(eventos, 'pegou');
+  igual(marco(eventos, 'soltou') - pegou, 3, 'consulta, agregação e escrita — nem uma ida a mais');
+  verdadeiro(indices(falso, CONSULTA).some((i) => i >= pegou), 'a consulta autoritativa ficou fora do lock');
+});
+
+teste('a vizinha grava o MESMO projeto durante a espera: duplicada com o protocolo real, sem `:commit`', () => {
+  // D10, e é o que fecha o "ALREADY_EXISTS inalcançável": sem ver a inscrição
+  // no projeto alvo, o commit tentaria criar o que já existe. Mutação que
+  // derruba: excluir o projeto alvo da consulta de dentro do lock.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_vizinha')) return;
+      inscreverEm(api, 'i_vizinha', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária' });
+    }
+  });
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, 'i_vizinha', 'o protocolo é o do documento ACHADO, não o que a chave calcularia');
+  igual(r.aviso, 'Atenção: você também consta inscrito em Robótica na Escola.');
+  igual(quantas(falso, COMMIT), 0, 'nada a escrever: ele já está lá');
+  igual(marco(eventos, 'soltou') - marco(eventos, 'pegou'), 2, 'contar e consultar; nenhuma escrita');
+  igual(inscricoesGravadas(falso).sort(), ['i_vizinha', 'i_x']);
+});
+
+teste('duas PRIMEIRAS inscrições ao mesmo tempo: a consulta de dentro do lock vê a vizinha e pergunta', () => {
+  // A corrida que só a consulta de dentro do lock pega: as duas abas leem vazio
+  // fora dele. Mutação que derruba: decidir só pela consulta de fora — os dois
+  // documentos nascem, e a regra nunca valeu.
+  const { api, falso } = cenarioDaTroca('SIM');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_vizinha')) return;
+      inscreverEm(api, 'i_vizinha');   // a outra aba gravou em p_x primeiro
+    }
+  });
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r.ok, false);
+  igual(r.troca_pendente, true);
+  igual(r.de, [{ projeto_id: 'p_x', projeto_nome: 'Robótica na Escola', codigo: 'robotica', em_espera: false }]);
+  igual(inscricoesGravadas(falso), ['i_vizinha'], 'um documento só, e é o da vizinha');
+  igual(eventos.filter((e) => e.tipo === 'soltou').length, 1, 'o lock foi devolvido');
+});
+
+teste('o que apareceu DEPOIS do consentimento não é cancelado: re-pergunta com o conjunto atual', () => {
+  // D9. Mutação que derruba: cancelar "o que achar" em vez do conjunto
+  // consentido — a inscrição que a outra aba acabou de criar seria apagada sem
+  // que ninguém tivesse perguntado sobre ela.
+  const { api, falso } = cenarioDaTroca('SIM');
+  criarProjeto(api, 'p_1', { nome: 'Marcenaria Social', codigo: 'marcenaria' });
+  inscreverEm(api, 'i_x');
+  comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_p1')) return;
+      // A outra aba completou a troca p_x -> p_1 enquanto esta esperava.
+      api.excluir('inscricoes', 'i_x');
+      inscreverEm(api, 'i_p1', { projeto_id: 'p_1', projeto_nome: 'Marcenaria Social' });
+    }
+  });
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, false);
+  igual(r.troca_pendente, true);
+  igual(r.de, [{ projeto_id: 'p_1', projeto_nome: 'Marcenaria Social', codigo: 'marcenaria', em_espera: false }],
+    'a re-pergunta nomeia o que EXISTE agora, nunca o que o aluno mandou');
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso), ['i_p1'], 'exatamente um documento, e é o que ninguém consentiu cancelar');
+});
+
+teste('o projeto novo enche durante a espera: nada é cancelado, e a resposta diz o que foi mantido', () => {
+  // D8. Mutação que derruba: apagar a antiga antes de contar as vagas — o aluno
+  // fica sem nenhuma das duas inscrições, que é o desastre que a peça inteira
+  // existe para impedir.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_y', { vagas: '1' });
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_cheio')) return;
+      inscreverEm(api, 'i_cheio', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', matricula: '9110002' });
+    }
+  });
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, false);
+  igual(r.situacao, 'ESGOTADO');
+  igual(r.mantida, [{ projeto_id: 'p_x', projeto_nome: 'Robótica na Escola', codigo: 'robotica', em_espera: false }]);
+  verdadeiro(r.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('Horta Comunitária') !== -1, 'a frase foi: ' + r.erro);
+  igual(anuladas(falso), [], 'a quarentena recebeu cópia de uma troca que não aconteceu');
+  igual(inscricoesGravadas(falso).sort(), ['i_cheio', 'i_x']);
+
+  const pegou = marco(eventos, 'pegou');
+  const soltou = marco(eventos, 'soltou');
+  igual(indices(falso, COMMIT).filter((i) => i >= pegou && i < soltou).length, 0);
+  igual(indices(falso, ESCRITA_INSCRICAO).filter((i) => i >= pegou && i < soltou).length, 0);
+});
+
+teste('com a fila de espera ligada, a troca NÃO cai na lista de espera', () => {
+  // "Sem vaga, nada muda": trocar uma inscrição de verdade por um lugar na fila
+  // é um negócio que ninguém aceitaria se lhe perguntassem. Mutação que derruba:
+  // deixar G6 gravar em espera.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_y', { vagas: '1' });
+  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  inscreverEm(api, 'i_x');
+  inscreverEm(api, 'i_cheio', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', matricula: '9110002' });
+  comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, false);
+  igual(r.situacao, 'ESGOTADO');
+  verdadeiro(r.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + r.erro);
+  igual(api.contarEmEspera_('p_y'), 0, 'a troca virou fila de espera');
+  igual(inscricoesGravadas(falso).sort(), ['i_cheio', 'i_x']);
+  igual(anuladas(falso), []);
+});
+
+teste('a posse é conferida DE NOVO dentro do lock: a inscrição que nasceu no meio recusa, e não re-pergunta', () => {
+  // Mutação que derruba: tirar a conferência de dentro do lock (G4) — a resposta
+  // vira `troca_pendente` nomeando o projeto de quem tem outro e-mail, que é o
+  // oráculo que a recusa de fora se recusa a ser.
+  const { api, falso } = cenarioDaTroca('SIM');
+  criarProjeto(api, 'p_1', { nome: 'Marcenaria Social', codigo: 'marcenaria' });
+  inscreverEm(api, 'i_x');
+  comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_p1')) return;
+      inscreverEm(api, 'i_p1', { projeto_id: 'p_1', projeto_nome: 'Marcenaria Social', email: 'outro@exemplo.com' });
+    }
+  });
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.campo, 'email');
+  igual(r.troca_pendente, undefined, 'a recusa de posse vem antes da re-pergunta');
+  igual(r.erro.indexOf('Marcenaria'), -1, 'o nome do projeto vazou: ' + r.erro);
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso).sort(), ['i_p1', 'i_x']);
+});
+
+teste('a região do lock é de 3 idas mesmo quando a RESPOSTA precisa de um projeto que a consulta de fora não viu', () => {
+  // O caminho em que a conta quebrava: a vizinha grava uma inscrição em p_z
+  // durante a espera, o aluno mandou p_z em `trocar_de` (o conjunto consentido),
+  // e p_z não está no mapa que a consulta de FORA montou. A troca acontece — e
+  // montar o `de` da resposta pede o nome e o código de p_z, que é uma ida ao
+  // banco. Dentro do lock, ela é meio segundo de fila para todo aluno que está
+  // atrás; fora, não custa nada a ninguém.
+  //
+  // Mutação que derruba: montar a resposta dentro do gravador (`resumoDasAtivas_`
+  // em G7) — a região vira 4, e com 20 inscrições viraria 23.
+  const { api, falso } = cenarioDaTroca('SIM');
+  criarProjeto(api, 'p_z', { nome: 'Marcenaria Social', codigo: 'marcenaria' });
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_z')) return;
+      inscreverEm(api, 'i_z', { projeto_id: 'p_z', projeto_nome: 'Marcenaria Social' });
+    }
+  });
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_z'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(marco(eventos, 'soltou') - marco(eventos, 'pegou'), 3,
+    'a resposta foi montada dentro do lock: ' + JSON.stringify(falso.requisicoes.map((q) => q.url)));
+
+  // E a resposta continua completa: o código do projeto é o que o site usa para
+  // esquecer a inscrição antiga do `localStorage`.
+  igual(r.trocada.de.map((a) => a.codigo).sort(), ['marcenaria', 'robotica']);
+  igual(anuladas(falso), ['i_x', 'i_z']);
+});
+
+teste('a re-pergunta de dentro do lock também monta a resposta do lado de fora', () => {
+  // G5: apareceram dois projetos que o aluno não consentiu, e a re-pergunta
+  // precisa do nome e do código dos dois. São duas leituras — e elas não podem
+  // acontecer com o lock na mão, porque a decisão da vaga já terminou (não há o
+  // que escrever) e o que falta é só escrever a resposta.
+  //
+  // Mutação que derruba: chamar `perguntaDeTroca_` dentro do gravador — a região
+  // vira 4 aqui, e cresce com o número de inscrições que apareceram.
+  const { api, falso } = cenarioDaTroca('SIM');
+  criarProjeto(api, 'p_a', { nome: 'Marcenaria Social', codigo: 'marcenaria' });
+  criarProjeto(api, 'p_b', { nome: 'Coral do CESUTECH', codigo: 'coral' });
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_a')) return;
+      inscreverEm(api, 'i_a', { projeto_id: 'p_a', projeto_nome: 'Marcenaria Social' });
+      inscreverEm(api, 'i_b', { projeto_id: 'p_b', projeto_nome: 'Coral do CESUTECH' });
+    }
+  });
+  zerar(falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.troca_pendente, true, 'erro foi: ' + r.erro);
+  igual(r.reperguntar, undefined, 'o conjunto cru não pode vazar para a tela');
+  igual(marco(eventos, 'soltou') - marco(eventos, 'pegou'), 2,
+    'a re-pergunta leu projeto dentro do lock: ' + JSON.stringify(falso.requisicoes.map((q) => q.url)));
+  igual(r.de.map((a) => a.codigo).sort(), ['coral', 'marcenaria', 'robotica']);
+  igual(quantas(falso, COMMIT), 0);
+  igual(anuladas(falso), []);
+});
+
+teste('a origem COORDENACAO é conferida DE NOVO dentro do lock: a inscrição que nasceu no meio recusa, e não é cancelada', () => {
+  // O gêmeo do teste de posse acima, para J4-2. A régua roda duas vezes pela
+  // mesma razão: a coordenação pode incluir a inscrição ENTRE a consulta de fora
+  // (que por isso não a vê) e a de dentro do lock. Sem a segunda passada, ela
+  // cai em G5 ou — se o aluno mandar o id dela em `trocar_de` — é cancelada pelo
+  // próprio aluno, que é exatamente o que J4-2 existe para impedir.
+  //
+  // Mutação que derruba: tirar a segunda chamada de `recusaDeOrigemCoordenacao_`
+  // (a de G7, logo depois de G4) — a resposta vira `ok:true` e a inscrição que a
+  // coordenação incluiu à mão vai para a quarentena.
+  const { api, falso } = cenarioDaTroca('SIM');
+  criarProjeto(api, 'p_1', { nome: 'Marcenaria Social', codigo: 'marcenaria' });
+  inscreverEm(api, 'i_x');
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (falso.documentos.has('inscricoes/i_coord')) return;
+      inscreverEm(api, 'i_coord', {
+        projeto_id: 'p_1', projeto_nome: 'Marcenaria Social',
+        origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com'
+      });
+    }
+  });
+
+  // O aluno consentiu nos DOIS: é o caminho em que nada mais o protege.
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_1'] }));
+
+  igual(r.ok, false);
+  verdadeiro(r.erro.indexOf('Marcenaria Social') !== -1, 'a recusa nomeia o projeto: ' + r.erro);
+  verdadeiro(r.erro.indexOf('procure a coordenação') !== -1, 'a mensagem foi: ' + r.erro);
+  igual(r.troca_pendente, undefined, 'a recusa de J4-2 vem antes da re-pergunta');
+  igual(quantas(falso, COMMIT), 0, 'a recusa é ANTES de qualquer escrita');
+  igual(inscricoesGravadas(falso).sort(), ['i_coord', 'i_x']);
+  igual(anuladas(falso), [], 'a inscrição da coordenação foi para a quarentena');
+  igual(eventos.filter((e) => e.tipo === 'soltou').length, 1, 'o lock precisa ser devolvido na recusa');
+});
+
+teste('inscrição em projeto do semestre passado (ativo=NAO) não conta para a regra', () => {
+  // Mutação que derruba: ignorar `ativo` — o aluno do semestre passado seria
+  // obrigado a "trocar" de um projeto que já acabou para se inscrever no novo.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_x', { ativo: 'NAO' });
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.trocada, undefined, 'não havia o que trocar');
+  igual(inscricoesGravadas(falso).sort(), ['i_x', r.protocolo].sort());
+  igual(anuladas(falso), []);
+});
+
+teste('o projeto novo FECHA entre a pergunta e a confirmação: nada é cancelado, e a resposta diz isso', () => {
+  // A rodada 2 é a de maior aposta: o aluno já clicou em [Trocar] e autorizou um
+  // cancelamento. Ler só "as inscrições para este projeto estão encerradas" é
+  // concluir que ficou sem nenhuma das duas — o mesmo dano que `mantida` existe
+  // para impedir no ESGOTADO. FECHADO e INATIVO são recusados por `reservarVaga`
+  // ANTES do lock, então nem chegam ao gravador: quem decora a resposta é o de
+  // fora, com o conjunto que o aluno tinha na tela.
+  //
+  // Mutação que derruba: voltar a comparar só com ESGOTADO em
+  // `decorarRecusaDaTroca_` — some o `mantida`, o site perde a frase que só
+  // desenha com ele, e a rodada 1 passa a dizer mais do que a 2.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_y' })).troca_pendente, true);
+  api.atualizar('projetos', 'p_y', { inscricoes_abertas: 'NAO' });
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, false);
+  igual(r.situacao, 'FECHADO');
+  igual(r.mantida, [{ projeto_id: 'p_x', projeto_nome: 'Robótica na Escola', codigo: 'robotica', em_espera: false }]);
+  verdadeiro(r.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('foram encerradas') !== -1,
+    'a abertura é da SITUAÇÃO: "as vagas acabaram" seria mentira aqui. A frase foi: ' + r.erro);
+  verdadeiro(api.ler('inscricoes', 'i_x') !== null, 'a inscrição antiga foi cancelada numa recusa');
+  igual(quantas(falso, COMMIT), 0);
+  igual(anuladas(falso), []);
+
+  // E o projeto DESLIGADO no meio tem a terceira abertura — ele não teve as
+  // inscrições encerradas, ele sumiu da lista.
+  api.atualizar('projetos', 'p_y', { inscricoes_abertas: 'SIM', ativo: 'NAO' });
+  const desligado = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  igual(desligado.situacao, 'INATIVO');
+  verdadeiro(desligado.erro.indexOf('não está mais disponível') !== -1, 'a frase foi: ' + desligado.erro);
+  verdadeiro(desligado.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + desligado.erro);
+});
+
+teste('reenvio para o projeto em que já está: duplicada com o protocolo, aviso das outras, zero `:commit`', () => {
+  // As duplicidades que já existem (a regra é só para frente): reenviar não
+  // cancela nada. Mutação que derruba: excluir o projeto alvo da consulta — a
+  // resposta viraria uma pergunta de troca do projeto por ele mesmo.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  inscreverEm(api, 'i_y', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária' });
+  comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, 'i_y');
+  igual(r.aviso, 'Atenção: você também consta inscrito em Robótica na Escola.');
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso).sort(), ['i_x', 'i_y']);
+});
+
+teste('reenviar a confirmação depois do sucesso devolve o mesmo protocolo, sem um segundo `:commit`', () => {
+  // O 3G do auditório caindo depois do commit. Mutação que derruba: tratar o
+  // reenvio como troca nova — a inscrição recém-criada seria copiada para a
+  // quarentena e apagada por ela mesma.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const primeira = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  zerar(falso);
+  const segunda = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(segunda.ok, true, 'erro foi: ' + segunda.erro);
+  igual(segunda.duplicada, true);
+  igual(segunda.protocolo, primeira.protocolo);
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso), [primeira.protocolo]);
+  igual(anuladas(falso), ['i_x']);
+});
+
+teste('`trocar_de` grande demais é recusado ANTES de ler qualquer coisa; id com barra é descartado', () => {
+  // Mutação que derruba: cortar a lista em silêncio (`slice`) — o aluno
+  // confirmaria a troca de dois projetos e um deles continuaria de pé.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+  zerar(falso);
+
+  const muitos = [];
+  for (let i = 0; i < 21; i++) muitos.push('p_' + i);
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: muitos }));
+
+  igual(r, { ok: false, erro: 'Pedido de troca inválido. Recarregue a página e tente de novo.' });
+  igual(quantas(falso, CONSULTA), 0, 'a recusa sai antes de ler as inscrições da pessoa');
+  igual(quantas(falso, ESCRITA_INSCRICAO), 0);
+  igual(quantas(falso, COMMIT), 0);
+
+  igual(api.idsDeTroca_(['p_x', 'p_x', '', 'inscricoes/p_x', null, ' p_y ']), ['p_x', 'p_y'],
+    'repetido, vazio, com barra e nulo saem; o resto fica na ordem em que veio');
+  igual(api.idsDeTroca_('p_x'), ['p_x'], 'um id sozinho, sem lista, continua valendo');
+  igual(api.idsDeTroca_(undefined), []);
+});
+
+teste('matrícula vazia desliga a regra: grava como sempre, e a inscrição antiga fica de pé', () => {
+  // §4: a identidade da regra é só a matrícula. Mutação que derruba: cair para o
+  // e-mail — duas pessoas da mesma família com o mesmo e-mail viram a mesma
+  // pessoa, e uma cancelaria a inscrição da outra.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.gravarConfig('exigir_matricula', 'NAO');
+  // Sem matrícula não há o que conferir contra a lista oficial — é o projeto
+  // aberto à comunidade, o único lugar em que este caso existe de verdade.
+  api.atualizar('projetos', 'p_y', { validar_matricula: 'NAO' });
+  inscreverEm(api, 'i_x', { matricula: '' });
+  const eventos = comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', matricula: '', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.trocada, undefined);
+  igual(r.aviso, 'Atenção: você também consta inscrito em Robótica na Escola.');
+  igual(marco(eventos, 'soltou') - marco(eventos, 'pegou'), 2, 'sem matrícula não há consulta dentro do lock');
+  igual(inscricoesGravadas(falso).sort(), ['i_x', r.protocolo].sort());
+  igual(anuladas(falso), []);
+});
+
+teste('matrícula CANCELADA na lista oficial: a inscrição nova entra, a TROCA é recusada', () => {
+  // N4. A recusa só é alcançável depois da prova de posse, então não conta a
+  // ninguém que a matrícula existe e está cancelada. Mutação que derruba: usar
+  // `conhecida === false` como gatilho — o projeto aberto à comunidade, onde
+  // ninguém está na lista, passaria a recusar toda troca.
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_y', { validar_matricula: 'NAO' });
+  cancelar(api, '9110001');
+  comLock(api, falso);
+
+  // Sem outra inscrição ativa: a nova entra, porque ela não destrói nada.
+  const nova = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  igual(nova.ok, true, 'erro foi: ' + nova.erro);
+  api.excluir('inscricoes', nova.protocolo);
+
+  inscreverEm(api, 'i_x');
+  zerar(falso);   // a marca de cancelamento também é um `:commit` (atualizarEmLote)
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r, {
+    ok: false,
+    campo: 'matricula',
+    erro: 'Sua matrícula consta como cancelada na lista oficial. ' +
+          'Para mudar de projeto, procure a coordenação do CESUTECH.'
+  });
+  igual(quantas(falso, COMMIT), 0);
+  igual(inscricoesGravadas(falso), ['i_x'], 'a inscrição que a coordenação incluiu foi cancelada');
+  igual(anuladas(falso), []);
+
+  // E o projeto aberto à comunidade, com a matrícula fora da lista, troca
+  // normalmente — o gatilho é a MARCA, não o desconhecimento.
+  cancelar(api, '9110002');   // outra pessoa, para a lista continuar existindo
+  api.excluir('matriculados', '9110001');
+  igual(api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
+});
+
+teste('o documento da troca é o do caminho PÚBLICO: sem incluido_por, com os três aceites', () => {
+  // D6. Mutação que derruba: extrair `montarRegistroDaInscricao_` com um
+  // argumento só — os aceites da coordenação voltariam a 'NAO', e o documento
+  // do aluno ganharia um `incluido_por` vazio.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const nova = api.ler('inscricoes', r.protocolo);
+
+  igual(nova.incluido_por, undefined, 'a troca é do aluno: `incluido_por` ali sairia mentindo');
+  igual(nova.declara_ciencia, 'SIM');
+  igual(nova.autoriza_imagem, 'SIM');
+  igual(nova.consentimento_lgpd, 'SIM');
+  igual(nova.origem, 'SITE');
+
+  // E os dois documentos que a função monta, lado a lado: o segundo argumento
+  // muda QUATRO campos, e só eles.
+  const dados = envio({ projeto_id: 'p_y', projeto_nome: 'Horta Comunitária' });
+  const publico = api.montarRegistroDaInscricao_(dados);
+  const coordenacao = api.montarRegistroDaInscricao_(dados, { incluido_por: 'coordenacao@exemplo.com' });
+
+  const diferentes = Object.keys(coordenacao).filter((c) => publico[c] !== coordenacao[c]);
+  igual(diferentes.sort(), ['autoriza_imagem', 'consentimento_lgpd', 'declara_ciencia', 'incluido_por']);
+  igual(publico.incluido_por, undefined);
+  igual(coordenacao.declara_ciencia, '', 'a coordenação não consente pelo aluno');
+});
+
+teste('a coordenação anula a antiga entre a consulta e o commit: a troca completa assim mesmo', () => {
+  // A cópia vai como UPSERT sem precondição, de propósito. Mutação que derruba:
+  // usar `criar` para a cópia — o `:commit` inteiro volta ALREADY_EXISTS, o
+  // aluno lê "você já estava inscrito" e a inscrição nova nunca é criada.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const real = api.UrlFetchApp;
+  let anulou = false;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      // No instante EXATO entre a decisão e a escrita: o corpo do `:commit` já
+      // está montado, e a coordenação anula a inscrição antiga.
+      if (!anulou && String(url).indexOf(':commit') !== -1) {
+        anulou = true;
+        const guardada = Object.assign({}, api.ler('inscricoes', 'i_x'), {
+          anulado_em: '2026-09-22 18:00:00', anulado_por: 'coordenacao@exemplo.com'
+        });
+        api.escreverEmLote('inscricoes_anuladas', [guardada]);
+        api.excluir('inscricoes', 'i_x');
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.UrlFetchApp = real;
+
+  verdadeiro(anulou, 'o cenário não chegou a acontecer');
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, false, 'a resposta disse "você já estava inscrito" sem ter criado nada');
+  igual(inscricoesGravadas(falso), [r.protocolo]);
+  igual(api.ler('inscricoes_anuladas', 'i_x').anulado_motivo, 'TROCA',
+    'a cópia da troca sobrescreve a da coordenação — o que se perde é trilha, nunca o aluno');
+});
+
+// Os dois lados do 409 de G7. O `criar` leva `exists:false`, e o ALREADY_EXISTS
+// que volta dele diz só que o documento de Y já estava lá — nunca quem o pôs. É
+// `retentou` (02_Repo.gs) que separa "fui eu, na tentativa anterior" de "foi
+// outra porta", e o estado do banco é OPOSTO nos dois: num, a troca entrou; no
+// outro, nada entrou e a antiga continua viva. Mutação que derruba os dois de
+// uma vez: apagar o ramo `escrito.jaExistia` — a função segue para o `return` da
+// troca feita e anuncia um cancelamento que o banco recusou.
+teste('o 503 na RESPOSTA do commit da troca: ela ENTROU, e a trilha da troca sai mesmo assim', () => {
+  // O 503 que chega depois de o banco aplicar o `:commit`. `fsFetch_` retenta, a
+  // segunda tentativa manda o mesmo `exists:false` — que o próprio efeito acabou
+  // de invalidar — e volta ALREADY_EXISTS. A troca ACONTECEU: a antiga está na
+  // quarentena, a nova está viva. Mutação que derruba: ignorar `retentou` e
+  // responder o mesmo dos dois lados (o que o ramo fazia) — a troca entra e a
+  // única linha do Histórico é a `INSCRICAO_PROJETO` de uma "duplicada", sem
+  // nada que diga que uma inscrição foi cancelada e por quê.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true, 'a inscrição de Y existe — quem a criou é que não se sabe');
+
+  // O estado que a resposta descreve: a troca entrou inteira, porque o `:commit`
+  // é tudo ou nada.
+  igual(inscricoesGravadas(falso), [r.protocolo], 'a antiga continua viva em `inscricoes`');
+  igual(anuladas(falso), ['i_x']);
+
+  // E a trilha sai MESMO ASSIM, dizendo o que não se pode confirmar — é a régua
+  // do ramo indeterminado do Auditório e do Incluir aluno, e aqui ela é a única
+  // prova de que a inscrição em Robótica foi cancelada por uma troca.
+  igual(acoesDoLog(falso), ['INSCRICAO_PROJETO', 'INSCRICAO_TROCADA']);
+  const detalhe = detalheDoLog(falso, 'INSCRICAO_TROCADA');
+  verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('i_x') !== -1 && detalhe.indexOf(r.protocolo) !== -1,
+    'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('Robótica na Escola') !== -1 && detalhe.indexOf('Horta Comunitária') !== -1,
+    'o detalhe foi: ' + detalhe);
+
+  igual(r.aviso, undefined, 'a antiga foi cancelada: dizer que ele "também consta" nela seria falso');
+});
+
+teste('503 COM a coordenação gravando durante a retentativa: a troca NÃO entrou, e a resposta não diz que entrou', () => {
+  // O caso que `retentou` sozinho não distingue — e é por ele que o ramo paga
+  // uma leitura de ponto. Houve 503 E houve retentativa, mas quem pôs Y no lugar
+  // foi a coordenação, na janela entre as duas tentativas: o `:commit` foi
+  // RECUSADO, a antiga continua viva e nada foi cancelado.
+  //
+  // Mutação que derruba: tratar `retentou` como prova de que a troca entrou (a
+  // primeira versão deste ramo) — a resposta sai sem o `tambem_em`, o site
+  // esquece Robótica do `localStorage` (D17), o aluno fica em DOIS projetos sem
+  // uma palavra, e o Histórico ganha uma linha `INSCRICAO_TROCADA` sobre um
+  // cancelamento que nunca houve.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const idNova = api.chaveDedup_({
+    projeto_id: 'p_y', matricula: '9110001', email: 'maria@exemplo.com', nome: 'Maria da Silva'
+  });
+  const real = api.UrlFetchApp;
+  let tentativas = 0;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':commit') !== -1) {
+        tentativas += 1;
+        // A PRIMEIRA tentativa cai com 503 SEM aplicar nada (o proxy que nunca
+        // chegou ao banco), e a coordenação grava Y antes da segunda.
+        if (tentativas === 1) {
+          inscreverEm(api, idNova, {
+            projeto_id: 'p_y', projeto_nome: 'Horta Comunitária',
+            origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com'
+          });
+          return {
+            getResponseCode: () => 503,
+            getContentText: () => JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'backend unavailable' } }),
+            getHeaders: () => ({})
+          };
+        }
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.UrlFetchApp = real;
+
+  verdadeiro(tentativas >= 2, 'o cenário exige a retentativa: houve ' + tentativas);
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, idNova, 'o protocolo é o do documento que existe');
+
+  // O estado real: a antiga VIVA, a quarentena vazia. É o que a resposta não
+  // pode contradizer.
+  verdadeiro(inscricoesGravadas(falso).indexOf('i_x') !== -1, 'a antiga foi cancelada sem que o commit entrasse');
+  igual(anuladas(falso), []);
+  igual(acoesDoLog(falso).indexOf('INSCRICAO_TROCADA'), -1,
+    'registrou uma troca que não aconteceu: ' + acoesDoLog(falso).join(', '));
+  verdadeiro(String(r.aviso || '').indexOf('Robótica na Escola') !== -1,
+    'a resposta não nomeia a inscrição que continua de pé: ' + r.aviso);
+  igual(String(r.mensagem || '').indexOf('cancelada'), -1, 'a mensagem afirma um cancelamento: ' + r.mensagem);
+});
+
+teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: duplicada honesta, sem cancelamento nenhum', () => {
+  // O 409 SEM retentativa nenhuma, e ele é alcançável sem 503: `incluirInscricao`
+  // (10_Painel.gs) grava em `inscricoes` com a MESMA `chaveDedup_` e SEM o lock.
+  // O `:commit` inteiro é recusado — a antiga continua VIVA, a quarentena vazia
+  // —, e o aluno está em Y por outra via. Mutação que derruba: responder aqui o
+  // `duplicada` seco, sem o `tambem_em` — a resposta afirma que a troca
+  // aconteceu, o site esquece Robótica do `localStorage` (D17) e o aluno fica em
+  // DOIS projetos sem uma palavra sobre o segundo.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const idNova = api.chaveDedup_({
+    projeto_id: 'p_y', matricula: '9110001', email: 'maria@exemplo.com', nome: 'Maria da Silva'
+  });
+  const real = api.UrlFetchApp;
+  let incluiu = false;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      // Entre G1 e a escrita: o corpo do `:commit` já está montado, e a
+      // coordenação inclui a mesma pessoa no mesmo projeto pela outra porta.
+      if (!incluiu && String(url).indexOf(':commit') !== -1) {
+        incluiu = true;
+        inscreverEm(api, idNova, {
+          projeto_id: 'p_y', projeto_nome: 'Horta Comunitária',
+          origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com'
+        });
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.UrlFetchApp = real;
+
+  verdadeiro(incluiu, 'o cenário não chegou a acontecer');
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, idNova, 'o protocolo é o do documento que existe');
+
+  // NADA foi cancelado: é isto que a resposta não pode contradizer.
+  igual(inscricoesGravadas(falso).sort(), [idNova, 'i_x'].sort(), 'a antiga tem de continuar viva');
+  igual(anuladas(falso), [], 'a quarentena recebeu uma cópia de uma troca que não houve');
+  igual(acoesDoLog(falso), ['INSCRICAO_PROJETO'], 'nada foi trocado, e a trilha não pode dizer que foi');
+
+  igual(r.trocada, undefined);
+  igual(r.mensagem.indexOf('cancelada'), -1, 'a mensagem foi: ' + r.mensagem);
+  verdadeiro(r.aviso.indexOf('Robótica na Escola') !== -1,
+    'o aviso tem de NOMEAR a inscrição que continua de pé: ' + r.aviso);
+});
+
+// O invariante inteiro, com a regra ligada: o que muda é o gravador, e ele não
+// pode vender vaga. Mutação que derruba: a do teste original de projetos.js —
+// contar antes do `waitLock` — ou qualquer escrita da troca fora da região.
+teste('com a regra ligada, 70 tentativas mais 10 vizinhas em 60 vagas fecham em exatamente 60', () => {
+  const { api, falso } = cenarioDaTroca('SIM');
+  api.atualizar('projetos', 'p_y', { vagas: '60', validar_matricula: 'NAO' });
+
+  let vizinhas = 0;
+  comLock(api, falso, {
+    aoEsperar: () => {
+      if (vizinhas >= 10) return;
+      api.inserir('inscricoes', { projeto_id: 'p_y' }, 'vizinha_' + vizinhas);
+      vizinhas++;
+    }
+  });
+
+  let aceitas = 0;
+  let recusadas = 0;
+  for (let i = 0; i < 70; i++) {
+    const r = api.submeterInscricao(envio({ projeto_id: 'p_y', matricula: String(9110001 + i) }));
+    if (r.ok) aceitas++;
+    else recusadas++;
+  }
+
+  igual(api.contarInscritos_('p_y'), 60, 'o projeto fechou com um número que não é 60');
+  igual(aceitas + vizinhas, 60, 'as gravações aceitas somam mais do que as vagas');
+  verdadeiro(recusadas > 0, 'ninguém foi recusado num projeto que lotou');
+});
+
+// ============================================================================
 
 grupo('Contrato com as outras fases');
 

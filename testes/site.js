@@ -32,6 +32,16 @@
  *     diferentes. Aqui o que se prova é que a lembrança sobrevive a uma
  *     recarga da página, reabrindo o site com o mesmo armazenamento.
  *
+ * E, da pergunta da TROCA DE PROJETO (22/09) — aqui se prova que o bloco existe,
+ * que ele tem `role="alertdialog"` e que os dois botões estão lá; o que falta é
+ * do navegador, e vale um olhar na homologação, junto do teste das duas abas:
+ *   - que o leitor de tela ANUNCIA o `alertdialog` quando ele aparece no meio do
+ *     formulário, e que o foco entra nele de verdade (`focus()` num elemento com
+ *     `tabindex="-1"` é coisa de navegador);
+ *   - que os dois botões, um sob o outro, não deixam o [Trocar para Y e cancelar
+ *     X] a um polegar de distância do [Manter] no celular — é layout, e cancelar
+ *     por engano é o erro que não tem desfazer pela tela do aluno.
+ *
  * Uso:  node testes/site.js
  */
 
@@ -1674,13 +1684,515 @@ async function rodar() {
       'o título da faixa deixou de ser anunciado ao leitor de tela');
   });
 
+  // ============================================ a troca de projeto (item 4)
+
+  /**
+   * A TROCA DE PROJETO, pelo lado do aluno.
+   *
+   * Com `aluno_projeto_unico=SIM` no servidor, quem já está em outro projeto não
+   * recebe mais uma recusa seca: recebe uma PERGUNTA (`troca_pendente`), com o
+   * formulário preenchido intacto, e a troca só acontece no segundo envio, que
+   * leva `trocar_de`. Nada é gravado entre uma coisa e outra — o servidor
+   * responde a pergunta sem pegar lock e sem escrever (04_Inscricoes.gs).
+   *
+   * O que estes testes guardam, e por que cada um existe:
+   *
+   *   - a pergunta é da TELA, não do navegador: nada de `window.confirm`, que
+   *     não cabe o nome dos projetos e aparece descolado do formulário;
+   *   - o segundo envio leva os ids que o SERVIDOR nomeou, e o site esquece do
+   *     `localStorage` TUDO o que mandou em `trocar_de` em qualquer `ok:true` —
+   *     senão ele continuaria dizendo "você já está inscrito", com um protocolo
+   *     morto, num projeto de onde o aluno saiu;
+   *   - a recusa por vaga cheia precisa dizer que NADA foi cancelado. Quem
+   *     clicou em "trocar e cancelar" e lê só "inscrição não concluída" conclui
+   *     que ficou sem projeto nenhum;
+   *   - falha na confirmação não devolve o botão original: a pergunta continua
+   *     na tela, e clicar em [Trocar] repete a rodada 2, nunca a 1.
+   *
+   * Os projetos e as matrículas são a FORMA do dado, nunca o dado: o falso já
+   * nasce com "Arte Digital Floripa" e "R+ Cidades", e a matrícula é 9110001.
+   */
+  grupo('a troca de projeto — a pergunta antes de cancelar');
+
+  const ARTE_ATIVA = {
+    projeto_id: 'p1', projeto_nome: 'Arte Digital Floripa', codigo: 'ARTE', em_espera: false
+  };
+  // A 1ª fase: `ok:false` porque nada foi gravado, `troca_pendente` porque não é
+  // erro — é uma pergunta esperando resposta.
+  const PERGUNTA = {
+    ok: false, troca_pendente: true,
+    erro: 'Você já está inscrito em Arte Digital Floripa.',
+    de: [ARTE_ATIVA]
+  };
+  const TROCA_FEITA = {
+    ok: true, duplicada: false, protocolo: 'PROTO-NOVO',
+    mensagem: 'Inscrição registrada com sucesso. ' +
+      'Sua inscrição anterior em Arte Digital Floripa foi cancelada.',
+    trocada: { de: [{ projeto_nome: 'Arte Digital Floripa', codigo: 'ARTE' }] }
+  };
+  const LEMBRANCA_DE_ARTE = { 'cesutech.inscricoes': JSON.stringify({ ARTE: 'PROTO-ANTIGO' }) };
+
+  /** Abre o site, entra em R+ Cidades (o projeto NOVO) e envia: a rodada 1. */
+  async function ateAPergunta(opcoes) {
+    const cena = await siteCarregado(Object.assign({ respostaEnvio: PERGUNTA }, opcoes || {}));
+    cena.entrarNoProjeto(1);
+    await cena.assentar();
+    await inscrever(cena);
+    return cena;
+  }
+
+  const clicarEmTrocar = (cena) => cena.el('botao-trocar-projeto').disparar('click');
+  const corpoDoPost = (cena, indice) => JSON.parse(cena.pedidosPost()[indice].opcoes.body);
+
+  const pergunta = await ateAPergunta();
+
+  teste('a pergunta ocupa o lugar do botão, e o formulário fica preenchido', () => {
+    // A MUTAÇÃO QUE DERRUBA: trocar o bloco por `window.confirm`.
+    verdadeiro(pergunta.visivel('bloco-troca'), 'a pergunta não apareceu');
+    igual(pergunta.visivel('botao-enviar'), false, 'o botão original continuou na tela');
+    igual(pergunta.confirmacoes.length, 0, 'apareceu um confirm do navegador');
+
+    // Sem `reset()`: a confirmação é o MESMO envio outra vez, e perder o
+    // preenchimento cobraria a digitação inteira por uma pergunta do site.
+    igual(pergunta.el('matricula').value, '9110001');
+    igual(pergunta.el('email').value, 'maria@exemplo.com');
+    igual(pergunta.el('declara_ciencia').checked, true);
+    verdadeiro(pergunta.visivel('area-formulario'), 'o formulário saiu da tela');
+  });
+
+  teste('ela nomeia os dois projetos, e diz o que será cancelado', () => {
+    // O título, o texto e os dois botões são lidos um a um porque no DOM falso
+    // os elementos do HTML são planos — não há árvore para somar o texto dos
+    // filhos. Na tela eles são as quatro linhas do mesmo bloco.
+    igual(pergunta.texto('bloco-troca-titulo'), 'Você já está inscrito em Arte Digital Floripa');
+
+    const t = pergunta.texto('bloco-troca-texto');
+    verdadeiro(contem(t, 'R+ Cidades'), t);
+    verdadeiro(contem(t, 'Arte Digital Floripa'), t);
+    verdadeiro(contem(t, 'CANCELADA'), t);
+    // A promessa que o servidor cumpre com o lock: sem vaga, nada muda.
+    verdadeiro(contem(t, 'nada muda'), t);
+
+    igual(pergunta.texto('botao-manter-inscricao'), 'Manter minha inscrição em Arte Digital Floripa');
+    igual(pergunta.texto('botao-trocar-projeto'),
+      'Trocar para R+ Cidades e cancelar Arte Digital Floripa');
+  });
+
+  teste('é um alertdialog, recebe o foco, e mora DENTRO do #area-formulario', () => {
+    // O lugar é decisão: no `#cartao-vagas` a pergunta sumiria sozinha, porque
+    // `renderizarCartaoVagas` redesenha aquele bloco a cada renovação da lista.
+    igual(pergunta.el('bloco-troca').getAttribute('role'), 'alertdialog');
+    verdadeiro(pergunta.el('bloco-troca').focos >= 1, 'a pergunta não recebeu o foco');
+
+    const area = HTML.indexOf('id="area-formulario"');
+    const bloco = HTML.indexOf('id="bloco-troca"');
+    const botao = HTML.indexOf('id="botao-enviar"');
+    verdadeiro(area !== -1 && bloco !== -1 && botao !== -1, 'algum dos três ids sumiu do HTML');
+    verdadeiro(bloco > area && bloco < botao,
+      'o bloco da troca saiu de dentro do formulário, ou foi parar depois do botão');
+  });
+
+  // O Enter tem de ser disparado FORA do `teste`, com `assentar()` no meio: o
+  // envio passa por `conferirMatricula().then(...)`, então o POST só sai numa
+  // microtarefa posterior. Medir a contagem na mesma volta do laço é medir o
+  // instante ANTES de o envio acontecer — e um teste desses fica verde com a
+  // guarda arrancada, que é como este nasceu.
+  const ANTES_DO_ENTER = pergunta.pedidosPost().length;
+  pergunta.enviarFormulario();
+  await pergunta.assentar();
+
+  teste('com a pergunta na tela, dar Enter no formulário não confirma nada', () => {
+    // O botão de enviar está escondido, mas o formulário continua submetendo com
+    // Enter num campo — e quem aperta Enter lendo "será CANCELADA" não está
+    // respondendo à pergunta. *Mutação:* tirar a guarda de `ESTADO.trocaPendente`
+    // de `enviar` → sai um POST com `trocar_de` que ninguém clicou → cai.
+    igual(pergunta.pedidosPost().length, ANTES_DO_ENTER);
+    igual(pergunta.pedidosPost().length, 1, 'o único POST é o da rodada 1');
+    igual(corpoDoPost(pergunta, 0).trocar_de, undefined,
+      'o que não saiu era um cancelamento: o POST da rodada 1 não leva `trocar_de`');
+  });
+
+  // ---- a rodada 2: o mesmo envio, agora com `trocar_de`
+
+  const emVooDaTroca = await ateAPergunta({ demoras: { POST: [0, Infinity] } });
+  emVooDaTroca.respostaEnvio = TROCA_FEITA;
+  clicarEmTrocar(emVooDaTroca);
+  await emVooDaTroca.assentar();
+
+  teste('[Trocar] repete o envio com os MESMOS campos e os ids do servidor', () => {
+    // A MUTAÇÃO QUE DERRUBA: não mandar `trocar_de` — o servidor voltaria a
+    // perguntar, para sempre, e nenhuma troca aconteceria nunca.
+    igual(emVooDaTroca.pedidosPost().length, 2);
+
+    const primeiro = corpoDoPost(emVooDaTroca, 0);
+    const segundo = corpoDoPost(emVooDaTroca, 1);
+    igual(segundo.trocar_de, ['p1']);
+    igual(primeiro.trocar_de, undefined, 'a rodada 1 mandou trocar_de');
+    ['matricula', 'nome', 'curso_fase', 'email', 'whatsapp', 'declara_ciencia',
+      'consentimento_lgpd', 'autoriza_imagem'].forEach((campo) => {
+      igual(segundo[campo], primeiro[campo], 'o campo ' + campo + ' mudou entre as rodadas');
+    });
+  });
+
+  teste('e, enquanto ela está em voo, os botões da pergunta ficam desligados', () => {
+    // Dois cliques mandariam duas confirmações, e a segunda pediria para
+    // cancelar o que a primeira já cancelou.
+    igual(emVooDaTroca.el('botao-trocar-projeto').disabled, true);
+    igual(emVooDaTroca.el('botao-manter-inscricao').disabled, true);
+    verdadeiro(emVooDaTroca.visivel('status-envio'), 'a espera não foi anunciada');
+    verdadeiro(contem(emVooDaTroca.texto('status-envio'), 'Enviando sua inscrição'),
+      emVooDaTroca.texto('status-envio'));
+    verdadeiro(emVooDaTroca.visivel('bloco-troca'), 'a pergunta sumiu durante o envio');
+  });
+
+  const trocou = await ateAPergunta({ armazenamento: LEMBRANCA_DE_ARTE });
+  trocou.respostaEnvio = TROCA_FEITA;
+  clicarEmTrocar(trocou);
+  await trocou.assentar();
+
+  teste('a troca concluída mostra o protocolo NOVO e diz o que foi cancelado', () => {
+    verdadeiro(trocou.visivel('painel-sucesso'), 'o comprovante não apareceu');
+    verdadeiro(contem(trocou.texto('sucesso-protocolo'), 'PROTO-NOVO'), 'o protocolo novo sumiu');
+    igual(contem(trocou.texto('sucesso-protocolo'), 'PROTO-ANTIGO'), false,
+      'o comprovante mostrou o protocolo da inscrição cancelada');
+    igual(trocou.texto('sucesso-projeto-nome'), 'R+ Cidades');
+
+    verdadeiro(trocou.visivel('sucesso-aviso'), 'a faixa do cancelamento não apareceu');
+    verdadeiro(contem(trocou.texto('sucesso-aviso'), 'anterior em Arte Digital Floripa foi cancelada'),
+      trocou.texto('sucesso-aviso'));
+  });
+
+  teste('e o navegador passa a lembrar do projeto NOVO, e só dele', () => {
+    // D17. A MUTAÇÃO QUE DERRUBA: não esquecer a antiga — o site continuaria
+    // dizendo "você já está inscrito" num projeto que o servidor cancelou.
+    const dados = JSON.parse(trocou.armazenamento.dados['cesutech.inscricoes']);
+    igual(dados.CIDADES, 'PROTO-NOVO');
+    igual(Object.prototype.hasOwnProperty.call(dados, 'ARTE'), false,
+      'a lembrança do projeto cancelado ficou');
+  });
+
+  const semTrocada = await ateAPergunta({ armazenamento: LEMBRANCA_DE_ARTE });
+  semTrocada.respostaEnvio = {
+    ok: true, duplicada: true, mensagem: 'Você já está inscrito neste projeto.'
+  };
+  clicarEmTrocar(semTrocada);
+  await semTrocada.assentar();
+
+  teste('`ok:true` SEM `trocada` esquece a antiga do mesmo jeito', () => {
+    // O caso real: a coordenação anulou a inscrição antiga entre a pergunta e a
+    // confirmação, e o servidor gravou a nova direto — ou a resposta do commit
+    // se perdeu e o reenvio voltou `duplicada`. Nos dois, a antiga não existe
+    // mais. *Mutação:* esquecer só quando vem `trocada` → cai.
+    const dados = JSON.parse(semTrocada.armazenamento.dados['cesutech.inscricoes']);
+    igual(Object.prototype.hasOwnProperty.call(dados, 'ARTE'), false);
+    verdadeiro(Object.prototype.hasOwnProperty.call(dados, 'CIDADES'), 'não lembrou do novo');
+  });
+
+  // ---- a vaga que acaba entre a pergunta e a confirmação
+
+  const perdeuAVaga = await ateAPergunta();
+  perdeuAVaga.respostaEnvio = {
+    ok: false, situacao: 'ESGOTADO',
+    erro: 'As vagas de R+ Cidades acabaram agora. Sua inscrição em Arte Digital Floripa foi mantida.',
+    mantida: [ARTE_ATIVA]
+  };
+  clicarEmTrocar(perdeuAVaga);
+  await perdeuAVaga.assentar();
+
+  teste('vaga cheia na confirmação: o aviso diz que NADA foi cancelado', () => {
+    // A MUTAÇÃO QUE DERRUBA: manter o texto de sempre ("seus dados não foram
+    // registrados") — quem acabou de autorizar um cancelamento leria isso como
+    // "fiquei sem os dois".
+    const t = perdeuAVaga.texto('aviso-perda-vaga');
+    verdadeiro(perdeuAVaga.visivel('aviso-perda-vaga'), 'o aviso não apareceu');
+    // O TÍTULO é o da situação, e são três, como as do detalhe. *Mutação:* dar
+    // ao título só dois ramos (o que ele tinha) → o esgotado continua certo e as
+    // outras duas viram "as inscrições foram encerradas" em negrito.
+    verdadeiro(contem(t, 'ficou sem vaga'), 'o título não é o do esgotado: ' + t);
+    verdadeiro(contem(t, 'não recebe mais inscrições') === false, t);
+    verdadeiro(contem(t, 'saiu da lista') === false, t);
+    verdadeiro(contem(t, 'continua valendo'), t);
+    verdadeiro(contem(t, 'nada foi cancelado'), t);
+    verdadeiro(contem(t, 'Arte Digital Floripa'), t);
+    igual(perdeuAVaga.visivel('area-formulario'), false, 'o formulário ficou na tela');
+
+    // E a pergunta foi DESMONTADA junto: o botão de sempre está de volta no
+    // lugar dela, dentro do formulário fechado. *Mutação:* não zerar a troca
+    // neste caminho → o formulário guarda, escondido, o bloco de uma
+    // confirmação que não vale mais.
+    verdadeiro(perdeuAVaga.visivel('botao-enviar'), 'o formulário guardou a pergunta morta');
+    igual(perdeuAVaga.visivel('bloco-troca'), false);
+  });
+
+  perdeuAVaga.respostaEnvio = {
+    ok: true, duplicada: false, mensagem: 'Inscrição registrada.', protocolo: 'PROTO-OUTRO'
+  };
+  perdeuAVaga.voltarParaLista();
+  await perdeuAVaga.assentar();
+  perdeuAVaga.entrarNoProjeto(0);
+  await perdeuAVaga.assentar();
+  await inscrever(perdeuAVaga);
+
+  teste('e a confirmação morre ali: o próximo envio não leva trocar_de nenhum', () => {
+    // *Mutação:* não zerar `trocaPendente` no caminho da vaga perdida → o envio
+    // seguinte, noutro projeto, pediria um cancelamento que o aluno autorizou
+    // para outra tela → cai.
+    //
+    // A contagem faz parte da afirmação: com a troca viva, o envio seguinte nem
+    // sairia (o formulário se recusa a submeter enquanto há pergunta na tela), e
+    // um teste que só olhasse o ÚLTIMO corpo leria o da rodada 1 e passaria.
+    igual(perdeuAVaga.pedidosPost().length, 3, 'o terceiro envio não saiu');
+    igual(corpoDoPost(perdeuAVaga, 2).trocar_de, undefined);
+  });
+
+  // ---- o projeto que FECHA (ou some) entre a pergunta e a confirmação
+
+  const fechouNoMeio = await ateAPergunta();
+  fechouNoMeio.respostaEnvio = {
+    ok: false, situacao: 'FECHADO',
+    erro: 'As inscrições de R+ Cidades foram encerradas. Sua inscrição em Arte Digital Floripa foi mantida.',
+    mantida: [ARTE_ATIVA]
+  };
+  clicarEmTrocar(fechouNoMeio);
+  await fechouNoMeio.assentar();
+
+  teste('projeto fechado na confirmação: a abertura é a da situação, e o fecho é o mesmo', () => {
+    // O servidor manda `mantida` em QUALQUER recusa por situação (não só no
+    // ESGOTADO), e a frase daqui é a gêmea de `fraseDaVagaPerdida_`
+    // (04_Inscricoes.gs). *Mutação:* usar a abertura do esgotado para tudo → o
+    // aviso diria "as vagas acabaram" sobre um projeto que fechou a inscrição,
+    // e o aluno ficaria esperando uma vaga que não vai abrir.
+    const t = fechouNoMeio.texto('aviso-perda-vaga');
+    verdadeiro(contem(t, 'foram encerradas'), t);
+    verdadeiro(contem(t, 'acabaram agora') === false, 'a abertura do esgotado vazou: ' + t);
+    verdadeiro(contem(t, 'não recebe mais inscrições'), 'o título não é o do projeto fechado: ' + t);
+    verdadeiro(contem(t, 'ficou sem vaga') === false, 'o título do esgotado vazou: ' + t);
+    verdadeiro(contem(t, 'nada foi cancelado'), t);
+  });
+
+  // ---- o MESMO aviso no caminho comum: sem troca nenhuma, com a regra desligada
+
+  const comumEsgotou = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'ESGOTADO', erro: 'As vagas de R+ Cidades acabaram agora.' }
+  });
+  comumEsgotou.entrarNoProjeto(1);
+  await comumEsgotou.assentar();
+  await inscrever(comumEsgotou);
+
+  const comumFechou = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'FECHADO', erro: 'As inscrições para R+ Cidades estão encerradas.' }
+  });
+  comumFechou.entrarNoProjeto(1);
+  await comumFechou.assentar();
+  await inscrever(comumFechou);
+
+  const comumSumiu = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'INATIVO', erro: 'O projeto R+ Cidades não está mais disponível.' }
+  });
+  comumSumiu.entrarNoProjeto(1);
+  await comumSumiu.assentar();
+  await inscrever(comumSumiu);
+
+  teste('o título das três situações vale no caminho COMUM — o único que existe com a regra desligada', () => {
+    // Os outros testes deste aviso passam todos por uma troca (`mantida` na
+    // resposta). Mas o título mudou para TODO aluno, inclusive com
+    // `aluno_projeto_unico=NAO`, que é como o sistema vai para produção: é o
+    // caminho de quem se inscreve e descobre que o projeto encheu enquanto ele
+    // preenchia. *Mutação:* devolver o título a duas aberturas ("as vagas
+    // acabaram agora" / "as inscrições foram encerradas") → o esgotado continua
+    // certo, o fechado perde o prazo e o inativo passa a dizer "encerradas"
+    // logo acima de "não está mais disponível", que é o defeito que existia.
+    const esgotado = comumEsgotou.texto('aviso-perda-vaga');
+    verdadeiro(contem(esgotado, 'ficou sem vaga'), 'esgotado: ' + esgotado);
+    verdadeiro(contem(esgotado, 'não recebe mais inscrições') === false, esgotado);
+    verdadeiro(contem(esgotado, 'saiu da lista') === false, esgotado);
+    igual(contem(esgotado, 'foi mantida'), false, 'sem troca não há nada a manter: ' + esgotado);
+
+    const fechado = comumFechou.texto('aviso-perda-vaga');
+    verdadeiro(contem(fechado, 'não recebe mais inscrições'), 'fechado: ' + fechado);
+    verdadeiro(contem(fechado, 'ficou sem vaga') === false, fechado);
+    verdadeiro(contem(fechado, 'saiu da lista') === false, fechado);
+
+    const inativo = comumSumiu.texto('aviso-perda-vaga');
+    verdadeiro(contem(inativo, 'saiu da lista'), 'inativo: ' + inativo);
+    verdadeiro(contem(inativo, 'foram encerradas') === false,
+      'o título do fechado vazou para o projeto que sumiu: ' + inativo);
+    verdadeiro(contem(inativo, 'ficou sem vaga') === false, inativo);
+  });
+
+  const desligado = await ateAPergunta();
+  desligado.respostaEnvio = {
+    ok: false, situacao: 'INATIVO',
+    erro: 'O projeto R+ Cidades não está mais disponível. Sua inscrição em Arte Digital Floripa foi mantida.',
+    mantida: [ARTE_ATIVA]
+  };
+  clicarEmTrocar(desligado);
+  await desligado.assentar();
+
+  teste('projeto desligado na confirmação: ele não teve as inscrições encerradas, ele sumiu', () => {
+    // *Mutação:* juntar INATIVO com FECHADO numa abertura só → o aviso diz
+    // "encerradas" sobre um projeto que a coordenação tirou do ar, e quem ler
+    // vai procurar o prazo em vez de procurar a coordenação.
+    const t = desligado.texto('aviso-perda-vaga');
+    verdadeiro(contem(t, 'não está mais disponível'), t);
+    // A EXCLUSÃO vale para o aviso INTEIRO, e não só para o detalhe: o título é
+    // um `<strong>` no MESMO elemento, e por muito tempo ele dizia "as
+    // inscrições foram encerradas" logo acima de "não está mais disponível" —
+    // as duas coisas ao mesmo tempo, sobre o mesmo projeto.
+    verdadeiro(contem(t, 'foram encerradas') === false, 'a abertura do fechado vazou: ' + t);
+    verdadeiro(contem(t, 'saiu da lista'), 'o título não é o do projeto desligado: ' + t);
+    verdadeiro(contem(t, 'acabaram agora') === false, t);
+    verdadeiro(contem(t, 'nada foi cancelado'), t);
+  });
+
+  // ---- [Manter]: a saída que não escreve nada
+
+  const manteve = await ateAPergunta();
+  const postsAteAqui = manteve.pedidosPost().length;
+  manteve.el('botao-manter-inscricao').disparar('click');
+  await manteve.assentar();
+
+  teste('[Manter] some com a pergunta, devolve o botão e volta para a lista', () => {
+    // A MUTAÇÃO QUE DERRUBA: mandar um POST de "desisti" — não existe tal coisa,
+    // e o servidor não escreveu nada que precise ser desfeito.
+    igual(manteve.pedidosPost().length, postsAteAqui, 'saiu um POST de quem desistiu');
+    igual(manteve.visivel('bloco-troca'), false, 'a pergunta continuou na tela');
+    verdadeiro(manteve.visivel('botao-enviar'), 'o botão de enviar não voltou');
+    verdadeiro(manteve.visivel('tela-lista'), 'não voltou para a lista');
+  });
+
+  // ---- a confirmação que FALHA
+
+  const falhou = await ateAPergunta();
+  falhou.respostaEnvio = {
+    ok: false, erro: 'Muita gente se inscrevendo agora. Tente de novo em instantes.'
+  };
+  clicarEmTrocar(falhou);
+  await falhou.assentar();
+
+  teste('confirmação que falha mantém a pergunta, com os botões de volta', () => {
+    // A MUTAÇÃO QUE DERRUBA: `restaurarBotao` mostrando o botão original —
+    // ficariam dois caminhos na tela, um que confirma a troca e outro que
+    // refaz a pergunta, e quem clicasse no de cima voltaria ao começo.
+    verdadeiro(falhou.visivel('bloco-troca'), 'a pergunta sumiu com a falha');
+    igual(falhou.visivel('botao-enviar'), false, 'o botão original voltou');
+    igual(falhou.el('botao-trocar-projeto').disabled, false, 'o [Trocar] ficou desligado');
+    igual(falhou.el('botao-manter-inscricao').disabled, false, 'o [Manter] ficou desligado');
+    verdadeiro(falhou.visivel('erro-geral'), 'a falha não foi dita');
+    verdadeiro(contem(falhou.texto('erro-geral'), 'Muita gente'), falhou.texto('erro-geral'));
+  });
+
+  falhou.respostaEnvio = TROCA_FEITA;
+  clicarEmTrocar(falhou);
+  await falhou.assentar();
+
+  teste('e clicar em [Trocar] de novo repete a RODADA 2, não a 1', () => {
+    igual(falhou.pedidosPost().length, 3);
+    igual(corpoDoPost(falhou, 2).trocar_de, ['p1']);
+    verdadeiro(falhou.visivel('painel-sucesso'), 'a terceira tentativa não concluiu');
+  });
+
+  // ---- a re-pergunta: outra aba mexeu no meio
+
+  const repergunta = await ateAPergunta();
+  repergunta.respostaEnvio = {
+    ok: false, troca_pendente: true,
+    erro: 'Você já está inscrito em Horta Comunitária.',
+    de: [{ projeto_id: 'p9', projeto_nome: 'Horta Comunitária', codigo: 'HORTA', em_espera: false }]
+  };
+  clicarEmTrocar(repergunta);
+  await repergunta.assentar();
+
+  teste('o conjunto mudou: a pergunta é redesenhada com o que o servidor viu agora', () => {
+    // O servidor reconfere dentro do lock e re-pergunta em vez de cancelar o que
+    // achar (D9). A tela tem de mostrar o conjunto NOVO. *Mutação:* acrescentar
+    // em vez de redesenhar → o projeto antigo continuaria escrito na pergunta.
+    const t = repergunta.texto('bloco-troca-titulo') + ' ' +
+      repergunta.texto('bloco-troca-texto') + ' ' +
+      repergunta.texto('botao-trocar-projeto');
+    verdadeiro(contem(t, 'Horta Comunitária'), t);
+    igual(contem(t, 'Arte Digital Floripa'), false, 'a pergunta velha ficou na tela');
+    verdadeiro(repergunta.visivel('bloco-troca'));
+  });
+
+  repergunta.respostaEnvio = TROCA_FEITA;
+  clicarEmTrocar(repergunta);
+  await repergunta.assentar();
+
+  teste('e o envio seguinte leva os ids NOVOS, não os que o aluno viu primeiro', () => {
+    igual(corpoDoPost(repergunta, 2).trocar_de, ['p9']);
+  });
+
+  // ---- navegar embora
+
+  const navegou = await ateAPergunta();
+  navegou.voltarParaLista();
+  await navegou.assentar();
+  navegou.entrarNoProjeto(0);
+  await navegou.assentar();
+  // A foto do estado ANTES de o formulário ser aberto de novo: é o que separa o
+  // zerar de `mostrarProjeto` do zerar de `abrirFormulario`. Os dois existem, e
+  // sem esta leitura um deles poderia sumir sem nada ficar vermelho.
+  const aoEntrarNoOutro = {
+    bloco: navegou.visivel('bloco-troca'),
+    botao: navegou.visivel('botao-enviar')
+  };
+  navegou.respostaEnvio = {
+    ok: true, duplicada: false, mensagem: 'Inscrição registrada.', protocolo: 'PROTO-TERCEIRO'
+  };
+  await inscrever(navegou);
+
+  teste('entrar noutro projeto zera a troca pendente', () => {
+    // A MUTAÇÃO QUE DERRUBA: não zerar — a confirmação dada para R+ Cidades
+    // cancelaria a inscrição anterior num envio feito para outro projeto.
+    igual(aoEntrarNoOutro.bloco, false, 'a pergunta veio junto para o outro projeto');
+    verdadeiro(aoEntrarNoOutro.botao, 'o botão de enviar continuou escondido no outro projeto');
+    igual(navegou.pedidosPost().length, 2, 'o envio no outro projeto não saiu');
+    igual(corpoDoPost(navegou, 1).trocar_de, undefined);
+    igual(navegou.visivel('bloco-troca'), false);
+    verdadeiro(navegou.visivel('painel-sucesso'), 'a inscrição no outro projeto não concluiu');
+  });
+
+  const reabriu = await ateAPergunta();
+  reabriu.clicarNoCartaoDeVagas('Quero me inscrever');
+
+  teste('reabrir o formulário no mesmo projeto também desmonta a pergunta', () => {
+    // O caminho é real: a pergunta está na tela, o aluno rola para cima e clica
+    // de novo em "Quero me inscrever". Formulário que ABRE é formulário em
+    // branco para o servidor — a resposta de uma pergunta feita sobre o que
+    // estava preenchido antes não vale para o que ele digitar agora.
+    // *Mutação:* tirar o `zerarTroca` de `abrirFormulario` → cai.
+    igual(reabriu.visivel('bloco-troca'), false, 'a pergunta sobreviveu à reabertura');
+    verdadeiro(reabriu.visivel('botao-enviar'), 'o botão de enviar não voltou');
+  });
+
+  // ---- a ressalva na lembrança local
+
+  const lembranca = await siteCarregado({ armazenamento: LEMBRANCA_DE_ARTE });
+  lembranca.entrarNoProjeto(0);
+  await lembranca.assentar();
+
+  teste('a lembrança local avisa que pode estar desatualizada', () => {
+    // Quem trocou de projeto pelo celular continua vendo "você já está inscrito"
+    // no computador do laboratório: o cancelamento foi no servidor, e ninguém
+    // avisa este `localStorage`. *Mutação:* tirar a frase → a certeza falsa
+    // volta, sem nada na tela que a contradiga.
+    const t = lembranca.texto('cartao-vagas');
+    verdadeiro(contem(t, 'Você já está inscrito'), t);
+    verdadeiro(contem(t, 'trocou de projeto em outro aparelho'), t);
+  });
+
   // ==================================================== estilos e acessibilidade
 
   grupo('o que o CSS precisa ter para nada disso ficar sem estilo');
 
   teste('as classes novas existem no estilos.css', () => {
     ['.ja-inscrito', '.ligacao-discreta', '.sucesso-projeto', '.vagas-nota',
-      '.faixa-janela', '.faixa-janela__contador', '.vagas-nota--abaixo'].forEach((classe) => {
+      '.faixa-janela', '.faixa-janela__contador', '.vagas-nota--abaixo',
+      // A pergunta da troca e o botão que cancela a inscrição anterior. Sem
+      // estilo, o bloco de atenção viraria texto solto e o botão destrutivo
+      // ficaria igual ao de não fazer nada.
+      '.bloco-troca', '.btn--perigo'].forEach((classe) => {
       verdadeiro(contem(CSS, classe), classe + ' não tem estilo');
     });
   });

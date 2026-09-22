@@ -5,6 +5,15 @@
  * A navegação usa ?projeto=<codigo> na URL, então cada projeto tem link próprio
  * e o botão voltar do navegador funciona.
  *
+ * A INSCRIÇÃO PODE PEDIR DUAS RODADAS, e é o servidor quem decide: com a regra
+ * de um projeto ativo por matrícula ligada (`aluno_projeto_unico`), o primeiro
+ * POST de quem já está em outro projeto volta `troca_pendente` — sem gravar nada
+ * — e a tela troca o botão de enviar por um bloco de confirmação, com o
+ * formulário preenchido intacto atrás dele. O segundo POST é o MESMO envio, com
+ * `trocar_de` a mais: é ele que autoriza o cancelamento da inscrição anterior.
+ * O site nunca decide sozinho que há uma troca a fazer, e nunca pela lembrança
+ * do `localStorage` — ver `ESTADO.trocaPendente`.
+ *
  * O POST vai direto para o Apps Script. O detalhe que faz isso passar sem CORS:
  * Content-Type text/plain. Com application/json o navegador dispara um preflight
  * OPTIONS, e o Apps Script não responde OPTIONS — a requisição morre antes de
@@ -45,6 +54,17 @@
     timerEspera: null,
     avisarAoSair: null,
     matricula: { estado: 'vazio', valor: '', bloqueia: false },
+    // A TROCA DE PROJETO PENDENTE: o conjunto que o servidor mandou em `de` ao
+    // responder `troca_pendente` — as inscrições ATIVAS desta matrícula, que
+    // serão canceladas se o aluno confirmar. `null` é "não há pergunta na tela".
+    //
+    // Quem diz que existe uma troca a fazer é SEMPRE o servidor. O site nunca
+    // decide isso pelo `localStorage`: a lembrança local é de um navegador só —
+    // o aluno que se inscreveu pelo computador do laboratório e voltou pelo
+    // celular não tem lembrança nenhuma, e o que se inscreveu duas vezes no
+    // mesmo navegador tem lembrança demais. O que mora aqui é a resposta de uma
+    // pergunta JÁ FEITA, para o segundo envio saber o que confirmar.
+    trocaPendente: null,
     // Vereditos de matrícula já recebidos NESTA página, por matrícula e projeto.
     // Ver `conferirMatricula`: é o que evita esperar de novo pelo mesmo "sim".
     matriculasConferidas: {},
@@ -87,6 +107,15 @@
       e.target.value = e.target.value.replace(/\D/g, '');
       if (ESTADO.matricula.estado !== 'vazio') marcarMatricula('digitando');
     });
+
+    // Os dois botões da pergunta da troca vêm do HTML, e são ligados UMA vez,
+    // aqui: criá-los a cada resposta `troca_pendente` — ou religá-los — somaria
+    // um ouvinte por redesenho, e o clique seguinte mandaria dois POSTs. O que
+    // muda a cada pergunta é só o texto deles (`pedirConfirmacaoDeTroca`).
+    document.getElementById('botao-manter-inscricao')
+      .addEventListener('click', manterInscricao);
+    document.getElementById('botao-trocar-projeto')
+      .addEventListener('click', confirmarTroca);
 
     ligarMenuTopo();
 
@@ -739,6 +768,11 @@
     esconder('painel-sucesso');
     esconder('aviso-perda-vaga');
     esconder('area-formulario');
+    // A pergunta da troca é de UM projeto: ela nomeia o projeto novo ("trocar
+    // para Y e cancelar X") e foi respondida pelo servidor para o alvo Y. Entrar
+    // noutro projeto com ela viva mandaria o `trocar_de` de Y junto do envio de
+    // Z — cancelando X por uma confirmação que o aluno deu para outra coisa.
+    zerarTroca();
     // O CARTÃO DE VAGAS VOLTA A APARECER, e esta linha é um conserto.
     //
     // `concluir` esconde o cartão para o painel de sucesso ocupar o lugar dele, e
@@ -977,6 +1011,19 @@
       'Não é preciso preencher o formulário de novo.';
     bloco.appendChild(detalhe);
 
+    // A RESSALVA DA TROCA. Com um projeto ativo por matrícula, a lembrança deste
+    // navegador pode falar de uma inscrição que já não existe: quem trocou de
+    // projeto pelo celular continua vendo "você já está inscrito" no computador
+    // do laboratório, porque o cancelamento aconteceu no servidor e ninguém
+    // avisa este `localStorage`. O site não tem como conferir sozinho (seria
+    // perguntar a um servidor que só responde a POST com matrícula e e-mail), e
+    // o silêncio é pior: dizer a ressalva custa uma linha e tira a certeza
+    // falsa. O caminho de volta já existe logo abaixo, no "Não foi você?".
+    var ressalva = document.createElement('span');
+    ressalva.textContent = 'Se você trocou de projeto em outro aparelho, ' +
+      'esta lembrança pode estar desatualizada.';
+    bloco.appendChild(ressalva);
+
     var voltar = document.createElement('button');
     voltar.type = 'button';
     voltar.className = 'btn btn--bloco';
@@ -1046,6 +1093,28 @@
     }
   }
 
+  /**
+   * Apaga a lembrança de um projeto — o outro lado de `lembrarInscricao`.
+   *
+   * Existe por causa da troca: a inscrição em X foi CANCELADA no servidor, e
+   * deixar a lembrança de pé faria o site mostrar "você já está inscrito" (com o
+   * protocolo velho, que não vale mais) num projeto onde o aluno não está. É o
+   * único caso em que o site apaga: ele nunca tenta adivinhar que uma inscrição
+   * sumiu — só sabe das que ele mesmo mandou cancelar, em `trocar_de`.
+   */
+  function esquecerInscricao(codigo) {
+    if (!codigo) return;
+    try {
+      var dados = inscricoesLocais();
+      if (!Object.prototype.hasOwnProperty.call(dados, codigo)) return;
+      delete dados[codigo];
+      window.localStorage.setItem(CHAVE_INSCRICOES, JSON.stringify(dados));
+    } catch (e) {
+      // Armazenamento bloqueado: não havia lembrança para apagar, então não há
+      // o que consertar aqui — pelo mesmo motivo de `lembrarInscricao`.
+    }
+  }
+
   function estaInscritoLocalmente(codigo) {
     // `hasOwnProperty` e não a verdade do valor: inscrição duplicada volta sem
     // protocolo, e o valor gravado é a string vazia.
@@ -1065,6 +1134,10 @@
     if (!temCursos) renovarConfig();
 
     mostrar('area-formulario');
+    // Formulário que ABRE é formulário em branco para o servidor: o aluno vai
+    // preencher de novo, e a pergunta que sobrou de uma tentativa anterior não
+    // vale para o que ele digitar agora.
+    zerarTroca();
     ESTADO.momentoInicio = Date.now();
     document.getElementById('area-formulario').scrollIntoView({ block: 'start' });
     document.getElementById('matricula').focus();
@@ -1441,6 +1514,16 @@
     ev.preventDefault();
     esconder('erro-geral');
 
+    // COM A PERGUNTA DA TROCA NA TELA, ENTER NÃO CONFIRMA NADA. O botão de
+    // enviar está escondido, mas o formulário continua submetendo quando se
+    // aperta Enter dentro de um campo — e quem aperta Enter enquanto lê "sua
+    // inscrição em X será CANCELADA" não está respondendo à pergunta. O envio
+    // que cancela uma inscrição sai do botão [Trocar], e de nenhum outro lugar.
+    if (ESTADO.trocaPendente) {
+      document.getElementById('bloco-troca').focus();
+      return;
+    }
+
     // A conferência é assíncrona: garante que ela terminou antes de decidir.
     conferirMatricula().then(function (matriculaOk) {
       if (!matriculaOk) {
@@ -1479,6 +1562,20 @@
       tempoPreenchimento: Date.now() - ESTADO.momentoInicio
     };
 
+    // A CONFIRMAÇÃO DA TROCA — a 2ª fase do mesmo POST (04_Inscricoes.gs): os
+    // ids de PROJETO que o aluno consentiu em cancelar, que são exatamente os
+    // que o servidor nomeou na pergunta. Vai o que veio de lá, nunca o que este
+    // navegador lembrava: o servidor reconfere o conjunto dentro do lock e
+    // re-pergunta se ele mudou (outra aba trocou no meio), e o que ele NÃO faz é
+    // cancelar o que achar.
+    //
+    // Sem pergunta pendente o campo não existe no envelope — é o envio de
+    // sempre, que é também o que acontece quando a regra está desligada no
+    // servidor (ali o campo é apagado do payload antes de qualquer leitura).
+    if (ESTADO.trocaPendente) {
+      dados.trocar_de = ESTADO.trocaPendente.map(function (a) { return a.projeto_id; });
+    }
+
     // SEM `signal` E SEM TEMPO-LIMITE, ao contrário de `buscar` — e quem vier
     // "uniformizar" isto precisa ler antes: a gravação é serializada no
     // servidor e o p95 medido passou de 45s (ver `FASES_ESPERA`), então um
@@ -1494,6 +1591,19 @@
       .then(function (r) { return r.json(); })
       .then(function (r) {
         restaurarBotao();
+
+        // A PERGUNTA VEM ANTES DO RAMO GENÉRICO DE FALHA, e a ordem é a decisão.
+        // `troca_pendente` chega com `ok:false` — e está certo que chegue, porque
+        // nada foi gravado —, mas ela não é um erro: é a única resposta do
+        // servidor que ESPERA uma segunda ação do aluno. Caísse no `falhar` lá
+        // embaixo, o "Você já está inscrito em X" apareceria numa faixa vermelha,
+        // sem os dois botões, e o aluno ficaria sabendo do impedimento sem a
+        // saída — que é justamente o que esta tela inteira existe para dar.
+        if (r && r.troca_pendente) {
+          pedirConfirmacaoDeTroca(r);
+          return;
+        }
+
         if (!r || !r.ok) {
           // Se lotou enquanto o aluno preenchia, atualiza a tela em vez de só
           // mostrar erro — assim ele vê a situação real e escolhe outro.
@@ -1514,6 +1624,12 @@
             // clicar em "Confirmar" e pode ler isso como sucesso. Ele precisa
             // saber que a inscrição DELE não entrou.
             anunciarPerdaDeVaga(r);
+            // A TROCA MORREU AQUI, e sem nada ter sido cancelado: o servidor
+            // recusou ANTES de escrever (a vaga do projeto novo acabou entre a
+            // pergunta e a confirmação). O `trocar_de` desta tentativa não pode
+            // sobreviver para o próximo envio, que será noutro projeto — ali ele
+            // seria uma confirmação que o aluno nunca deu para aquela tela.
+            zerarTroca();
             window.scrollTo(0, 0);
             return;
           }
@@ -1532,29 +1648,203 @@
    * Avisa que a inscrição não entrou porque a situação do projeto mudou
    * enquanto o aluno preenchia — tipicamente a última vaga sendo levada por
    * outra pessoa que enviou primeiro.
+   *
+   * O título tem as MESMAS TRÊS situações do detalhe (`fraseDoQueFicou` e a
+   * gêmea dela no servidor, `fraseDaVagaPerdida_` em 04_Inscricoes.gs), e não
+   * duas: com duas, um projeto DESLIGADO pela coordenação ganhava o título das
+   * inscrições encerradas e o aviso dizia as duas coisas na mesma faixa
+   * vermelha — "as inscrições foram encerradas" em cima e "não está mais
+   * disponível" embaixo. Quem lê a primeira procura o prazo; quem lê a segunda
+   * procura a coordenação.
+   *
+   * E o título NÃO repete a frase do detalhe: ele diz o motivo em duas palavras
+   * (sem vaga / prazo terminado / fora da lista) e o detalhe diz o motivo com o
+   * nome do projeto e o que sobrou. Repetir seria gastar a linha em negrito
+   * para dizer de novo o que vem logo abaixo.
    */
   function anunciarPerdaDeVaga(r) {
     var el = document.getElementById('aviso-perda-vaga');
 
     el.innerHTML = '';
     var titulo = document.createElement('strong');
-    titulo.textContent = r.situacao === 'ESGOTADO'
-      ? 'Sua inscrição não foi concluída — as vagas acabaram agora.'
-      : 'Sua inscrição não foi concluída — as inscrições foram encerradas.';
+    var motivo = 'o projeto ficou sem vaga';
+    if (r.situacao === 'FECHADO') motivo = 'este projeto não recebe mais inscrições';
+    else if (r.situacao !== 'ESGOTADO') motivo = 'este projeto saiu da lista';
+    titulo.textContent = 'Sua inscrição não foi concluída — ' + motivo + '.';
     el.appendChild(titulo);
 
     var detalhe = document.createElement('span');
     detalhe.style.display = 'block';
     detalhe.style.marginTop = '4px';
-    detalhe.textContent = r.situacao === 'ESGOTADO'
-      ? 'A última vaga foi preenchida por outra pessoa enquanto você preenchia o ' +
-        'formulário. Seus dados NÃO foram registrados neste projeto. Escolha outro ' +
-        'projeto na lista.'
-      : (r.erro || 'Procure a coordenação do CESUTECH.');
+    detalhe.textContent = (r.mantida && r.mantida.length)
+      ? fraseDoQueFicou(r)
+      : (r.situacao === 'ESGOTADO'
+        ? 'A última vaga foi preenchida por outra pessoa enquanto você preenchia o ' +
+          'formulário. Seus dados NÃO foram registrados neste projeto. Escolha outro ' +
+          'projeto na lista.'
+        : (r.erro || 'Procure a coordenação do CESUTECH.'));
     el.appendChild(detalhe);
 
     el.classList.remove('oculto');
     el.focus();
+  }
+
+  /**
+   * "As vagas acabaram, e você NÃO ficou sem nada" — o aviso da vaga perdida
+   * quando o servidor mandou `mantida`.
+   *
+   * O texto de sempre não serve aqui, e a diferença é tudo: quem clicou em
+   * "Trocar para Y e cancelar X" acabou de autorizar um cancelamento, e ler
+   * "sua inscrição não foi concluída" sem mais nada é concluir que ficou fora
+   * dos dois projetos. A frase precisa dizer, com todas as letras, que nada foi
+   * cancelado — e o servidor só manda `mantida` quando de fato não escreveu.
+   *
+   * Vale nas duas rodadas: na primeira (o projeto novo já estava cheio quando o
+   * aluno enviou, e nem houve pergunta) e na segunda (encheu entre a pergunta e
+   * a confirmação).
+   */
+  function fraseDoQueFicou(r) {
+    var alvo = ESTADO.projetoAtual ? ESTADO.projetoAtual.nome : 'deste projeto';
+    var nomes = nomesEmTexto(r.mantida.map(function (a) { return a.projeto_nome; }));
+
+    // As três aberturas são as de `fraseDaVagaPerdida_` (04_Inscricoes.gs), e é
+    // de propósito que sejam gêmeas: o servidor manda `mantida` em qualquer
+    // recusa por situação, e um projeto DESLIGADO no meio da decisão não teve
+    // "as inscrições encerradas" — ele sumiu da lista.
+    var abertura = 'As vagas de ' + alvo + ' acabaram agora. ';
+    if (r.situacao === 'FECHADO') abertura = 'As inscrições de ' + alvo + ' foram encerradas. ';
+    else if (r.situacao !== 'ESGOTADO') abertura = 'O projeto ' + alvo + ' não está mais disponível. ';
+
+    return abertura +
+      (r.mantida.length === 1
+        ? 'Sua inscrição em ' + nomes + ' continua valendo — nada foi cancelado.'
+        : 'Suas inscrições em ' + nomes + ' continuam valendo — nada foi cancelado.');
+  }
+
+  // ------------------------------------------------- A troca de projeto
+
+  /**
+   * A PERGUNTA: o bloco de confirmação no lugar do botão de enviar.
+   *
+   * Chega aqui quem enviou uma inscrição tendo outra ATIVA em outro projeto, com
+   * a regra `aluno_projeto_unico` ligada no servidor. Nada foi gravado, e nada
+   * será até o aluno clicar em trocar.
+   *
+   * Três cuidados, e os três são o motivo de a tela ser assim:
+   *
+   *   1. o FORMULÁRIO FICA COMO ESTÁ — nenhum `reset()`, nenhuma navegação. A
+   *      confirmação é o mesmo POST outra vez, e perder o preenchimento seria
+   *      cobrar a digitação inteira por uma pergunta que o site fez;
+   *   2. os nomes saem do que o SERVIDOR mandou em `de`, sempre. Ele reconfere o
+   *      conjunto dentro do lock, e uma re-pergunta (outra aba trocou no meio)
+   *      chega por aqui de novo, com o conjunto novo — o bloco é redesenhado
+   *      inteiro, nunca acrescentado;
+   *   3. o botão que cancela é o de ATENÇÃO, e é o segundo. O primeiro é o de
+   *      não fazer nada.
+   *
+   * `de` vazio não desenha pergunta nenhuma: um bloco dizendo "trocar para Y e
+   * cancelar" sem nome nenhum é pior que a faixa de erro, e a única forma de
+   * isso chegar aqui é resposta malformada.
+   */
+  function pedirConfirmacaoDeTroca(r) {
+    var de = (r && r.de) || [];
+    if (!de.length) {
+      falhar(r.erro || 'Não foi possível registrar a inscrição.');
+      return;
+    }
+
+    ESTADO.trocaPendente = de;
+
+    var alvo = ESTADO.projetoAtual ? ESTADO.projetoAtual.nome : 'este projeto';
+    var nomes = nomesEmTexto(de.map(function (a) { return a.projeto_nome; }));
+    var uma = de.length === 1;
+
+    texto('bloco-troca-titulo', (uma && de[0].em_espera)
+      ? 'Você está na lista de espera de ' + nomes
+      : 'Você já está inscrito em ' + nomes);
+
+    texto('bloco-troca-texto',
+      'Cada aluno participa de um projeto de extensão por semestre. Para se inscrever em ' +
+      alvo + ', ' + (uma
+        ? 'sua inscrição em ' + nomes + ' será CANCELADA e a vaga dela ficará livre para outra pessoa.'
+        : 'suas inscrições em ' + nomes + ' serão CANCELADAS e as vagas delas ficarão livres para outras pessoas.') +
+      ' Se ' + alvo + ' estiver sem vaga na hora da confirmação, nada muda e você continua em ' +
+      nomes + '.');
+
+    texto('botao-manter-inscricao',
+      (uma ? 'Manter minha inscrição em ' : 'Manter minhas inscrições em ') + nomes);
+    texto('botao-trocar-projeto', 'Trocar para ' + alvo + ' e cancelar ' + nomes);
+
+    botoesDaTroca(false);
+    // O botão original SAI da tela enquanto a pergunta está nela: deixá-lo ali
+    // daria dois caminhos para a mesma coisa, e o de cima repetiria a pergunta
+    // em vez de responder a ela.
+    esconder('botao-enviar');
+    mostrar('bloco-troca');
+
+    var bloco = document.getElementById('bloco-troca');
+    bloco.focus();
+    bloco.scrollIntoView({ block: 'center' });
+  }
+
+  /** [Manter]: nada foi enviado, nada será. A pergunta some e o aluno volta à lista. */
+  function manterInscricao() {
+    zerarTroca();
+    mostrarLista(false);
+  }
+
+  /** [Trocar]: a 2ª fase — o MESMO envio, agora com `trocar_de`. */
+  function confirmarTroca() {
+    esconder('erro-geral');
+    // Direto para o envio, sem passar por `enviar`: os campos são os mesmos que
+    // acabaram de ser validados e a matrícula é a mesma que acabou de ser
+    // conferida — o formulário não foi limpo nem reaberto entre uma coisa e
+    // outra. Repetir a validação aqui só teria efeito se o aluno tivesse
+    // editado algo ATRÁS do bloco, e aí o que ele confirmaria não seria o que
+    // ele viu na pergunta.
+    enviarDeVerdade();
+  }
+
+  /**
+   * Tira a pergunta da tela e do estado, e devolve o botão de sempre.
+   *
+   * Chamada em todo lugar onde a resposta deixa de valer: o aluno navegou, abriu
+   * o formulário de novo, desistiu, a troca foi concluída ou foi recusada sem
+   * escrita. O que não pode sobrar é `ESTADO.trocaPendente` vivo, porque ele é o
+   * que põe `trocar_de` no próximo envio.
+   */
+  function zerarTroca() {
+    ESTADO.trocaPendente = null;
+    esconder('bloco-troca');
+    mostrar('botao-enviar');
+  }
+
+  /** Liga e desliga os dois botões da pergunta — ver `iniciarEspera`. */
+  function botoesDaTroca(desligados) {
+    document.getElementById('botao-manter-inscricao').disabled = !!desligados;
+    document.getElementById('botao-trocar-projeto').disabled = !!desligados;
+  }
+
+  /**
+   * Os nomes numa frase: 'X', 'X e Y', 'X, Y e Z'.
+   *
+   * O gêmeo de `nomesEmTexto_` (04_Inscricoes.gs). São duas cópias de propósito:
+   * o servidor monta as frases DELE (a mensagem do comprovante, a recusa) e o
+   * site monta as daqui, e nenhuma das duas pontas pode depender da outra para
+   * escrever português.
+   */
+  function nomesEmTexto(nomes) {
+    if (!nomes.length) return '';
+    if (nomes.length === 1) return nomes[0];
+    return nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1];
+  }
+
+  /** "Sua inscrição anterior em X foi cancelada." — o que a troca deixou para trás. */
+  function fraseDaTrocaFeita(de) {
+    var nomes = nomesEmTexto(de.map(function (a) { return a.projeto_nome; }));
+    return de.length === 1
+      ? 'Sua inscrição anterior em ' + nomes + ' foi cancelada.'
+      : 'Suas inscrições anteriores em ' + nomes + ' foram canceladas.';
   }
 
   function concluir(r) {
@@ -1569,8 +1859,22 @@
     texto('sucesso-texto', r.mensagem + (r.duplicada ? '' :
       ' A coordenação entrará em contato pelo e-mail informado. Fique atento à sua caixa de entrada.'));
 
+    // O QUE A TROCA DEIXOU PARA TRÁS, na faixa de atenção do comprovante.
+    //
+    // A mensagem do servidor já traz a mesma frase no fim — e ela continua lá,
+    // de propósito: quem lê o parágrafo inteiro tem o fato no lugar certo, e
+    // quem só olha o cartão o vê destacado. A alternativa seria o site recortar
+    // um pedaço do texto que o servidor escreveu, e aí bastaria a frase de lá
+    // mudar uma vírgula para o comprovante sair com meia oração.
+    //
+    // `trocada` e `aviso` nunca chegam juntos: o primeiro é o da inscrição que
+    // cancelou outra, o segundo é o do reenvio de quem consta em dois projetos
+    // antigos, e o servidor decide um OU outro (04_Inscricoes.gs).
     var aviso = document.getElementById('sucesso-aviso');
-    if (r.aviso) { aviso.textContent = r.aviso; aviso.classList.remove('oculto'); }
+    var recado = (r.trocada && (r.trocada.de || []).length)
+      ? fraseDaTrocaFeita(r.trocada.de)
+      : r.aviso;
+    if (recado) { aviso.textContent = recado; aviso.classList.remove('oculto'); }
     else aviso.classList.add('oculto');
 
     var protocolo = document.getElementById('sucesso-protocolo');
@@ -1584,6 +1888,26 @@
     // A partir daqui este navegador sabe que o aluno entrou neste projeto —
     // é o que troca o botão pela confirmação quando ele voltar aqui.
     lembrarInscricao(p.codigo, r.protocolo);
+
+    // E ESQUECE TUDO O QUE MANDOU EM `trocar_de`, em QUALQUER resposta `ok:true`.
+    //
+    // São QUATRO desfechos, e o site esquece em todos: com `trocada` (o servidor
+    // cancelou a antiga agora), sem `trocada` (a coordenação já a tinha anulado
+    // no meio, e o servidor gravou a nova direto), na `duplicada` do reenvio
+    // depois de uma queda de rede (o commit da troca já tinha sido aplicado do
+    // lado de lá) e na `duplicada` HONESTA, em que a antiga continua VIVA
+    // porque outra porta gravou o projeto novo e o commit foi recusado. Nos três
+    // primeiros a antiga não existe mais; no quarto ela existe, e é por isso que
+    // a resposta vem com o `aviso` NOMEANDO o projeto dela — quem avisa é o
+    // servidor, que sabe, e não a lembrança do navegador, que ficaria
+    // oferecendo um protocolo sem saber se ele vale. Manter a lembrança faria o
+    // site dizer "você já está
+    // inscrito" — oferecendo um protocolo que morreu — num projeto de onde o
+    // aluno saiu. Apagar a lembrança de um projeto em que ele ainda estivesse
+    // custaria, no pior caso, um botão a mais na tela; o contrário esconde a
+    // inscrição que ele precisa fazer.
+    (ESTADO.trocaPendente || []).forEach(function (a) { esquecerInscricao(a.codigo); });
+    zerarTroca();
 
     document.getElementById('formulario').reset();
     window.scrollTo(0, 0);
@@ -1636,6 +1960,11 @@
     var botao = document.getElementById('botao-enviar');
     botao.disabled = true;
     botao.textContent = 'Enviando...';
+    // Os botões da pergunta também: na confirmação da troca é o [Trocar] que
+    // está em voo, e ele fica na tela enquanto espera. Sem isto, dois cliques
+    // mandariam duas confirmações, e o segundo pediria para cancelar uma
+    // inscrição que a primeira já cancelou.
+    botoesDaTroca(true);
 
     var aviso = document.getElementById('status-envio');
     aviso.className = 'aviso aviso--info';
@@ -1677,6 +2006,19 @@
     var botao = document.getElementById('botao-enviar');
     botao.disabled = false;
     botao.textContent = 'Confirmar inscrição';
+
+    // COM UMA TROCA PENDENTE O BOTÃO ORIGINAL CONTINUA ESCONDIDO, e isto é um
+    // caminho inteiro, não um detalhe: a confirmação que falha (lock estourado,
+    // rede caída, "Erro ao registrar") volta para cá com a pergunta ainda de pé.
+    // Mostrar "Confirmar inscrição" aí poria na tela duas saídas parecidas para
+    // coisas diferentes — uma que confirma a troca e outra que refaz a pergunta
+    // —, e o aluno que clicasse na de cima voltaria ao começo achando que estava
+    // terminando. Quem falhou clica em [Trocar] de novo, e é a mesma rodada 2.
+    if (ESTADO.trocaPendente) {
+      botoesDaTroca(false);
+      return;
+    }
+    mostrar('botao-enviar');
   }
 
   function falhar(mensagem) {

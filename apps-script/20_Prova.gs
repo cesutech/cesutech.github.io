@@ -13,7 +13,8 @@
  *
  * Ordem sugerida na primeira vez:
  *   provaConfigELog > provaUnicidade > provaOrdenacaoNaoCorrompe >
- *   provaTipoForte > provaVazao > provaAtualizarEmLote > provaLimpar
+ *   provaTipoForte > provaVazao > provaAtualizarEmLote > provaCommitMisto >
+ *   provaLimpar
  *
  * Se a primeira falhar com erro de Firestore, rode `provaConectar()`: ela é a
  * mais barata de todas e diz qual dos pré-requisitos está faltando.
@@ -34,6 +35,10 @@ var COL_ORDENACAO = PREFIXO_PROVA + 'ordenacao';
 var COL_TIPOS = PREFIXO_PROVA + 'tipos';
 var COL_VAZAO = PREFIXO_PROVA + 'vazao';
 var COL_PATCH = PREFIXO_PROVA + 'patch';
+// As duas da prova do `:commit` misto: ele atravessa COLEÇÕES, e uma só não
+// provaria nada disso.
+var COL_TROCA = PREFIXO_PROVA + 'troca';
+var COL_QUARENTENA = PREFIXO_PROVA + 'troca_anuladas';
 
 /** Chave de configuração reservada às provas. Nenhuma regra de negócio a lê. */
 var CHAVE_PROVA = 'prova_carimbo';
@@ -514,6 +519,123 @@ function provaAtualizarEmLote() {
   Logger.log(tudo ? 'atualizarEmLote/excluirEmLote com versão estão de pé.'
     : 'atualizarEmLote/excluirEmLote DIVERGEM do falso: NÃO usar a revisão em produção.');
   return { preservou: preservou, atomico: atomico, versionado: versionado, deleteSeguro: deleteSeguro };
+}
+
+/**
+ * Prova do `:commit` MISTO — `escreverAtomico` (02_Repo.gs) contra o Firestore
+ * de verdade.
+ *
+ * Sem número no nome de propósito: já existem dois "Prova 6" neste arquivo, e o
+ * que identifica uma prova é a afirmação que ela mede, não a posição na lista.
+ *
+ * É a primeira escrita do sistema que mistura VERBOS (update, delete) e
+ * COLEÇÕES na mesma requisição, e é dela que a TROCA DE PROJETO do aluno
+ * depende: copiar a inscrição antiga para a quarentena, apagá-la e criar a nova
+ * — tudo ou nada. O falso dos testes (testes/apoio.js) imita as precondições;
+ * aqui se mede se o banco concorda. Divergiu, corrigem-se o falso e
+ * `escreverAtomico` — nunca o contrário.
+ *
+ * É o item 1 do checklist de ligar `aluno_projeto_unico=SIM` (README). Três
+ * afirmações:
+ *
+ *   1. `gravar` (upsert noutra coleção) + `apagar` + `criar` (`exists:false`)
+ *      aplica os TRÊS numa requisição só;
+ *   2. com o id do `criar` JÁ OCUPADO, o commit inteiro volta ALREADY_EXISTS,
+ *      `escreverAtomico` devolve `{ jaExistia: true }` sem lançar, e o `apagar`
+ *      do mesmo lote NÃO foi aplicado — é isso que impede a troca de deixar o
+ *      aluno sem inscrição nenhuma;
+ *   3. `gravar` com `versao` de um documento que foi reescrito no meio tempo
+ *      volta FAILED_PRECONDITION e nada do lote entra (é a precondição das duas
+ *      promoções: 13_Auditorio.gs e 10_Painel.gs).
+ *
+ * Custa ~6 escritas, ~6 leituras e dois commits recusados. `provaLimpar()` apaga.
+ */
+function provaCommitMisto() {
+  Logger.log('=== provaCommitMisto ===');
+  var carimbo = String(new Date().getTime());
+  var velha = 'troca_velha_' + carimbo;
+  var nova = 'troca_nova_' + carimbo;
+
+  // A inscrição de partida, como o aluno a teria: ela é o que a troca copia,
+  // apaga e substitui.
+  escreverEmLote(COL_TROCA, [{
+    _id: velha, projeto_id: 'p_x', projeto_nome: 'Projeto X',
+    matricula: 'PROVA' + carimbo, nome: 'Aluno Sintetico', email: 'aluno@exemplo.com'
+  }]);
+  var original = ler(COL_TROCA, velha);
+
+  // 1. Os três verbos, duas coleções, uma requisição.
+  var r1 = escreverAtomico([
+    { gravar: { colecao: COL_QUARENTENA, id: velha, objeto: Object.assign({}, original, {
+      anulado_em: agora(), anulado_por: 'aluno', anulado_motivo: 'TROCA', trocado_para: nova
+    }) } },
+    { apagar: { colecao: COL_TROCA, id: velha } },
+    { criar: { colecao: COL_TROCA, id: nova, objeto: {
+      projeto_id: 'p_y', projeto_nome: 'Projeto Y', matricula: 'PROVA' + carimbo,
+      nome: 'Aluno Sintetico', email: 'aluno@exemplo.com', trocada_de: velha
+    } } }
+  ]);
+  var copia = ler(COL_QUARENTENA, velha);
+  var aplicou = r1.aplicado && !r1.jaExistia && r1.id === nova &&
+    ler(COL_TROCA, velha) === null && (ler(COL_TROCA, nova) || {}).projeto_id === 'p_y' &&
+    copia !== null && copia.anulado_motivo === 'TROCA' && copia.nome === 'Aluno Sintetico';
+  Logger.log('1. gravar + apagar + criar: ' + (aplicou
+    ? 'OK — a antiga saiu, a cópia ficou inteira na outra coleção e a nova nasceu'
+    : 'FALHOU — velha: ' + JSON.stringify(ler(COL_TROCA, velha)) +
+      '; nova: ' + JSON.stringify(ler(COL_TROCA, nova)) + '; cópia: ' + JSON.stringify(copia)));
+
+  // 2. O id do `criar` já ocupado. O `apagar` do mesmo lote não pode entrar: se
+  // entrasse, o aluno ficaria sem a antiga E sem a nova.
+  var outra = 'troca_outra_' + carimbo;
+  escreverEmLote(COL_TROCA, [{ _id: outra, projeto_id: 'p_z', nome: 'Outro Sintetico' }]);
+  var r2 = null;
+  var lancou = '';
+  try {
+    r2 = escreverAtomico([
+      { apagar: { colecao: COL_TROCA, id: outra } },
+      { criar: { colecao: COL_TROCA, id: nova, objeto: { projeto_id: 'p_y', nome: 'Nao Deve Entrar' } } }
+    ]);
+  } catch (e) {
+    lancou = e.status || e.message;
+  }
+  var sobreviveu = ler(COL_TROCA, outra) !== null;
+  var intacta = (ler(COL_TROCA, nova) || {}).nome === 'Aluno Sintetico';
+  var jaExistia = Boolean(r2 && r2.jaExistia && !r2.aplicado) && !lancou && sobreviveu && intacta;
+  Logger.log('2. `criar` em id ocupado: ' + (lancou ? 'LANÇOU ' + lancou : 'devolveu jaExistia=' +
+    (r2 && r2.jaExistia)) + '; o documento do `apagar` ' + (sobreviveu ? 'ficou' : 'SUMIU') +
+    '; a nova ' + (intacta ? 'não foi sobrescrita' : 'FOI SOBRESCRITA') +
+    ' -> ' + (jaExistia ? 'OK — nada do lote entrou' : 'FALHOU'));
+
+  // 3. A versão: alguém reescreve o documento entre a leitura e o commit.
+  var lido = ler(COL_TROCA, outra);
+  escreverEmLote(COL_TROCA, [Object.assign({}, lido, { nome: 'Reescrito Por Outro' })]);
+  var recusouVersao = '';
+  try {
+    escreverAtomico([
+      { gravar: { colecao: COL_TROCA, id: outra, objeto: Object.assign({}, lido, { nome: 'Promovido' }),
+                  versao: lido._versao } },
+      { apagar: { colecao: COL_TROCA, id: nova } }
+    ]);
+  } catch (e) {
+    recusouVersao = e.status || e.message;
+  }
+  var ficouReescrito = (ler(COL_TROCA, outra) || {}).nome === 'Reescrito Por Outro';
+  var novaViva = ler(COL_TROCA, nova) !== null;
+  var versionado = recusouVersao === 'FAILED_PRECONDITION' && ficouReescrito && novaViva;
+  Logger.log('3. `gravar` com a versão velha: ' + (recusouVersao ? 'recusou com ' + recusouVersao : 'NÃO recusou') +
+    '; o documento ficou como o outro o deixou: ' + ficouReescrito +
+    '; o `apagar` do mesmo lote ' + (novaViva ? 'não entrou' : 'ENTROU') +
+    ' -> ' + (versionado ? 'OK' : 'FALHOU'));
+
+  // A mensagem do erro não pode carregar o caminho do documento (D-27): quem
+  // chama responde e loga.
+  var semCaminho = recusouVersao.indexOf('projects/') === -1;
+  Logger.log('   (a mensagem da recusa ' + (semCaminho ? 'não traz' : 'TRAZ') + ' o caminho do documento)');
+
+  var tudo = aplicou && jaExistia && versionado;
+  Logger.log(tudo ? 'escreverAtomico está de pé: a troca de projeto pode ser ligada.'
+    : 'escreverAtomico DIVERGE do falso: NÃO ligar `aluno_projeto_unico=SIM`.');
+  return { aplicou: aplicou, jaExistia: jaExistia, versionado: versionado, semCaminho: semCaminho };
 }
 
 /**
