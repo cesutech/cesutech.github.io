@@ -680,7 +680,7 @@ teste('os três verbos saem num :commit só, cada um com a SUA precondição e n
     } } }
   ]);
 
-  igual(r, { aplicado: true, jaExistia: false, id: 'i_nova', escritas: 3 });
+  igual(r, { aplicado: true, jaExistia: false, retentou: false, id: 'i_nova', escritas: 3 });
 
   const commits = falso.requisicoes.filter((req) => req.url.indexOf(':commit') !== -1);
   igual(commits.length, 1, 'a troca inteira tem de caber em UMA requisição');
@@ -730,7 +730,7 @@ teste('com `versao`, gravar e apagar levam updateTime — e o carimbo velho derr
   const agora = api.ler('teste_inscricoes', 'i_antiga');
   igual(api.escreverAtomico([
     { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga', versao: agora._versao } }
-  ]), { aplicado: true, jaExistia: false, id: '', escritas: 1 });
+  ]), { aplicado: true, jaExistia: false, retentou: false, id: '', escritas: 1 });
   igual(ultima(falso).corpo.writes[0].currentDocument, { updateTime: agora._versao });
   igual(api.ler('teste_inscricoes', 'i_antiga'), null);
 });
@@ -752,7 +752,7 @@ teste('id novo já ocupado: o 409 vira jaExistia sem lançar, e NADA do lote ent
     { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001', projeto_id: 'p_y' } } }
   ]);
 
-  igual(r, { aplicado: false, jaExistia: true, id: 'i_nova', escritas: 3 });
+  igual(r, { aplicado: false, jaExistia: true, retentou: false, id: 'i_nova', escritas: 3 });
   igual(falso.requisicoes.length, 1, 'ALREADY_EXISTS não é retentado — é a unicidade funcionando');
   igual(api.ler('teste_anuladas', 'i_antiga'), null, 'a cópia entrou apesar da recusa');
   igual(api.ler('teste_inscricoes', 'i_antiga').projeto_nome, 'Robótica na Escola', 'a antiga foi apagada apesar da recusa');
@@ -792,10 +792,11 @@ teste('NOT_FOUND e FAILED_PRECONDITION lançam, e a mensagem sai sem o caminho d
 });
 
 teste('503 é retentado como em toda escrita, e a retentativa que encontra o documento devolve jaExistia', () => {
-  // A segunda metade é o caso REGISTRADO E NÃO RESOLVIDO do cabeçalho: se o 503
-  // vier na resposta de um commit que o banco já aplicou, a retentativa
-  // encontra o documento novo no lugar. `jaExistia` é a leitura certa do estado
-  // do banco, ainda que a primeira resposta tenha sido perdida.
+  // A segunda metade é o caso do cabeçalho: se o 503 vier na resposta de um
+  // commit que o banco já aplicou, a retentativa encontra o documento novo no
+  // lugar. `jaExistia` é a leitura certa do estado do banco, ainda que a
+  // primeira resposta tenha sido perdida — e vem com `retentou`, que é o que
+  // separa "outra pessoa" de "eu mesmo" (os dois testes logo abaixo).
   const { api, falso, esperas } = criarAmbiente();
   semearInscricao(api, 'i_antiga');
   falso.requisicoes.length = 0;
@@ -814,6 +815,77 @@ teste('503 é retentado como em toda escrita, e a retentativa que encontra o doc
   igual(api.escreverAtomico([
     { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
   ]).jaExistia, true);
+});
+
+/**
+ * O 503 QUE CHEGA DEPOIS DE O BANCO APLICAR — os três testes abaixo.
+ *
+ * `forcar` responde o erro SEM deixar a escrita acontecer, e por isso ele não
+ * sabe dizer este caso: aqui o `:commit` ENTRA e é a resposta que se perde no
+ * caminho de volta. A retentativa manda a mesma precondição, que o efeito
+ * anterior acabou de invalidar, e recebe um status que diz "alguém mexeu" sobre
+ * uma mudança que foi minha. É a diferença entre "nada aconteceu" e "aconteceu
+ * tudo", com o mesmo status na mão — e é por isso que `retentou` existe.
+ */
+teste('a resposta perdida depois do commit: `criar` volta jaExistia COM a marca da retentativa', () => {
+  // Mutação que derruba: não repassar `retentou` no ramo ALREADY_EXISTS — quem
+  // chama volta a ler "já estava lá" como se outra pessoa tivesse gravado.
+  const { api, falso } = criarAmbiente();
+  semearInscricao(api, 'i_antiga');
+  falso.requisicoes.length = 0;
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = api.escreverAtomico([
+    { apagar: { colecao: 'teste_inscricoes', id: 'i_antiga' } },
+    { criar: { colecao: 'teste_inscricoes', id: 'i_nova', objeto: { matricula: '9110001' } } }
+  ]);
+
+  igual(r.jaExistia, true);
+  igual(r.retentou, true, 'sem isto, "já existia" é indistinguível de outra pessoa ter gravado');
+  igual(falso.requisicoes.length, 2, 'uma aplicada com a resposta perdida, e a retentativa');
+
+  // E o efeito ENTROU na primeira: é este o estado que a resposta negava.
+  igual(api.ler('teste_inscricoes', 'i_antiga'), null, 'o commit perdido não foi aplicado');
+  igual(api.ler('teste_inscricoes', 'i_nova').matricula, '9110001');
+});
+
+teste('a resposta perdida depois do commit: a precondição de VERSÃO lança com `retentou`', () => {
+  // Mutação que derruba: apagar `erro.retentou = tentativa > 1` de `fsFetch_` —
+  // os dois promotores voltam a anunciar "ninguém foi promovido" com a fila
+  // inteira promovida.
+  const { api, falso } = criarAmbiente();
+  const antiga = semearInscricao(api, 'i_antiga', { em_espera: 'SIM' });
+  falso.requisicoes.length = 0;
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const promovida = Object.assign({}, antiga);
+  delete promovida.em_espera;
+
+  const e = lancou(() => api.escreverAtomico([
+    { gravar: { colecao: 'teste_inscricoes', id: 'i_antiga', objeto: promovida, versao: antiga._versao } }
+  ]), 'FAILED_PRECONDITION');
+
+  igual(e.status, 'FAILED_PRECONDITION');
+  igual(e.retentou, true, 'a marca tem de sobreviver à limpeza da mensagem (D-27)');
+  igual(e.message.indexOf('projects/'), -1, 'e a mensagem continua sem o caminho do documento');
+  igual(api.ler('teste_inscricoes', 'i_antiga').em_espera, undefined,
+    'a escrita que o erro nega é exatamente a que entrou');
+});
+
+teste('`escritaIndeterminada_` separa "alguém mexeu" de "não sei se fui eu"', () => {
+  // Mutação que derruba: devolver `corridaDeEscrita_(erro)` sozinho — a recusa
+  // de primeira (em que NADA entrou, e isso se sabe) passaria a responder "não
+  // consigo confirmar", e a coordenação deixaria de receber a única frase que
+  // ela pode agir em cima.
+  const { api } = criarAmbiente();
+
+  igual(api.escritaIndeterminada_({ status: 'FAILED_PRECONDITION', retentou: true }), true);
+  igual(api.escritaIndeterminada_({ status: 'NOT_FOUND', retentou: true }), true);
+  igual(api.escritaIndeterminada_({ status: 'FAILED_PRECONDITION' }), false,
+    'sem retentativa, a precondição recusada é corrida de verdade');
+  igual(api.escritaIndeterminada_({ status: 'RESOURCE_EXHAUSTED', retentou: true }), false,
+    'cota estourada não é corrida: nada foi aplicado e o erro é outro');
+  igual(api.escritaIndeterminada_(null), false);
 });
 
 teste('as guardas recusam ANTES de mandar: dois `criar`, duas escritas no mesmo documento, escrita sem endereço', () => {
@@ -869,13 +941,13 @@ teste('501 escritas lançam antes de qualquer requisição: esta é a primitiva 
 
   // 500 é o teto e cabe num commit só. Sem `versao`, apagar o que não existe é
   // 200 — o delete continua idempotente, como em `excluirEmLote`.
-  igual(api.escreverAtomico(escritas.slice(0, 500)), { aplicado: true, jaExistia: false, id: '', escritas: 500 });
+  igual(api.escreverAtomico(escritas.slice(0, 500)), { aplicado: true, jaExistia: false, retentou: false, id: '', escritas: 500 });
   igual(falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1).length, 1);
 });
 
 teste('lista vazia não chama a API', () => {
   const { api, falso } = criarAmbiente();
-  igual(api.escreverAtomico([]), { aplicado: false, jaExistia: false, id: '', escritas: 0 });
+  igual(api.escreverAtomico([]), { aplicado: false, jaExistia: false, retentou: false, id: '', escritas: 0 });
   igual(api.escreverAtomico(null).escritas, 0);
   igual(falso.requisicoes.length, 0);
 });

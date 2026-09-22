@@ -1792,14 +1792,24 @@ async function rodar() {
       'o bloco da troca saiu de dentro do formulário, ou foi parar depois do botão');
   });
 
+  // O Enter tem de ser disparado FORA do `teste`, com `assentar()` no meio: o
+  // envio passa por `conferirMatricula().then(...)`, então o POST só sai numa
+  // microtarefa posterior. Medir a contagem na mesma volta do laço é medir o
+  // instante ANTES de o envio acontecer — e um teste desses fica verde com a
+  // guarda arrancada, que é como este nasceu.
+  const ANTES_DO_ENTER = pergunta.pedidosPost().length;
+  pergunta.enviarFormulario();
+  await pergunta.assentar();
+
   teste('com a pergunta na tela, dar Enter no formulário não confirma nada', () => {
     // O botão de enviar está escondido, mas o formulário continua submetendo com
     // Enter num campo — e quem aperta Enter lendo "será CANCELADA" não está
-    // respondendo à pergunta. *Mutação:* deixar `enviar` seguir em frente → sai
-    // um POST com `trocar_de` que ninguém clicou → cai.
-    const antes = pergunta.pedidosPost().length;
-    pergunta.enviarFormulario();
-    igual(pergunta.pedidosPost().length, antes);
+    // respondendo à pergunta. *Mutação:* tirar a guarda de `ESTADO.trocaPendente`
+    // de `enviar` → sai um POST com `trocar_de` que ninguém clicou → cai.
+    igual(pergunta.pedidosPost().length, ANTES_DO_ENTER);
+    igual(pergunta.pedidosPost().length, 1, 'o único POST é o da rodada 1');
+    igual(corpoDoPost(pergunta, 0).trocar_de, undefined,
+      'o que não saiu era um cancelamento: o POST da rodada 1 não leva `trocar_de`');
   });
 
   // ---- a rodada 2: o mesmo envio, agora com `trocar_de`
@@ -1927,6 +1937,47 @@ async function rodar() {
     // um teste que só olhasse o ÚLTIMO corpo leria o da rodada 1 e passaria.
     igual(perdeuAVaga.pedidosPost().length, 3, 'o terceiro envio não saiu');
     igual(corpoDoPost(perdeuAVaga, 2).trocar_de, undefined);
+  });
+
+  // ---- o projeto que FECHA (ou some) entre a pergunta e a confirmação
+
+  const fechouNoMeio = await ateAPergunta();
+  fechouNoMeio.respostaEnvio = {
+    ok: false, situacao: 'FECHADO',
+    erro: 'As inscrições de R+ Cidades foram encerradas. Sua inscrição em Arte Digital Floripa foi mantida.',
+    mantida: [ARTE_ATIVA]
+  };
+  clicarEmTrocar(fechouNoMeio);
+  await fechouNoMeio.assentar();
+
+  teste('projeto fechado na confirmação: a abertura é a da situação, e o fecho é o mesmo', () => {
+    // O servidor manda `mantida` em QUALQUER recusa por situação (não só no
+    // ESGOTADO), e a frase daqui é a gêmea de `fraseDaVagaPerdida_`
+    // (04_Inscricoes.gs). *Mutação:* usar a abertura do esgotado para tudo → o
+    // aviso diria "as vagas acabaram" sobre um projeto que fechou a inscrição,
+    // e o aluno ficaria esperando uma vaga que não vai abrir.
+    const t = fechouNoMeio.texto('aviso-perda-vaga');
+    verdadeiro(contem(t, 'foram encerradas'), t);
+    verdadeiro(contem(t, 'acabaram agora') === false, 'a abertura do esgotado vazou: ' + t);
+    verdadeiro(contem(t, 'nada foi cancelado'), t);
+  });
+
+  const desligado = await ateAPergunta();
+  desligado.respostaEnvio = {
+    ok: false, situacao: 'INATIVO',
+    erro: 'O projeto R+ Cidades não está mais disponível. Sua inscrição em Arte Digital Floripa foi mantida.',
+    mantida: [ARTE_ATIVA]
+  };
+  clicarEmTrocar(desligado);
+  await desligado.assentar();
+
+  teste('projeto desligado na confirmação: ele não teve as inscrições encerradas, ele sumiu', () => {
+    // *Mutação:* juntar INATIVO com FECHADO numa abertura só → o aviso diz
+    // "encerradas" sobre um projeto que a coordenação tirou do ar, e quem ler
+    // vai procurar o prazo em vez de procurar a coordenação.
+    const t = desligado.texto('aviso-perda-vaga');
+    verdadeiro(contem(t, 'não está mais disponível'), t);
+    verdadeiro(contem(t, 'nada foi cancelado'), t);
   });
 
   // ---- [Manter]: a saída que não escreve nada

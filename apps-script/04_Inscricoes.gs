@@ -941,15 +941,25 @@ function nomeDoAlvo_(ctx) {
 }
 
 /**
- * "As vagas acabaram, e NADA foi cancelado" — a frase que a troca recusada
- * precisa dizer, porque o aluno acabou de clicar em trocar e está olhando para
- * uma recusa.
+ * "Não deu, e NADA foi cancelado" — a frase que a troca recusada precisa dizer,
+ * porque o aluno acabou de clicar em trocar e está olhando para uma recusa.
+ *
+ * A abertura é da SITUAÇÃO, porque o motivo muda o que o aluno faz em seguida:
+ * vaga que acabou pode voltar pela lista de espera, inscrição encerrada não
+ * volta hoje, e projeto desligado não volta. O fecho é sempre o mesmo, e é ele
+ * que carrega o recado: a inscrição antiga continua de pé. O site tem as mesmas
+ * três aberturas em `fraseDoQueFicou` (docs/assets/app.js) — quem mexer numa
+ * mexe na outra.
  */
-function fraseDaVagaPerdida_(ctx, outras) {
-  var alvo = nomeDoAlvo_(ctx);
+function fraseDaVagaPerdida_(ctx, outras, situacao) {
+  var alvo = nomeDoAlvo_(ctx) || 'deste projeto';
   var nomes = nomesEmTexto_(nomesDasAtivas_(outras));
 
-  return 'As vagas de ' + (alvo || 'deste projeto') + ' acabaram agora. ' +
+  var abertura = 'As vagas de ' + alvo + ' acabaram agora. ';
+  if (situacao === SITUACAO.FECHADO) abertura = 'As inscrições de ' + alvo + ' foram encerradas. ';
+  else if (situacao && situacao !== SITUACAO.ESGOTADO) abertura = 'O projeto ' + alvo + ' não está mais disponível. ';
+
+  return abertura +
     (outras.length === 1
       ? 'Sua inscrição em ' + nomes + ' foi mantida.'
       : 'Suas inscrições em ' + nomes + ' foram mantidas.');
@@ -992,6 +1002,14 @@ function copiaParaQuarentena_(inscricao, carimbo, idNova) {
  *   G6  o projeto novo encheu enquanto ele decidia -> recusa, e a antiga fica de
  *       pé (D8). Troca NUNCA cai em lista de espera: "sem vaga, nada muda";
  *   G7  a troca: cópia + delete + create, UMA requisição, tudo ou nada.
+ *
+ * O QUE ESTE GRAVADOR NÃO FAZ, e é decisão, não esquecimento: ele não MONTA
+ * resposta. G5, G6 e G7 devolvem o conjunto de inscrições e param — nome e
+ * código de projeto custam uma leitura cada (`resumoDasAtivas_`), e a resposta
+ * não participa do invariante da vaga. Quem monta é `decorarSaidaDaTroca_`,
+ * depois do `releaseLock`. É o que mantém a conta do cabeçalho de 09: consulta,
+ * agregação e escrita, e nem uma ida a mais — qualquer projeto lido aqui dentro
+ * é fila para todo aluno que está atrás.
  */
 function gravadorDaTroca_(dados, ctx) {
   return function (projeto, emEspera) {
@@ -1029,22 +1047,19 @@ function gravadorDaTroca_(dados, ctx) {
     var coordenacao = recusaDeOrigemCoordenacao_(ativas.outras);
     if (coordenacao) return coordenacao;
 
-    // G5 — a única leitura de projeto que acontece dentro do lock, e só no
-    // caminho de recusa: a re-pergunta precisa do `codigo` para a tela.
+    // G5 — apareceu projeto que o aluno não consentiu. A re-pergunta precisa do
+    // `codigo` de cada projeto para a tela, e ler projeto é ida ao banco: o que
+    // sai daqui é o CONJUNTO, e a pergunta é montada fora do lock
+    // (`decorarSaidaDaTroca_`). Escrever a resposta não participa do invariante
+    // da vaga, e dentro da região é fila para todo mundo que está atrás.
     var semConsentimento = ativas.outras.filter(function (inscricao) {
       return ctx.trocarDe.indexOf(String(inscricao.projeto_id)) === -1;
     });
-    if (semConsentimento.length) return perguntaDeTroca_(ctx, ativas.outras);
+    if (semConsentimento.length) return { ok: false, troca_pendente: true, reperguntar: ativas.outras };
 
-    // G6
-    if (emEspera) {
-      return {
-        ok: false,
-        situacao: SITUACAO.ESGOTADO,
-        mantida: resumoDasAtivas_(ctx, ativas.outras),
-        erro: fraseDaVagaPerdida_(ctx, ativas.outras)
-      };
-    }
+    // G6 — sem vaga, nada muda. `mantida` e a frase saem de `ctx.ativasNoLock`,
+    // já fora do lock, pelo mesmo motivo de G5.
+    if (emEspera) return recusaPorSituacao_(SITUACAO.ESGOTADO);
 
     // G7 — a matrícula CANCELADA na lista oficial não troca (N4). A recusa vem
     // aqui, e não lá em cima: só é alcançável depois da prova de posse, então
@@ -1102,39 +1117,82 @@ function gravadorDaTroca_(dados, ctx) {
     // certa do estado do banco.
     if (escrito.jaExistia) return { ok: true, duplicada: true, id: idNova, em_espera: false };
 
-    var de = resumoDasAtivas_(ctx, ativas.outras).map(function (resumo, indice) {
-      return {
-        id: String(ativas.outras[indice]._id),
-        projeto_id: resumo.projeto_id,
-        projeto_nome: resumo.projeto_nome,
-        codigo: resumo.codigo
-      };
-    });
-
+    // Os DOCUMENTOS cancelados, como G1 os viu. O resumo que a tela lê (nome e
+    // código do projeto) é montado fora do lock, em `decorarSaidaDaTroca_`: ele
+    // pode custar uma leitura por projeto, e a vaga já está resolvida aqui.
     return {
       ok: true, duplicada: false, id: idNova, em_espera: false,
-      trocada: { de: de, para: ctx.nomeDoAlvo }
+      trocada: { de: ativas.outras, para: ctx.nomeDoAlvo }
     };
   };
 }
 
 /**
- * A recusa por ESGOTADO, quando ela chega de `reservarVaga` SEM ter passado pelo
- * gravador — o projeto novo encheu, a fila está desligada, e G6 nem rodou.
+ * A RESPOSTA DA TROCA, montada depois do `releaseLock`.
  *
- * A resposta tem de dizer que a inscrição antiga continua de pé: quem clicou em
- * "trocar" e lê só "inscrições esgotadas" conclui que ficou sem nenhuma.
- * `ctx.ativasNoLock` é o conjunto que a consulta de DENTRO viu; sem ele — o caso
- * deste ramo — vale o de fora, que é o que o aluno tinha na tela.
+ * Tudo que a tela precisa saber sobre PROJETO — nome e código — custa uma
+ * leitura por projeto que ainda não está no `ctx.mapa`, e nenhuma delas tem o
+ * direito de acontecer dentro da região protegida: a vaga já foi decidida, e
+ * cada ida a mais lá dentro é ~0,5 s de fila para todo aluno que está atrás (o
+ * contrato de `reservarVaga`, 09_Projetos.gs). Então o gravador devolve
+ * CONJUNTOS de inscrição e é aqui que eles viram frase.
+ *
+ * Três saídas, e cada uma sabe de onde tira o conjunto:
+ *
+ *   a re-pergunta de G5 ..... o conjunto vem no `reperguntar`, e a resposta
+ *                             inteira é reconstruída por `perguntaDeTroca_`;
+ *   a recusa com situação ... `ctx.ativasNoLock` é o que a consulta de DENTRO
+ *                             viu; sem ele (a recusa que nem chegou ao gravador,
+ *                             como FECHADO e INATIVO, que `reservarVaga` recusa
+ *                             antes do lock) vale o conjunto de fora, que é o
+ *                             que o aluno tinha na tela;
+ *   a troca feita ........... `trocada.de` chega com os documentos cancelados e
+ *                             sai com o resumo, que é o que o site lê.
+ */
+function decorarSaidaDaTroca_(ctx, achadas, resultado) {
+  if (resultado.reperguntar) return perguntaDeTroca_(ctx, resultado.reperguntar);
+
+  if (!resultado.ok) {
+    decorarRecusaDaTroca_(ctx, achadas, resultado);
+    return resultado;
+  }
+
+  if (resultado.trocada) {
+    var canceladas = resultado.trocada.de;
+    resultado.trocada.de = resumoDasAtivas_(ctx, canceladas).map(function (resumo, indice) {
+      return {
+        id: String(canceladas[indice]._id),
+        projeto_id: resumo.projeto_id,
+        projeto_nome: resumo.projeto_nome,
+        codigo: resumo.codigo
+      };
+    });
+  }
+
+  return resultado;
+}
+
+/**
+ * "Nada foi cancelado" — a recusa da troca que o aluno precisa ler.
+ *
+ * Vale para QUALQUER situação de recusa, e não só para ESGOTADO: quem clicou em
+ * [Trocar] autorizou um cancelamento, e ler "as inscrições deste projeto estão
+ * encerradas" sem mais nada é concluir que ficou sem as duas. O projeto novo
+ * pode ter FECHADO ou sido desligado entre a pergunta e a confirmação — e aí a
+ * recusa vem de `reservarVaga`, antes do lock, sem passar pelo gravador. A
+ * rodada 1 já dizia isso; a rodada 2, que é a de maior aposta, não dizia.
+ *
+ * ABERTO nunca chega aqui (é sucesso), e a recusa sem situação — lock estourado,
+ * projeto não encontrado — não é sobre vaga e não ganha frase de vaga.
  */
 function decorarRecusaDaTroca_(ctx, achadas, resultado) {
-  if (resultado.situacao !== SITUACAO.ESGOTADO) return;
+  if (!resultado.situacao || resultado.situacao === SITUACAO.ABERTO) return;
 
   var ativas = ctx.ativasNoLock || achadas.outras;
   if (!ativas.length) return;
 
   resultado.mantida = resumoDasAtivas_(ctx, ativas);
-  resultado.erro = fraseDaVagaPerdida_(ctx, ativas);
+  resultado.erro = fraseDaVagaPerdida_(ctx, ativas, resultado.situacao);
 }
 
 // ------------------------------------------------------------ Janela de inscrição
@@ -1330,9 +1388,11 @@ function submeterInscricao(dados) {
             ctx.nomeDoAlvo = String(alvo.nome || '');
             var situacao = situacaoDe_(alvo, contarInscritos_(ctx.alvo));
             if (situacao !== SITUACAO.ABERTO) {
+              // Nada foi cancelado, e a resposta diz o que continua de pé — pela
+              // mesma régua da rodada 2, que é a que importa (o aluno já clicou
+              // em [Trocar] lá).
               var recusaDoAlvo = recusaPorSituacao_(situacao);
-              // Nada foi cancelado, e a resposta diz o que continua de pé.
-              recusaDoAlvo.mantida = resumoDasAtivas_(ctx, achadas.outras);
+              decorarRecusaDaTroca_(ctx, achadas, recusaDoAlvo);
               return recusaDoAlvo;
             }
           }
@@ -1366,10 +1426,12 @@ function submeterInscricao(dados) {
         return { ok: true, duplicada: r.duplicada, id: r.id, em_espera: Boolean(emEspera) };
       });
 
-    if (!resultado.ok) {
-      if (regra) decorarRecusaDaTroca_(ctx, achadas, resultado);
-      return resultado;
-    }
+    // FORA DO LOCK, e é aqui que a resposta da troca ganha nome e código de
+    // projeto: o gravador devolveu conjuntos justamente para não pagar essas
+    // leituras dentro da região protegida (ver `decorarSaidaDaTroca_`).
+    if (regra) resultado = decorarSaidaDaTroca_(ctx, achadas, resultado);
+
+    if (!resultado.ok) return resultado;
 
     // Fora do lock de propósito: o log é mais uma escrita, e ela não participa do
     // invariante da vaga. Dentro, custaria 50% a mais de fila para cada aluno.

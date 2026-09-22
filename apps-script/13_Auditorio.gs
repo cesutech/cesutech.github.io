@@ -865,6 +865,22 @@ function motivosResumidos_(recusadas) {
 var PROMOCAO_EM_CORRIDA = { corrida: true };
 
 /**
+ * O irmão do de cima, para quando NÃO SE SABE se o lote entrou.
+ *
+ * Mesma recusa de precondição, uma diferença que muda tudo: houve retentativa
+ * antes dela (`escritaIndeterminada_`, 02_Repo.gs). O 503 pode ter chegado na
+ * RESPOSTA de um `:commit` que o banco já aplicou, e a segunda tentativa, com a
+ * mesma versão na mão, bate na precondição que o meu próprio efeito acabou de
+ * mudar. Deste lado do fio, "outra pessoa mexeu" e "fui eu, e deu certo" têm o
+ * mesmo status.
+ *
+ * Existe porque a resposta dos dois casos NÃO pode ser a mesma: "ninguém foi
+ * promovido" é verdade num e é o contrário do que aconteceu no outro — e foi
+ * exatamente o que esta aba chegou a dizer com a fila inteira promovida.
+ */
+var PROMOCAO_INDETERMINADA = { indeterminada: true };
+
+/**
  * Promove quem está na fila para vaga de verdade.
  *
  * Promover OCUPA vaga, então isto é `reservarVaga` para um lote: conta e escreve
@@ -945,15 +961,39 @@ function promoverDaEspera(payload) {
       };
     }
     if (promovidas === PROMOCAO_EM_CORRIDA) {
-      // A precondição por versão recusou o lote inteiro: uma das inscrições
-      // mudou entre a leitura e a escrita — ela foi editada, anulada, ou o aluno
-      // trocou de projeto. NINGUÉM foi promovido, e a tela precisa saber que o
-      // que ela mostra é de antes. Sem retentativa automática, de propósito:
-      // reler as 200 dentro do lock custaria o auditório parado.
+      // A precondição por versão recusou o lote inteiro, e a recusa veio na
+      // PRIMEIRA tentativa: uma das inscrições mudou entre a leitura e a escrita
+      // — ela foi editada, anulada, ou o aluno trocou de projeto. Aqui sim
+      // NINGUÉM foi promovido: nenhum `:commit` deste pedido chegou a ser
+      // aplicado, e a tela precisa saber que o que ela mostra é de antes. Sem
+      // retentativa automática, de propósito: reler as 200 dentro do lock
+      // custaria o auditório parado.
       return {
         ok: false,
         erro: 'A lista da tela é de antes: alguém saiu da fila enquanto você promovia — ' +
               'ninguém foi promovido. Recarregue e tente de novo.'
+      };
+    }
+    if (promovidas === PROMOCAO_INDETERMINADA) {
+      // E aqui NÃO SE SABE. Houve retentativa antes da recusa, e o 503 pode ter
+      // chegado na resposta de um commit já aplicado — caso em que a fila inteira
+      // FOI promovida e dizer "ninguém foi" seria mandar a coordenação promover
+      // de novo gente que já está com vaga. A frase não afirma nenhum dos dois
+      // lados e manda fazer a única coisa que resolve: olhar a lista.
+      //
+      // E a linha do log sai MESMO ASSIM, porque este é o único ramo em que o
+      // efeito pode ter entrado sem nenhuma trilha. `registrar` é à prova de
+      // falha (04_Log.gs) e a linha diz o que se sabe: o que foi tentado, por
+      // quem, e que o resultado não foi confirmado.
+      registrar('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
+        'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
+        'pode ter entrado — por ' + quemMexeu_(payload.token) +
+        ' — candidatos: ' + candidatos.map(function (i) { return i._id; }).join(','));
+
+      return {
+        ok: false,
+        erro: 'A resposta do banco se perdeu no meio da promoção: NÃO consigo confirmar se ela ' +
+              'entrou. Recarregue a lista e confira antes de tentar de novo.'
       };
     }
 
@@ -1006,6 +1046,16 @@ function promoverDaEspera(payload) {
  * FAILED_PRECONDITION (ou NOT_FOUND, se ela sumiu), NINGUÉM é promovido, e a
  * resposta manda recarregar. Nada é aplicado pela metade — é o `:commit` inteiro
  * que o banco recusa.
+ *
+ * Com uma ressalva que não é detalhe: o recusado é ESTE `:commit`. Se `fsFetch_`
+ * já tinha retentado (503, 429, ABORTED), a tentativa ANTERIOR pode ter sido
+ * aplicada e só a resposta ter se perdido — e aí a precondição que não bate mais
+ * é a marca do próprio efeito, a fila inteira está promovida, e "ninguém foi
+ * promovido" seria o contrário do que aconteceu. Por isso são DOIS marcadores:
+ * `PROMOCAO_EM_CORRIDA` para a recusa de primeira (nada entrou, e isso se sabe)
+ * e `PROMOCAO_INDETERMINADA` para a que veio depois de uma retentativa
+ * (`escritaIndeterminada_`, 02_Repo.gs), em que a única frase verdadeira é
+ * "não consigo confirmar; recarregue e confira".
  *
  * A janela existia e não era inofensiva. `escreverEmLote` sem precondição
  * nenhuma REESCREVE o documento lido por cima do que houver: reverte a edição de
@@ -1109,7 +1159,11 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
         // subindo para o `catch` de `promoverDaEspera`, que é onde ele sempre
         // terminou.
         if (!corridaDeEscrita_(err)) throw err;
-        return PROMOCAO_EM_CORRIDA;
+        // E se houve RETENTATIVA antes da recusa, nem isso se sabe: o 503 pode
+        // ter chegado depois de o banco aplicar o commit, e a precondição que
+        // não bate mais é a marca do próprio efeito. Os dois marcadores existem
+        // para que a resposta não invente o que não sabe.
+        return escritaIndeterminada_(err) ? PROMOCAO_INDETERMINADA : PROMOCAO_EM_CORRIDA;
       }
     }
 

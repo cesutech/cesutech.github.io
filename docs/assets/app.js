@@ -1693,9 +1693,15 @@
     var alvo = ESTADO.projetoAtual ? ESTADO.projetoAtual.nome : 'deste projeto';
     var nomes = nomesEmTexto(r.mantida.map(function (a) { return a.projeto_nome; }));
 
-    return (r.situacao === 'ESGOTADO'
-      ? 'As vagas de ' + alvo + ' acabaram agora. '
-      : 'As inscrições de ' + alvo + ' foram encerradas. ') +
+    // As três aberturas são as de `fraseDaVagaPerdida_` (04_Inscricoes.gs), e é
+    // de propósito que sejam gêmeas: o servidor manda `mantida` em qualquer
+    // recusa por situação, e um projeto DESLIGADO no meio da decisão não teve
+    // "as inscrições encerradas" — ele sumiu da lista.
+    var abertura = 'As vagas de ' + alvo + ' acabaram agora. ';
+    if (r.situacao === 'FECHADO') abertura = 'As inscrições de ' + alvo + ' foram encerradas. ';
+    else if (r.situacao !== 'ESGOTADO') abertura = 'O projeto ' + alvo + ' não está mais disponível. ';
+
+    return abertura +
       (r.mantida.length === 1
         ? 'Sua inscrição em ' + nomes + ' continua valendo — nada foi cancelado.'
         : 'Suas inscrições em ' + nomes + ' continuam valendo — nada foi cancelado.');

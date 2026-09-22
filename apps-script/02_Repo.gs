@@ -178,6 +178,17 @@ function fsFetch_(metodo, caminho, corpo) {
     if (codigo >= 200 && codigo < 300) return texto ? JSON.parse(texto) : {};
 
     erro = fsErro_(codigo, texto, metodo, caminho);
+
+    // HOUVE RETENTATIVA ANTES DESTE ERRO? A marca sai daqui porque só este laço
+    // sabe, e ela muda o SIGNIFICADO da recusa que vem depois numa escrita com
+    // precondição: um 503 pode chegar na RESPOSTA de um `:commit` que o banco já
+    // aplicou, e aí a segunda tentativa manda a mesma precondição — que já não
+    // bate — e volta FAILED_PRECONDITION/ALREADY_EXISTS. Sem a marca, quem lê
+    // esse status conclui "outra pessoa mexeu" e anuncia "nada foi feito" sobre
+    // um efeito que ENTROU. Com ela, o estado é o que é: indeterminado. Ver
+    // `escreverAtomico`, que a repassa, e os dois promotores, que a traduzem.
+    erro.retentou = tentativa > 1;
+
     if (!fsValeRetentar_(erro)) throw erro;
     if (tentativa < FS_MAX_TENTATIVAS) Utilities.sleep(fsEspera_(tentativa));
   }
@@ -359,6 +370,28 @@ function semCaminhoDeDocumento_(erro) {
 function corridaDeEscrita_(erro) {
   var status = String((erro && erro.status) || '');
   return status === 'NOT_FOUND' || status === 'FAILED_PRECONDITION';
+}
+
+/**
+ * Esta corrida pode ter sido comigo mesmo?
+ *
+ * Quando `fsFetch_` retentou (503, 429, ABORTED) e a tentativa seguinte bateu
+ * numa precondição, há DOIS estados possíveis e nenhum jeito de distingui-los
+ * daqui: ou outra pessoa mexeu no documento, ou o primeiro `:commit` foi
+ * APLICADO e só a resposta se perdeu — e aí a precondição que já não bate é a
+ * marca do meu próprio efeito. A diferença não é acadêmica: no primeiro caso
+ * "nada foi feito" é verdade, no segundo é o contrário do que aconteceu.
+ *
+ * Quem recebe `true` aqui não pode afirmar nenhum dos dois. A única resposta
+ * verdadeira é "não consigo confirmar; releia" — e reler é barato, porque quem
+ * chama já tem a tela na frente.
+ *
+ * Mora ao lado de `corridaDeEscrita_` pelo mesmo motivo dela: a régua é UMA, e
+ * os dois promotores (13_Auditorio.gs e 10_Painel.gs) a usam com a frase de
+ * cada um.
+ */
+function escritaIndeterminada_(erro) {
+  return corridaDeEscrita_(erro) && Boolean(erro && erro.retentou);
 }
 
 function fsValeRetentar_(erro) {
@@ -758,12 +791,21 @@ function excluirEmLote(colecao, ids) {
  * Retorno simétrico a `inserir`, porque a unicidade é a mesma: ALREADY_EXISTS
  * é resultado esperado e volta como `{ jaExistia: true }` sem lançar; qualquer
  * outra recusa (NOT_FOUND, FAILED_PRECONDITION) lança. 429, 503 e ABORTED já
- * são retentados por `fsFetch_`, e isto aqui não muda nada disso — o que ele
- * traz de volta é um caso REGISTRADO E NÃO RESOLVIDO: se o 503 vier na resposta
- * de um commit que o banco JÁ aplicou, a retentativa recebe ALREADY_EXISTS e
- * esta função responde `jaExistia`. Quem chama trata como "já estava lá", que é
- * a leitura certa do estado do banco, ainda que a primeira resposta tenha sido
- * perdida.
+ * são retentados por `fsFetch_`, e isto aqui não muda nada disso.
+ *
+ * O QUE A RETENTATIVA TRAZ DE VOLTA, e como esta função o devolve. Se o 503 vier
+ * na RESPOSTA de um `:commit` que o banco já aplicou, a segunda tentativa manda
+ * as mesmas precondições — que já não batem — e recebe ALREADY_EXISTS (no
+ * `criar`) ou FAILED_PRECONDITION/NOT_FOUND (numa `versao`). Nos dois casos o
+ * status diz "alguém mexeu" e o estado de verdade é OUTRO: pode ter sido a
+ * tentativa anterior, e o efeito ENTROU. Ninguém aqui dentro sabe distinguir os
+ * dois, e por isso esta função não escolhe: ela REPASSA a marca `retentou` que
+ * `fsFetch_` põe no erro — no retorno (`{ jaExistia: true, retentou: true }`) e
+ * no erro que lança. Quem chama decide o que dizer, e o que NÃO pode dizer é
+ * "nada aconteceu": a única frase verdadeira nesse ramo é que o resultado é
+ * indeterminado e a tela tem de ser relida. Sem `retentou`, o caso é
+ * indistinguível de uma corrida de verdade — e foi assim que a promoção chegou
+ * a anunciar "ninguém foi promovido" com todo mundo promovido.
  *
  * A MEDIR contra o banco de verdade: os status exatos das precondições DENTRO
  * de um `:commit` misto. A prova já está escrita — `provaCommitMisto`
@@ -773,11 +815,14 @@ function excluirEmLote(colecao, ids) {
  * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
  * divergir, corrigem-se o falso e esta função — nunca o contrário.
  *
- * Devolve `{ aplicado, jaExistia, id, escritas }`. `id` é o do `criar`, quando
- * houve um — e como há no máximo um, ele é o único que o 409 pode ter recusado.
+ * Devolve `{ aplicado, jaExistia, retentou, id, escritas }`. `id` é o do `criar`,
+ * quando houve um — e como há no máximo um, ele é o único que o 409 pode ter
+ * recusado.
  */
 function escreverAtomico(escritas) {
-  if (!escritas || !escritas.length) return { aplicado: false, jaExistia: false, id: '', escritas: 0 };
+  if (!escritas || !escritas.length) {
+    return { aplicado: false, jaExistia: false, retentou: false, id: '', escritas: 0 };
+  }
 
   if (escritas.length > FS_LOTE_MAXIMO) {
     throw new Error(
@@ -846,20 +891,26 @@ function escreverAtomico(escritas) {
     fsFetch_('post', ':commit', { writes: writes });
   } catch (e) {
     if (e.status === 'ALREADY_EXISTS') {
-      return { aplicado: false, jaExistia: true, id: idCriado, escritas: writes.length };
+      // `retentou` viaja junto: com ele verdadeiro, "já existia" pode ser obra
+      // da tentativa anterior desta mesma chamada, e não de outra pessoa.
+      return {
+        aplicado: false, jaExistia: true, retentou: Boolean(e.retentou),
+        id: idCriado, escritas: writes.length
+      };
     }
     // A mensagem do Firestore carrega o caminho inteiro do documento recusado —
     // o id do projeto Cloud e, numa inscrição, o protocolo do aluno. Quem chama
     // responde e loga, então a régua D-27 vale já na saída daqui
-    // (`semCaminhoDeDocumento_`). `status` e `codigo` seguem intactos: é por
-    // eles que se decide, nunca pelo texto.
+    // (`semCaminhoDeDocumento_`). `status`, `codigo` e `retentou` seguem
+    // intactos: é por eles que se decide, nunca pelo texto.
     var limpo = new Error(semCaminhoDeDocumento_(e));
     limpo.status = e.status;
     limpo.codigo = e.codigo;
+    limpo.retentou = Boolean(e.retentou);
     throw limpo;
   }
 
-  return { aplicado: true, jaExistia: false, id: idCriado, escritas: writes.length };
+  return { aplicado: true, jaExistia: false, retentou: false, id: idCriado, escritas: writes.length };
 }
 
 // ---------------------------------------------------------------- Leitura

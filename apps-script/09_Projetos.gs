@@ -525,6 +525,29 @@ function projetoPorId(id) {
  * arquivo). São 3 idas com a regra ligada, 4 com a fila, 2 sem nenhuma das duas.
  * Um gravador que varra coleção, leia N documentos ou mande duas requisições de
  * escrita quebra a conta de fila de todo mundo que está atrás.
+ *
+ * A conta vale para o CAMINHO DO ALUNO, e é medida por teste (`soltou - pegou`
+ * em testes/inscricoes.js). É também por ela que o gravador da troca devolve
+ * CONJUNTOS de inscrição em vez de resposta pronta: nome e código de projeto
+ * custam uma leitura cada, e `submeterInscricao` os monta depois do
+ * `releaseLock`.
+ *
+ * E HÁ UMA EXCEÇÃO, com nome: o gravador da RESTAURAÇÃO (`restaurarUma_`,
+ * 13_Auditorio.gs) lê, com a chave `aluno_projeto_unico` em SIM, um projeto por
+ * inscrição ativa da pessoa — ele precisa saber quais projetos ainda estão
+ * ativos, e a coordenação não passou por rodada nenhuma que já os tivesse lido.
+ * São até 20 leituras dentro desta região, e o lock é o MESMO que serializa os
+ * alunos. Aceito porque é ação de coordenação, uma pessoa de cada vez, fora do
+ * pico — e é por isso que o README manda não rodar a Revisão de divergências com
+ * a janela de inscrição aberta. Quem ligar a chave e restaurar em lote durante o
+ * evento paga essa fila.
+ *
+ * E não dá para hoistar isso de graça, o que é a razão de estar ACEITO e não
+ * resolvido: só se sabe QUAIS projetos ler depois de rodar a consulta por
+ * matrícula, e essa consulta tem de ser a de dentro do lock (é o que impede duas
+ * restaurações simultâneas de devolverem duas ativas). Ler os projetos antes
+ * exigiria rodar a consulta duas vezes — uma ida a mais para todo mundo, para
+ * tirar até vinte de uma ação rara.
  */
 function reservarVaga(projetoId, gravar) {
   // Fora do lock: ler o projeto não participa do invariante. `vagas`, `ativo` e

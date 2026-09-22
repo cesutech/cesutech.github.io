@@ -1086,6 +1086,20 @@ function incluirInscricao(payload) {
         // Qualquer outro erro (rede, cota) segue subindo para o `catch` lá
         // embaixo, que é onde ele sempre terminou.
         if (!corridaDeEscrita_(corrida)) throw corrida;
+
+        // E a recusa que veio DEPOIS de uma retentativa não diz "nada foi
+        // feito": o 503 pode ter chegado na resposta de um `:commit` que o banco
+        // já aplicou, e a precondição que não bate mais é a marca do próprio
+        // efeito — a inscrição ESTÁ promovida. É a mesma régua do Auditório
+        // (`escritaIndeterminada_`, 02_Repo.gs), com a frase desta porta.
+        if (escritaIndeterminada_(corrida)) {
+          return {
+            ok: false,
+            erro: 'A resposta do banco se perdeu no meio da promoção: NÃO consigo confirmar se ' +
+                  'ela entrou. Recarregue a ficha e confira antes de tentar de novo.'
+          };
+        }
+
         return {
           ok: false,
           erro: 'A ficha é de antes: esta inscrição mudou enquanto a janela estava aberta — ' +
@@ -2283,7 +2297,11 @@ function aplicarEdicao_(id, aluno, inscricao, matriculado, plano) {
   // ---- 1. a inscrição, que pode ter de mudar de endereço
   if (inscricao && (plano.matricula.mudou || plano.nome.mudou || plano.projeto.mudou)) {
     var movimento = gravarInscricaoEditada_(inscricao, plano);
-    if (!movimento.ok) return movimento;    // nada foi escrito
+    // A recusa sai daqui sem tocar nos passos 2 e 3. "Nada foi escrito" é o caso
+    // comum e NÃO é promessa: o endereço novo ocupado é conferido contra o
+    // velho lá dentro justamente porque um `:commit` aplicado com a resposta
+    // perdida escreveria os dois (ver `gravarInscricaoEditada_`).
+    if (!movimento.ok) return movimento;
 
     inscricaoId = movimento.id;
     pessoaDepois = movimento.pessoa;
@@ -2506,14 +2524,28 @@ function gravarInscricaoEditada_(inscricao, plano) {
     { apagar: { colecao: INSCRICOES_COLECAO, id: velha } }
   ]);
   if (gravacao.jaExistia) {
-    return {
-      ok: false,
-      erro: 'Não mudei nada: já existe uma inscrição desta pessoa neste projeto. ' +
-            (plano.projeto.mudou
-              ? 'Ela já está em "' + plano.projeto.para.nome + '".'
-              : 'A matrícula ' + plano.matricula.para + ' já tem inscrição neste projeto — ' +
-                'confira se não são duas fichas da mesma pessoa.')
-    };
+    // ANTES DE DIZER "não mudei nada", CONFERIR SE MUDEI. O 409 diz que o
+    // endereço NOVO está ocupado; ele não diz por quem. Se o `:commit` foi
+    // aplicado e só a resposta se perdeu (503 retentado — ver `escreverAtomico`,
+    // 02_Repo.gs), quem ocupa o endereço novo é ESTA inscrição, o endereço velho
+    // já não existe, e responder "não mudei nada" pararia `aplicarEdicao_` antes
+    // dos passos 2 e 3: a ficha do aluno continuaria apontando para um documento
+    // apagado, mostrando o projeto de onde ele saiu. Uma leitura, só neste ramo,
+    // que já é o de falha.
+    //
+    // O VELHO SUMIU = a migração aconteceu, e tanto faz por quem: a pessoa está
+    // no projeto de destino e em nenhum outro endereço. Seguir em frente com o
+    // id novo é o que deixa banco e ficha dizendo a mesma coisa.
+    if (ler(INSCRICOES_COLECAO, velha)) {
+      return {
+        ok: false,
+        erro: 'Não mudei nada: já existe uma inscrição desta pessoa neste projeto. ' +
+              (plano.projeto.mudou
+                ? 'Ela já está em "' + plano.projeto.para.nome + '".'
+                : 'A matrícula ' + plano.matricula.para + ' já tem inscrição neste projeto — ' +
+                  'confira se não são duas fichas da mesma pessoa.')
+      };
+    }
   }
 
   return { ok: true, id: nova, pessoa: chaveDePessoa_(novo) };

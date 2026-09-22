@@ -188,6 +188,16 @@ function acoesDoLog(falso) {
   return acoes;
 }
 
+/** O detalhe da primeira linha de log de uma ação. */
+function detalheDoLog(falso, acao) {
+  let achado = '';
+  falso.documentos.forEach((c, chave) => {
+    if (achado || chave.indexOf('log/') !== 0) return;
+    if (c.acao.stringValue === acao) achado = c.detalhe.stringValue;
+  });
+  return achado;
+}
+
 /** As chamadas de `:commit`, na ordem em que saíram, já classificadas. */
 function commits(falso) {
   return falso.requisicoes
@@ -1212,6 +1222,41 @@ teste('candidato EDITADO entre a leitura e a escrita também recusa o lote', () 
   verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
   igual(campos(falso, 'inscricoes', 'i3').curso_fase.stringValue, 'ADS 4', 'a edição foi revertida');
   igual(campos(falso, 'inscricoes', 'i3').em_espera.stringValue, 'SIM');
+});
+
+teste('a resposta do banco perdida DEPOIS do commit: a promoção não diz que ninguém foi promovido', () => {
+  // O 503 que chega na RESPOSTA de um `:commit` já aplicado. `fsFetch_` retenta,
+  // a segunda tentativa manda a mesma versão — que o próprio efeito acabou de
+  // trocar — e volta FAILED_PRECONDITION. O status é o mesmo da corrida de
+  // verdade, e o estado é o oposto: a fila FOI promovida.
+  //
+  // Mutação que derruba: devolver `PROMOCAO_EM_CORRIDA` também aqui (ignorar
+  // `escritaIndeterminada_`) — a resposta volta a dizer "ninguém foi promovido"
+  // com todo mundo promovido, a coordenação promove de novo quem já tem vaga, e
+  // a promoção acontece sem uma linha no log.
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  api.atualizar('projetos', 'p1', { vagas: '10' });
+  comLock(api, falso);
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+
+  igual(r.ok, false, 'o que não se pode confirmar não volta como sucesso');
+  igual(r.erro.indexOf('ninguém foi promovido'), -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('NÃO consigo confirmar') !== -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
+
+  // E o efeito entrou: é exatamente o que a frase antiga negava.
+  igual(campos(falso, 'inscricoes', 'i3').em_espera, undefined, 'a promoção não foi aplicada');
+  igual(campos(falso, 'inscricoes', 'i4').em_espera, undefined);
+
+  // A trilha sai MESMO ASSIM — este é o único ramo em que o efeito pode entrar
+  // sem nenhuma linha, e o log é o que sobra para a coordenação reconstituir.
+  igual(acoesDoLog(falso), ['PROMOCAO_ESPERA']);
+  const detalhe = detalheDoLog(falso, 'PROMOCAO_ESPERA');
+  verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('i3') !== -1 && detalhe.indexOf('i4') !== -1, 'o detalhe foi: ' + detalhe);
 });
 
 teste('a recusa de restaurar e a de promover chegam à tela SEM o caminho do documento (D-27)', () => {

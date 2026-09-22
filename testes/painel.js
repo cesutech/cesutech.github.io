@@ -2485,6 +2485,57 @@ teste('a migração vai para o histórico com de onde saiu, para onde foi e quan
     'é esta linha que responde "por que este projeto tem mais inscritos que vagas": ' + linha.detalhe);
 });
 
+teste('a resposta do banco perdida DEPOIS do commit: a migração não diz "não mudei nada" com tudo mudado', () => {
+  // O `:commit` do Editar é criar-no-novo + apagar-no-velho. Se o 503 chegar na
+  // RESPOSTA dele, a retentativa leva ALREADY_EXISTS (o documento novo é da
+  // tentativa anterior) e `escreverAtomico` devolve `jaExistia`. Responder "não
+  // mudei nada" ali pararia `aplicarEdicao_` antes dos passos 2 e 3: a inscrição
+  // teria mudado de lugar, a ficha continuaria apontando para o documento
+  // APAGADO e mostrando o projeto de onde o aluno saiu, e não haveria linha no
+  // histórico. Era pior do que o defeito antigo — antes da atomicidade, a
+  // inscrição velha sobrevivia e o ponteiro continuava válido.
+  //
+  // Mutação que derruba: devolver a recusa sem conferir se o documento VELHO
+  // ainda existe (a leitura só deste ramo, em `gravarInscricaoEditada_`).
+  const amb = cenarioMigracao();
+  const velha = amb.api.ler('alunos', amb.idDaAna).inscricao_id;
+  amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(amb.api.ler('inscricoes', velha), null, 'a migração entrou: o endereço velho está vazio');
+
+  const ficha = amb.api.ler('alunos', amb.idDaAna);
+  igual(ficha.inscricao_id, amb.api.chaveDedup_({ projeto_id: 'p2', matricula: '9110701' }),
+    'a ficha ficou apontando para um documento apagado');
+  igual(ficha.projeto, 'Robótica', 'a ficha continuou mostrando o projeto de onde ele saiu');
+  verdadeiro(amb.api.ler('inscricoes', ficha.inscricao_id) !== null, 'o ponteiro da ficha não existe no banco');
+  igual(linhasDoLog(amb, 'ALUNO_MIGRADO').length, 1, 'a migração aconteceu e não deixou trilha');
+});
+
+teste('endereço novo ocupado DE VERDADE: a recusa continua, e a inscrição velha fica onde está', () => {
+  // O outro lado da conferência acima: quando o documento velho AINDA existe, o
+  // 409 quer dizer o que sempre quis — já há inscrição desta pessoa no destino
+  // —, nada foi escrito e a frase é a de sempre. Mutação que derruba: seguir em
+  // frente sempre que houver `jaExistia` (a ficha passaria a apontar para a
+  // inscrição de outro cadastro, e o aluno sumiria do projeto de origem sem ter
+  // saído dele).
+  const amb = cenarioMigracao();
+  const velha = amb.api.ler('alunos', amb.idDaAna).inscricao_id;
+  // A mesma pessoa já está no destino: é o 409 legítimo.
+  inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
+  });
+
+  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+
+  igual(r.ok, false);
+  verdadeiro(r.erro.indexOf('Não mudei nada') !== -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(amb.api.ler('inscricoes', velha) !== null, 'a inscrição velha foi apagada numa recusa');
+  igual(linhasDoLog(amb, 'ALUNO_MIGRADO').length, 0);
+});
+
 teste('migrar não dispara o cruzamento — a chave da pessoa não mudou', () => {
   const amb = cenarioMigracao();
   amb.zerar();
@@ -3358,6 +3409,29 @@ teste('o aluno troca de projeto entre a leitura e a promoção: ninguém é prom
   igual(amb.api.contarInscritos_('p1'), 1);
   igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 0,
     'ninguém foi promovido, e a trilha não pode dizer que foi');
+});
+
+teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ninguém foi promovido', () => {
+  // O gêmeo do teste do Auditório, nesta porta. O 503 chega na RESPOSTA de um
+  // `:commit` já aplicado; `fsFetch_` retenta com a mesma versão, que o próprio
+  // efeito acabou de trocar, e volta FAILED_PRECONDITION. Mesmo status da
+  // corrida de verdade, estado oposto: a inscrição ESTÁ promovida.
+  //
+  // Mutação que derruba: ignorar `escritaIndeterminada_` e responder a frase da
+  // corrida — a coordenação lê "ninguém foi promovido" sobre uma pessoa que
+  // acabou de ganhar vaga, e clica de novo.
+  const amb = cenarioDaFila(null, true);
+  amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+
+  igual(r.ok, false, 'o que não se pode confirmar não volta como sucesso');
+  igual(r.erro.indexOf('ninguém foi promovido'), -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('NÃO consigo confirmar') !== -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
+
+  // E a promoção entrou — é o estado que a frase antiga negava.
+  igual(amb.api.ler('inscricoes', amb.fila.id).em_espera, undefined, 'a promoção não foi aplicada');
 });
 
 teste('a recusa do Incluir chega à tela SEM o caminho do documento (D-27)', () => {

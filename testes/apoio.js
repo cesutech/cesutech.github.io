@@ -105,6 +105,7 @@ function criarFirestoreFalso() {
   const requisicoes = [];
   const idas = [];
   const forcadas = [];
+  const quedas = [];
 
   // O `updateTime` de cada documento, como o Firestore carimba a cada escrita.
   // Vive num mapa à parte para `documentos` continuar sendo só os `fields` (é o
@@ -376,7 +377,16 @@ function criarFirestoreFalso() {
     if (forcadas.length) return forcadas.shift();
 
     const casou = /\/documents(.*)$/.exec(url);
-    return tratar(metodo, casou ? casou[1] : '', corpo);
+    const resposta = tratar(metodo, casou ? casou[1] : '', corpo);
+
+    // APLICADA, e a resposta perdida no caminho de volta. A escrita acima já
+    // aconteceu — é essa a diferença para `forcar`, que responde o erro sem
+    // deixar o banco mudar. O alvo é conferido DEPOIS de atender: o que se quer
+    // derrubar é uma requisição específica (o `:commit`), e quem chama costuma
+    // ler meia dúzia de documentos antes dela. Ver `derrubarDepoisDeAplicar`.
+    if (quedas.length && String(url).indexOf(quedas[0].alvo) !== -1) return quedas.shift().resposta;
+
+    return resposta;
   }
 
   return {
@@ -399,6 +409,24 @@ function criarFirestoreFalso() {
     /** Empilha uma resposta de erro para a próxima chamada. Testa retentativa. */
     forcar(codigo, status, mensagem) {
       forcadas.push(erro(codigo, status, mensagem || status));
+    },
+
+    /**
+     * A ESCRITA ENTRA E A RESPOSTA SE PERDE — a próxima chamada é atendida de
+     * verdade, e só então o erro é devolvido por cima dela.
+     *
+     * É o único estado que `forcar` não sabe expressar, e é o que importa numa
+     * escrita com precondição: o 503 que chega DEPOIS de o banco aplicar o
+     * `:commit` faz a retentativa mandar a mesma precondição — que já não bate —
+     * e voltar FAILED_PRECONDITION ou ALREADY_EXISTS. Sem este gancho, todo
+     * teste de "quem mexeu no documento" prova só o caso em que ninguém mexeu.
+     *
+     * `alvo` é um pedaço da URL (':commit', ':runQuery'), porque a requisição
+     * que interessa derrubar quase nunca é a próxima: quem escreve lê meia dúzia
+     * de documentos antes. Empilha, como `forcar`.
+     */
+    derrubarDepoisDeAplicar(alvo, codigo, status, mensagem) {
+      quedas.push({ alvo: String(alvo || ''), resposta: erro(codigo, status, mensagem || status) });
     },
 
     UrlFetchApp: {
