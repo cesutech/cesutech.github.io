@@ -974,6 +974,73 @@ teste('restaurar duas vezes não duplica nem ocupa uma segunda vaga', () => {
   igual(idsDe(falso, 'inscricoes'), ['i1', 'i2', 'i3', 'i4', 'i5']);
 });
 
+teste('restaurar descarta tudo o que a QUARENTENA acrescenta — e só isso', () => {
+  // A lista é de NEGAÇÃO. Mutação que derruba: trocá-la por uma lista de
+  // permissão ("volte só os campos que eu conheço") — `incluido_por` e
+  // `trocada_de` são campos DA INSCRIÇÃO e sumiriam em silêncio, levando junto a
+  // trilha de quem a coordenação incluiu e de quem trocou de projeto.
+  const { api, falso } = ambiente();
+  criarProjeto(api, 'p1', { vagas: '10' });
+  comLock(api, falso);
+
+  // A cópia como a TROCA do aluno a deixa, com os campos da inscrição junto.
+  api.escreverEmLote('inscricoes_anuladas', [{
+    _id: 'i9',
+    criado_em: '2026-09-20 10:00:00', projeto_id: 'p1', projeto_nome: 'Projeto p1',
+    matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com',
+    origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com', trocada_de: 'i_velha',
+    anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
+    anulado_motivo: 'TROCA', trocado_para: 'i_nova'
+  }]);
+
+  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i9'] });
+  igual(r.restauradas, 1, 'erro foi: ' + r.erro);
+
+  const volta = api.ler('inscricoes', 'i9');
+  igual(volta.anulado_em, undefined);
+  igual(volta.anulado_por, undefined);
+  igual(volta.anulado_motivo, undefined, 'o motivo da anulação não é campo da inscrição');
+  igual(volta.trocado_para, undefined, 'o ponteiro da troca é da quarentena, e morre com ela');
+  igual(volta.incluido_por, 'coordenacao@exemplo.com', 'campo da INSCRIÇÃO: tem de voltar');
+  igual(volta.trocada_de, 'i_velha', 'campo da INSCRIÇÃO: tem de voltar');
+  igual(volta.nome, 'Ana Prado');
+});
+
+teste('com a regra ligada, restaurar recusa quem já está em outro projeto ativo — pela CONSULTA', () => {
+  // A guarda é por consulta e não pelo ponteiro `trocado_para`: ele só conhece o
+  // primeiro salto. Mutação que derruba: conferir se `trocado_para` ainda
+  // existe — no segundo salto (X -> Y -> Z) o Y apontado já não existe, a guarda
+  // passa, e a coordenação devolve uma segunda inscrição ativa para o aluno.
+  const { api, falso } = ambiente();
+  criarProjeto(api, 'p1', { vagas: '10', nome: 'Robótica' });
+  criarProjeto(api, 'p3', { vagas: '10', nome: 'Marcenaria Social' });
+  comLock(api, falso);
+
+  api.escreverEmLote('inscricoes_anuladas', [{
+    _id: 'i_x', criado_em: '2026-09-20 10:00:00', projeto_id: 'p1', projeto_nome: 'Robótica',
+    matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com', origem: 'SITE',
+    anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
+    anulado_motivo: 'TROCA', trocado_para: 'i_y'   // e o i_y já não existe: ela trocou de novo
+  }]);
+  inscrever(api, 'i_z', {
+    projeto_id: 'p3', projeto_nome: 'Marcenaria Social',
+    matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com'
+  });
+  api.gravarConfig('aluno_projeto_unico', 'SIM');
+
+  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i_x'] });
+
+  igual(r.restauradas, 0);
+  igual(r.recusadas, [{ id: 'i_x', motivo: 'já está em outro projeto ativo (Marcenaria Social)' }]);
+  igual(idsDe(falso, 'inscricoes'), ['i_z'], 'a segunda inscrição ativa nasceu pela porta da coordenação');
+  igual(idsDe(falso, 'inscricoes_anuladas'), ['i_x'], 'quem não voltou continua guardado');
+
+  // Com a chave em NAO — o padrão — restaurar continua sendo o de sempre.
+  api.gravarConfig('aluno_projeto_unico', 'NAO');
+  igual(api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i_x'] }).restauradas, 1);
+  igual(idsDe(falso, 'inscricoes'), ['i_x', 'i_z']);
+});
+
 teste('a trilha registra a restauração', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
@@ -1061,6 +1128,126 @@ teste('a promoção é UMA escrita em lote, e não uma por pessoa', () => {
   const escritas = commits(falso);
   igual(escritas.length, 1, 'três PATCH dentro do lock são três vezes a fila do auditório');
   igual(escritas[0].quantas, 3);
+});
+
+// ------------------------------------------------- A precondição por VERSÃO
+
+teste('cada escrita da promoção leva a VERSÃO do documento lido', () => {
+  // Mutação que derruba: voltar a `escreverEmLote` — as escritas saem sem
+  // `currentDocument` nenhum, e a promoção grava por cima do que houver.
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  api.atualizar('projetos', 'p1', { vagas: '10' });
+  comLock(api, falso);
+  const versao = api.ler('inscricoes', 'i3')._versao;
+  falso.requisicoes.length = 0;
+
+  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+
+  const commit = falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1)[0];
+  igual(commit.corpo.writes.length, 1);
+  igual(commit.corpo.writes[0].currentDocument, { updateTime: versao },
+    'sem o carimbo, "o documento que eu li" e "o documento que está lá" viram a mesma coisa');
+  verdadeiro(Boolean(versao), 'a leitura precisa trazer o carimbo para haver o que conferir');
+});
+
+// O furo que a troca de projeto (item 4) abriu, e que a precondição fecha: o
+// aluno troca de projeto, a inscrição antiga vai para a quarentena e SOME de
+// `inscricoes` — e a promoção, que a leu antes, a reescreveria inteira, agora
+// SEM as marcas de fila, isto é, OCUPANDO VAGA.
+teste('candidato que o aluno trocou entre a leitura e a escrita: ninguém é promovido, e ele NÃO ressuscita', () => {
+  // Mutação que derruba: tirar a precondição (o `escreverEmLote` de antes) — i3
+  // volta à vida ocupando vaga, a cópia na quarentena fica órfã e o aluno passa
+  // a constar em dois projetos.
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  api.atualizar('projetos', 'p1', { vagas: '10' });
+  const eventos = comLock(api, falso, {
+    aoEsperar: () => {
+      if (!falso.documentos.has('inscricoes/i3')) return;
+      const guardada = Object.assign({}, api.ler('inscricoes', 'i3'), {
+        anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
+        anulado_motivo: 'TROCA', trocado_para: 'i_nova'
+      });
+      api.escreverEmLote('inscricoes_anuladas', [guardada]);
+      api.excluir('inscricoes', 'i3');
+      inscrever(api, 'i_nova', { projeto_id: 'p1', criado_em: '2026-08-14 21:10:00' });
+    }
+  });
+
+  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+
+  igual(r.ok, false);
+  verdadeiro(r.erro.indexOf('lista da tela é de antes') !== -1, 'a mensagem foi: ' + r.erro);
+  verdadeiro(r.erro.indexOf('ninguém foi promovido') !== -1, 'a mensagem foi: ' + r.erro);
+  igual(campos(falso, 'inscricoes', 'i3'), null, 'a inscrição trocada voltou à vida');
+  igual(campos(falso, 'inscricoes', 'i4').em_espera.stringValue, 'SIM',
+    'o lote é recusado INTEIRO: ninguém é promovido pela metade');
+  igual(quantosDoTipo(eventos, 'soltou'), 1, 'o lock precisa ser devolvido mesmo na recusa');
+  igual(acoesDoLog(falso), [], 'ninguém foi promovido, e a trilha não pode dizer que foi');
+});
+
+// `exists:true` não distingue "o mesmo documento" de "o documento REESCRITO", e
+// é por isso que a precondição é a versão.
+teste('candidato EDITADO entre a leitura e a escrita também recusa o lote', () => {
+  // Mutação que derruba: `versao: null` na escrita — ela vai sem precondição
+  // nenhuma, que é exatamente o que `exists:true` deixaria passar aqui: o
+  // documento REESCRITO continua existindo. O commit entra, e a edição de outra
+  // aba é revertida em silêncio pela promoção.
+  const { api, falso } = ambiente();
+  auditorioLotado(api);
+  api.atualizar('projetos', 'p1', { vagas: '10' });
+  comLock(api, falso, {
+    aoEsperar: () => {
+      const atual = api.ler('inscricoes', 'i3');
+      if (atual.curso_fase === 'ADS 4') return;
+      // A aba Alunos corrigiu o curso enquanto a fila estava aberta.
+      api.escreverEmLote('inscricoes', [Object.assign({}, atual, { curso_fase: 'ADS 4' })]);
+    }
+  });
+
+  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+
+  igual(r.ok, false);
+  verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
+  igual(campos(falso, 'inscricoes', 'i3').curso_fase.stringValue, 'ADS 4', 'a edição foi revertida');
+  igual(campos(falso, 'inscricoes', 'i3').em_espera.stringValue, 'SIM');
+});
+
+teste('a recusa de restaurar e a de promover chegam à tela SEM o caminho do documento (D-27)', () => {
+  // Mutação que derruba: `erro: err.message` nos dois catch — o texto do
+  // Firestore carrega 'projects/<id do projeto Cloud>/.../inscricoes/<hash>',
+  // que é o id do projeto Cloud e o protocolo de um aluno.
+  const { api, falso, registros } = ambiente();
+  auditorioLotado(api);
+  comLock(api, falso);
+  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+
+  const real = api.UrlFetchApp;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':runAggregationQuery') !== -1 || String(url).indexOf(':commit') !== -1) {
+        throw new Error('Firestore 400 INVALID_ARGUMENT em POST ' +
+          'projects/meu-projeto-123/databases/(default)/documents/inscricoes/abc123: falhou');
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const restaurar = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  const promover = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  api.UrlFetchApp = real;
+
+  [restaurar, promover].forEach((r) => {
+    igual(r.ok, false);
+    igual(r.erro.indexOf('projects/'), -1, 'o caminho vazou na resposta: ' + r.erro);
+    igual(r.erro.indexOf('meu-projeto-123'), -1, r.erro);
+    verdadeiro(r.erro.indexOf('(documento)') !== -1, 'o caminho tem de virar "(documento)": ' + r.erro);
+  });
+  verdadeiro(registros.erros.length >= 2, 'as falhas não foram ao log de execução');
+  verdadeiro(registros.erros.every((e) => e.indexOf('projects/') === -1),
+    'o caminho vazou no log de execução: ' + registros.erros.join(' | '));
 });
 
 // A escrita em lote SUBSTITUI o documento. Mandar só os dois campos apagaria a

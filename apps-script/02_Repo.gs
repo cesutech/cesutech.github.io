@@ -337,6 +337,30 @@ function semCaminhoDeDocumento_(erro) {
   return String(texto).replace(/projects\/\S+/g, '(documento)');
 }
 
+/**
+ * Este erro é "alguém mexeu no documento enquanto você decidia"?
+ *
+ * As duas precondições de escrita falham com status próprio: `exists:true` e
+ * `updateTime` num documento que sumiu dão NOT_FOUND, e `updateTime` divergente
+ * dá FAILED_PRECONDITION. Nos dois casos NADA do `:commit` foi aplicado, e a
+ * resposta certa é sempre a mesma em espírito — "a lista da tela é de antes;
+ * recarregue" —, mas a FRASE é de quem chama: o Auditório fala de promoção, o
+ * painel fala de ficha, a revisão tem a sua (`fraseSegura_`, 05c_Revisao.gs).
+ *
+ * Mora aqui, e não em cada chamador, para 13 e 10 não precisarem importar o
+ * arquivo da revisão só por causa de dois nomes de status — e para que a régua
+ * seja UMA quando os status forem medidos contra o banco de verdade
+ * (`escreverAtomico` diz, por escrito, que eles são A MEDIR).
+ *
+ * Decide por `status`, NUNCA por texto: a mensagem já sai limpa de
+ * `escreverAtomico` (D-27), e quem a lê para decidir erra na primeira vez em que
+ * ela mudar de idioma ou de forma.
+ */
+function corridaDeEscrita_(erro) {
+  var status = String((erro && erro.status) || '');
+  return status === 'NOT_FOUND' || status === 'FAILED_PRECONDITION';
+}
+
 function fsValeRetentar_(erro) {
   if (erro.status === FS_STATUS_RETENTAVEL) return true;
   return FS_CODIGOS_RETENTAVEIS.indexOf(Number(erro.codigo)) !== -1;
