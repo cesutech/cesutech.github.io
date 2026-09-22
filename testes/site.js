@@ -1909,7 +1909,7 @@ async function rodar() {
     // ao título só dois ramos (o que ele tinha) → o esgotado continua certo e as
     // outras duas viram "as inscrições foram encerradas" em negrito.
     verdadeiro(contem(t, 'ficou sem vaga'), 'o título não é o do esgotado: ' + t);
-    verdadeiro(contem(t, 'prazo deste projeto terminou') === false, t);
+    verdadeiro(contem(t, 'não recebe mais inscrições') === false, t);
     verdadeiro(contem(t, 'saiu da lista') === false, t);
     verdadeiro(contem(t, 'continua valendo'), t);
     verdadeiro(contem(t, 'nada foi cancelado'), t);
@@ -1965,9 +1965,59 @@ async function rodar() {
     const t = fechouNoMeio.texto('aviso-perda-vaga');
     verdadeiro(contem(t, 'foram encerradas'), t);
     verdadeiro(contem(t, 'acabaram agora') === false, 'a abertura do esgotado vazou: ' + t);
-    verdadeiro(contem(t, 'prazo deste projeto terminou'), 'o título não é o do fechado: ' + t);
+    verdadeiro(contem(t, 'não recebe mais inscrições'), 'o título não é o do projeto fechado: ' + t);
     verdadeiro(contem(t, 'ficou sem vaga') === false, 'o título do esgotado vazou: ' + t);
     verdadeiro(contem(t, 'nada foi cancelado'), t);
+  });
+
+  // ---- o MESMO aviso no caminho comum: sem troca nenhuma, com a regra desligada
+
+  const comumEsgotou = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'ESGOTADO', erro: 'As vagas de R+ Cidades acabaram agora.' }
+  });
+  comumEsgotou.entrarNoProjeto(1);
+  await comumEsgotou.assentar();
+  await inscrever(comumEsgotou);
+
+  const comumFechou = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'FECHADO', erro: 'As inscrições para R+ Cidades estão encerradas.' }
+  });
+  comumFechou.entrarNoProjeto(1);
+  await comumFechou.assentar();
+  await inscrever(comumFechou);
+
+  const comumSumiu = await siteCarregado({
+    respostaEnvio: { ok: false, situacao: 'INATIVO', erro: 'O projeto R+ Cidades não está mais disponível.' }
+  });
+  comumSumiu.entrarNoProjeto(1);
+  await comumSumiu.assentar();
+  await inscrever(comumSumiu);
+
+  teste('o título das três situações vale no caminho COMUM — o único que existe com a regra desligada', () => {
+    // Os outros testes deste aviso passam todos por uma troca (`mantida` na
+    // resposta). Mas o título mudou para TODO aluno, inclusive com
+    // `aluno_projeto_unico=NAO`, que é como o sistema vai para produção: é o
+    // caminho de quem se inscreve e descobre que o projeto encheu enquanto ele
+    // preenchia. *Mutação:* devolver o título a duas aberturas ("as vagas
+    // acabaram agora" / "as inscrições foram encerradas") → o esgotado continua
+    // certo, o fechado perde o prazo e o inativo passa a dizer "encerradas"
+    // logo acima de "não está mais disponível", que é o defeito que existia.
+    const esgotado = comumEsgotou.texto('aviso-perda-vaga');
+    verdadeiro(contem(esgotado, 'ficou sem vaga'), 'esgotado: ' + esgotado);
+    verdadeiro(contem(esgotado, 'não recebe mais inscrições') === false, esgotado);
+    verdadeiro(contem(esgotado, 'saiu da lista') === false, esgotado);
+    igual(contem(esgotado, 'foi mantida'), false, 'sem troca não há nada a manter: ' + esgotado);
+
+    const fechado = comumFechou.texto('aviso-perda-vaga');
+    verdadeiro(contem(fechado, 'não recebe mais inscrições'), 'fechado: ' + fechado);
+    verdadeiro(contem(fechado, 'ficou sem vaga') === false, fechado);
+    verdadeiro(contem(fechado, 'saiu da lista') === false, fechado);
+
+    const inativo = comumSumiu.texto('aviso-perda-vaga');
+    verdadeiro(contem(inativo, 'saiu da lista'), 'inativo: ' + inativo);
+    verdadeiro(contem(inativo, 'foram encerradas') === false,
+      'o título do fechado vazou para o projeto que sumiu: ' + inativo);
+    verdadeiro(contem(inativo, 'ficou sem vaga') === false, inativo);
   });
 
   const desligado = await ateAPergunta();

@@ -1668,7 +1668,7 @@
     el.innerHTML = '';
     var titulo = document.createElement('strong');
     var motivo = 'o projeto ficou sem vaga';
-    if (r.situacao === 'FECHADO') motivo = 'o prazo deste projeto terminou';
+    if (r.situacao === 'FECHADO') motivo = 'este projeto não recebe mais inscrições';
     else if (r.situacao !== 'ESGOTADO') motivo = 'este projeto saiu da lista';
     titulo.textContent = 'Sua inscrição não foi concluída — ' + motivo + '.';
     el.appendChild(titulo);
@@ -1891,12 +1891,17 @@
 
     // E ESQUECE TUDO O QUE MANDOU EM `trocar_de`, em QUALQUER resposta `ok:true`.
     //
-    // São três desfechos, e o site não precisa distinguir nenhum deles: com
-    // `trocada` (o servidor cancelou a antiga agora), sem `trocada` (a
-    // coordenação já a tinha anulado no meio, e o servidor gravou a nova direto)
-    // e na `duplicada` do reenvio depois de uma queda de rede (o commit da troca
-    // já tinha sido aplicado do lado de lá). Nos três a inscrição antiga não
-    // existe mais, e manter a lembrança faria o site dizer "você já está
+    // São QUATRO desfechos, e o site esquece em todos: com `trocada` (o servidor
+    // cancelou a antiga agora), sem `trocada` (a coordenação já a tinha anulado
+    // no meio, e o servidor gravou a nova direto), na `duplicada` do reenvio
+    // depois de uma queda de rede (o commit da troca já tinha sido aplicado do
+    // lado de lá) e na `duplicada` HONESTA, em que a antiga continua VIVA
+    // porque outra porta gravou o projeto novo e o commit foi recusado. Nos três
+    // primeiros a antiga não existe mais; no quarto ela existe, e é por isso que
+    // a resposta vem com o `aviso` NOMEANDO o projeto dela — quem avisa é o
+    // servidor, que sabe, e não a lembrança do navegador, que ficaria
+    // oferecendo um protocolo sem saber se ele vale. Manter a lembrança faria o
+    // site dizer "você já está
     // inscrito" — oferecendo um protocolo que morreu — num projeto de onde o
     // aluno saiu. Apagar a lembrança de um projeto em que ele ainda estivesse
     // custaria, no pior caso, um botão a mais na tela; o contrário esconde a

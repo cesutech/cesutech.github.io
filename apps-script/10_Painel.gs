@@ -1094,7 +1094,8 @@ function incluirInscricao(payload) {
         // (`escritaIndeterminada_`, 02_Repo.gs), com a frase desta porta.
         if (escritaIndeterminada_(corrida)) {
           // E a linha do log sai ANTES da resposta, como a do Auditório: este é
-          // o outro ramo em que o efeito pode ter entrado sem trilha nenhuma. A
+          // um dos TRÊS ramos em que o efeito pode ter entrado sem trilha nenhuma
+          // (o gêmeo do Geral e o da troca do aluno são os outros). A
           // promoção acontece no meio da função, e o `registrar` de sucesso só
           // viria lá embaixo — quem sai por aqui passaria por fora dele, e a
           // inscrição ganharia vaga sem uma linha dizendo que alguém tentou.

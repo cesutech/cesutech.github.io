@@ -130,13 +130,15 @@ igual nas duas.
 
 ### O que muda ao publicar, mesmo com a chave em NAO
 
-Três coisas não dependem da chave, e valem a partir do deploy:
+Estas coisas não dependem da chave, e valem a partir do deploy:
 
 1. **Promover da fila passa a recusar a corrida em vez de sobrescrever calado.**
    Vale nas duas portas que promovem — a aba **Geral** (lote de até 200) e
-   **Incluir aluno** (uma). Cada escrita leva a versão que a tela leu; se
-   qualquer inscrição do lote mudou desde então (outra aba editou, a coordenação
-   anulou, o aluno trocou de projeto), o banco recusa o lote **inteiro**,
+   **Incluir aluno** (uma). Cada escrita leva a versão que o SERVIDOR acabou de
+   ler, ao montar a promoção (a tela manda só os ids, como sempre mandou); se
+   qualquer inscrição do lote mudou entre essa leitura e a gravação (outra aba
+   editou, a coordenação anulou, o aluno trocou de projeto), o banco recusa o
+   lote **inteiro**,
    **ninguém** é promovido, e a resposta manda recarregar: *"a lista da tela é
    de antes"* na aba Geral, *"a ficha é de antes"* no Incluir. Antes, a
    promoção gravava por cima do que tivesse mudado. O preço é dito: um lote de
@@ -150,6 +152,15 @@ Três coisas não dependem da chave, e valem a partir do deploy:
 3. **A aba Geral mostra a procedência de cada inscrição** — o selo de quem foi
    incluído pela coordenação (`incluido_por`) e, quando houver, o de quem veio
    de uma troca (`trocada_de`, que só nasce com a chave em SIM).
+4. **O aviso de vaga perdida diz QUAL das três coisas aconteceu.** É texto que
+   todo aluno lê, inclusive com a regra desligada: o título passa de duas
+   aberturas para três — *o projeto ficou sem vaga* (esgotou), *este projeto não
+   recebe mais inscrições* (a coordenação fechou as inscrições dele) e *este
+   projeto saiu da lista* (foi inativado) —, e deixa de repetir a frase que vem
+   logo abaixo.
+5. **Toda recusa de escrita sai sem o caminho do documento.** As mensagens que
+   vinham do banco carregavam `projects/<projeto>/databases/...`; agora passam
+   pela mesma régua do resto do sistema antes de virar tela, resposta ou log.
 
 Com a chave em **SIM** é que entra a regra em si: a pergunta e a troca no
 formulário do aluno, a pergunta antes de gravar no Incluir aluno, a recusa da

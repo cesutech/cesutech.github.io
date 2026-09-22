@@ -2196,6 +2196,68 @@ teste('o 503 na RESPOSTA do commit da troca: ela ENTROU, e a trilha da troca sai
   igual(r.aviso, undefined, 'a antiga foi cancelada: dizer que ele "também consta" nela seria falso');
 });
 
+teste('503 COM a coordenação gravando durante a retentativa: a troca NÃO entrou, e a resposta não diz que entrou', () => {
+  // O caso que `retentou` sozinho não distingue — e é por ele que o ramo paga
+  // uma leitura de ponto. Houve 503 E houve retentativa, mas quem pôs Y no lugar
+  // foi a coordenação, na janela entre as duas tentativas: o `:commit` foi
+  // RECUSADO, a antiga continua viva e nada foi cancelado.
+  //
+  // Mutação que derruba: tratar `retentou` como prova de que a troca entrou (a
+  // primeira versão deste ramo) — a resposta sai sem o `tambem_em`, o site
+  // esquece Robótica do `localStorage` (D17), o aluno fica em DOIS projetos sem
+  // uma palavra, e o Histórico ganha uma linha `INSCRICAO_TROCADA` sobre um
+  // cancelamento que nunca houve.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const idNova = api.chaveDedup_({
+    projeto_id: 'p_y', matricula: '9110001', email: 'maria@exemplo.com', nome: 'Maria da Silva'
+  });
+  const real = api.UrlFetchApp;
+  let tentativas = 0;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':commit') !== -1) {
+        tentativas += 1;
+        // A PRIMEIRA tentativa cai com 503 SEM aplicar nada (o proxy que nunca
+        // chegou ao banco), e a coordenação grava Y antes da segunda.
+        if (tentativas === 1) {
+          inscreverEm(api, idNova, {
+            projeto_id: 'p_y', projeto_nome: 'Horta Comunitária',
+            origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com'
+          });
+          return {
+            getResponseCode: () => 503,
+            getContentText: () => JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'backend unavailable' } }),
+            getHeaders: () => ({})
+          };
+        }
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.UrlFetchApp = real;
+
+  verdadeiro(tentativas >= 2, 'o cenário exige a retentativa: houve ' + tentativas);
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, idNova, 'o protocolo é o do documento que existe');
+
+  // O estado real: a antiga VIVA, a quarentena vazia. É o que a resposta não
+  // pode contradizer.
+  verdadeiro(inscricoesGravadas(falso).indexOf('i_x') !== -1, 'a antiga foi cancelada sem que o commit entrasse');
+  igual(anuladas(falso), []);
+  igual(acoesDoLog(falso).indexOf('INSCRICAO_TROCADA'), -1,
+    'registrou uma troca que não aconteceu: ' + acoesDoLog(falso).join(', '));
+  verdadeiro(String(r.aviso || '').indexOf('Robótica na Escola') !== -1,
+    'a resposta não nomeia a inscrição que continua de pé: ' + r.aviso);
+  igual(String(r.mensagem || '').indexOf('cancelada'), -1, 'a mensagem afirma um cancelamento: ' + r.mensagem);
+});
+
 teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: duplicada honesta, sem cancelamento nenhum', () => {
   // O 409 SEM retentativa nenhuma, e ele é alcançável sem 503: `incluirInscricao`
   // (10_Painel.gs) grava em `inscricoes` com a MESMA `chaveDedup_` e SEM o lock.

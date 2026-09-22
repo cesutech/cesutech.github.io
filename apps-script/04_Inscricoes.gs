@@ -1119,14 +1119,26 @@ function gravadorDaTroca_(dados, ctx) {
     // opostas, que `retentou` (02_Repo.gs) separa. Sem ler `retentou`, as duas
     // saíam com a mesma frase, e numa delas a frase era falsa.
     //
-    //   COM retentativa: o 503 chegou na RESPOSTA de um `:commit` que o banco já
-    //   tinha aplicado, e a segunda tentativa encontrou a inscrição nova no
-    //   lugar. O commit é atômico — se o `criar` entrou, a cópia e o delete
-    //   entraram com ele —, então a TROCA ACONTECEU e "você já está inscrito
-    //   neste projeto" é a leitura certa do banco. O que não se pode é calar:
-    //   este é o único ramo em que a troca entra sem a resposta anunciá-la, e a
+    //   COM retentativa: o 503 pode ter chegado na RESPOSTA de um `:commit` que
+    //   o banco JÁ tinha aplicado — e a segunda tentativa encontrou a inscrição
+    //   nova no lugar, posta por nós mesmos. `retentou` NÃO prova isso: ele diz
+    //   que houve retentativa, e a coordenação pode ter gravado Y durante ela,
+    //   exatamente como no ramo de baixo. As duas histórias cabem no mesmo 409,
+    //   e a diferença entre elas é o que o aluno perde ou mantém.
+    //
+    //   Então aqui — e SÓ aqui, num caminho que exige um 503 — paga-se UMA
+    //   leitura de ponto para não inventar: a inscrição antiga. O `:commit` é
+    //   atômico, logo ela responde tudo. SUMIU → o commit entrou, a troca
+    //   aconteceu; CONTINUA LÁ → o commit foi recusado e quem pôs Y foi outro.
+    //   O preço é honesto e está no lugar certo: ~0,5 s de fila num ramo que
+    //   não acontece num evento inteiro, contra dizer ao aluno que ele está em
+    //   um projeto quando está em dois (ou o contrário). A leitura é de PONTO,
+    //   pelo id que G1 já tem na mão — nada de consulta.
+    //
+    //   Quando a leitura diz que a troca ENTROU, o que não se pode é calar:
+    //   este é o único ramo em que ela entra sem a resposta anunciá-la, e a
     //   linha `INSCRICAO_TROCADA` sai MESMO ASSIM, dizendo o que não se pode
-    //   confirmar. É a régua do ramo indeterminado do Auditório
+    //   confirmar pela resposta. É a régua do ramo indeterminado do Auditório
     //   (13_Auditorio.gs) e do Incluir aluno (10_Painel.gs), aplicada ao
     //   terceiro escritor de `escreverAtomico`. Quem registra é
     //   `decorarComATroca_`, fora do lock, como toda escrita de log daqui.
@@ -1141,7 +1153,15 @@ function gravadorDaTroca_(dados, ctx) {
     //   inscrição que continua de pé, para o aluno não descobrir sozinho que
     //   está em dois projetos.
     if (escrito.jaExistia) {
-      if (escrito.retentou) {
+      // A pergunta que desempata, uma leitura de ponto: a antiga ainda está lá?
+      // Sem `retentou` nem se pergunta — sem retentativa, o commit foi recusado
+      // e a antiga está viva por construção.
+      var trocaEntrou = escrito.retentou &&
+        ativas.outras.every(function (inscricao) {
+          return ler(INSCRICOES_COLECAO, String(inscricao._id)) === null;
+        });
+
+      if (trocaEntrou) {
         return {
           ok: true, duplicada: true, id: idNova, em_espera: false,
           // Só id e nome, montados aqui com o que G1 já tinha na mão: a linha do
