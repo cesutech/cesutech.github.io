@@ -1286,6 +1286,81 @@ teste('a ficha mudou entre a leitura e a escrita: declina, e o documento gravado
   igual(amb.api.ler('alunos', id).observacoes, 'escrito por outra aba', 'a escrita do outro foi sobrescrita');
 });
 
+teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento do OUTRO fica intacto', () => {
+  // O gêmeo do teste acima para o ramo que roda em TODA primeira inclusão — o
+  // `criar` com `exists: false`. O de cima só exercita o UPDATE (com `_versao`),
+  // que é o caso raro; este é o comum, e ficava sem guarda nenhuma.
+  //
+  // Duas mutações caem aqui, e as duas deixavam a suíte inteira verde:
+  //   1. trocar o `criar` por um `gravar` com `versao: atual ? atual._versao : ''`
+  //      — `escreverAtomico` sem versão não põe precondição, vira upsert cego e
+  //      APAGA a decisão humana que o outro acabou de gravar;
+  //   2. ignorar o `jaExistia` da resposta — o `criar` recusado NÃO lança (volta
+  //      `{ jaExistia: true }`), então o incremental diria `feito: true` sobre uma
+  //      escrita que o banco recusou, e a tela anunciaria "A ficha em Alunos já
+  //      está atualizada" sobre a ficha de outra pessoa.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  const id = amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula('09110001'));
+  igual(amb.api.ler('alunos', id), null, 'o cenário exige a ficha AINDA não existindo: é o ramo do `criar`');
+
+  // Outro escritor — a rodada das 5h, o Atualizar de outra aba, uma importação —
+  // cria a ficha no mesmo endereço depois da leitura. `preservarRevisao_` é o
+  // último ponto em que o incremental já leu tudo e ainda não gravou.
+  const original = amb.api.preservarRevisao_;
+  amb.api.preservarRevisao_ = function (calculado, atual) {
+    amb.api.preservarRevisao_ = original;
+    original(calculado, atual);
+    amb.api.escreverEmLote('alunos', [{
+      _id: id, nome: 'Ana Paula Souza', matricula_id: '9110001', matricula: '09110001',
+      status: 'DIVERGENCIA', observacoes: 'conferir a matrícula na secretaria',
+      revisado_por: 'coordenacao@exemplo.com', revisado_em: '2026-09-22 10:00:00'
+    }]);
+  };
+
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.escreveu, false);
+  igual(r.motivo, 'a ficha mudou enquanto eu recalculava');
+
+  const ficha = amb.api.ler('alunos', id);
+  igual(ficha.status, 'DIVERGENCIA', 'a escrita passou POR CIMA do documento do outro');
+  igual(ficha.observacoes, 'conferir a matrícula na secretaria');
+  igual(ficha.revisado_por, 'coordenacao@exemplo.com');
+});
+
+teste('`criar` recusado DEPOIS de uma retentativa não afirma que foi outro: ali não se pode afirmar nada', () => {
+  // A régua é do próprio repositório (`escritaIndeterminada_`, 02_Repo.gs): com
+  // `retentou` verdadeiro há DOIS estados possíveis — ou outra pessoa criou a
+  // ficha, ou o primeiro `:commit` entrou e só a resposta se perdeu, e a ficha
+  // que "já existia" é a MINHA. Quem recebe isso não pode afirmar nenhum dos
+  // dois, e o `catch` logo abaixo já ordena indeterminado ANTES de corrida pela
+  // mesma razão; o `jaExistia` não lança, e vinha usando a frase da corrida nos
+  // dois mundos.
+  //
+  // A diferença é a frase que a coordenação lê: "a ficha mudou enquanto eu
+  // recalculava" manda procurar quem mexeu; "não consegui confirmar a gravação"
+  // manda reler, que é a única coisa verdadeira a fazer.
+  //
+  // Mutação que derruba: voltar a uma frase só para os dois mundos.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  amb.api.escreverAtomico = () => ({ aplicado: false, jaExistia: true, retentou: true, id: '', escritas: 1 });
+
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.escreveu, false);
+  igual(r.motivo, 'não consegui confirmar a gravação da ficha');
+});
+
 teste('erro na escrita vira declínio, e não estouro', () => {
   // A promessa do contrato: `reconciliarPessoa_` NUNCA lança — quem a chama já
   // gravou a inscrição, e um erro aqui não pode virar "Falha ao incluir" na tela.

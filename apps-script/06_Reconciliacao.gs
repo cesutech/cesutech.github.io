@@ -527,12 +527,18 @@ function reconciliarPessoa_(matricula, opcoes) {
       : { criar: { colecao: ALUNOS_COLECAO, id: id, objeto: novo } };
 
     try {
-      // Declinar aqui é seguro nos dois mundos possíveis: ou outra escrita
-      // chegou primeiro (e a ficha dela é mais nova que este cálculo), ou foi a
-      // retentativa desta mesma chamada (e a ficha já é esta). Em qualquer um,
-      // quem chama declara o cadastro sujo e o Atualizar seguinte confere.
-      if (escreverAtomico([escrita]).jaExistia) {
-        return adiarReconciliacao_('a ficha mudou enquanto eu recalculava', id);
+      // O `criar` recusado NÃO lança: volta `{ jaExistia: true }`, e é preciso
+      // olhar. Em qualquer dos dois mundos quem chama declara o cadastro sujo e o
+      // Atualizar seguinte confere — o que muda é a FRASE, e ela não pode afirmar
+      // o que daqui não se sabe. Com `retentou`, a régua de `escritaIndeterminada_`
+      // (02_Repo.gs) vale inteira: ou outra pessoa criou a ficha, ou o primeiro
+      // `:commit` entrou e só a resposta se perdeu — e aí a ficha que "já existia"
+      // é a minha. É a mesma ordem que o `catch` logo abaixo usa, pela mesma razão.
+      var recusa = escreverAtomico([escrita]);
+      if (recusa.jaExistia) {
+        return adiarReconciliacao_(recusa.retentou
+          ? 'não consegui confirmar a gravação da ficha'
+          : 'a ficha mudou enquanto eu recalculava', id);
       }
     } catch (erroDaEscrita) {
       // A régua de sempre (02_Repo.gs): indeterminado ANTES de corrida, porque

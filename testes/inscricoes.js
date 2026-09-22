@@ -1673,6 +1673,37 @@ teste('a troca declara o cadastro sujo — e sobrevive a 10_Painel.gs não estar
     'o console tem de dizer que a marca ficou por fazer: ' + JSON.stringify(amb.registros.erros));
 });
 
+teste('a troca INDETERMINADA declara o cadastro sujo do mesmo jeito — ali ela PODE ter entrado', () => {
+  // O outro operando da guarda, e o que faltava provar. Quando o 503 chega
+  // DEPOIS de o banco aplicar o `:commit`, a troca entrou (a antiga na
+  // quarentena, a nova viva) mas a resposta se perdeu — e daqui não se pode
+  // afirmar nem um nem outro. Se entrou, a contagem de `inscricoes` ficou igual e
+  // a ficha do aluno está velha: é exatamente o defeito que esta guarda existe
+  // para fechar, e o Atualizar seguinte responderia "nada entrou desde a última
+  // vez" sobre ele. Se não entrou, o preço é uma rodada a mais — o lado barato da
+  // dúvida.
+  //
+  // Mutação que derruba: tirar o `|| resultado.troca_indeterminada` da guarda de
+  // `submeterInscricao`. A suíte inteira fica verde com ela, e o ramo que some é
+  // justamente o do dia em que o banco engasga.
+  const amb = cenarioDaTroca('SIM');
+  inscreverEm(amb.api, 'i_x');
+  comLock(amb.api, amb.falso);
+  amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = amb.api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.trocada, undefined, 'o cenário exige o ramo INDETERMINADO, e não o da troca confirmada');
+  igual(r.duplicada, true, 'a inscrição de Y existe — quem a criou é que não se sabe');
+  verdadeiro(detalheDoLog(amb.falso, 'INSCRICAO_TROCADA').indexOf('INDETERMINADO') !== -1,
+    'o cenário não chegou ao ramo indeterminado');
+  igual(anuladas(amb.falso), ['i_x'], 'a troca ENTROU: é a ficha velha que ninguém mais cruzaria');
+
+  verdadeiro(amb.registros.erros.some((linha) => linha.indexOf('marca da reconciliação') !== -1),
+    'o indeterminado não tentou declarar o cadastro sujo: ' + JSON.stringify(amb.registros.erros));
+});
+
 teste('sem outra inscrição ativa, a regra custa UMA consulta a mais — e ela roda dentro do lock', () => {
   // Mutação que derruba: mover a consulta para fora do lock — o índice dela cai
   // antes de `pegou`, e duas abas com a primeira inscrição de cada leem vazio e

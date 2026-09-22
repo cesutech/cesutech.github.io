@@ -3343,6 +3343,41 @@ teste('o sucesso NÃO mexe na marca: nem nos contadores, nem no gasto do dia', (
   igual(amb.propriedades.get('painel_reconciliacao'), antes, 'a inclusão bem-sucedida mexeu na marca');
 });
 
+teste('o sucesso que NÃO precisou gravar também não mexe na marca — quem decide é o `feito`, não o `escreveu`', () => {
+  // O outro lado da mesma regra, e é o lado que não tinha teste: o incremental
+  // devolve `{ feito: true, escreveu: false }` quando a ficha JÁ estava certa, e
+  // esse é o caso comum da promoção da fila — a ficha nasceu no Atualizar da
+  // véspera e promover não muda nome, projeto, curso nem status.
+  //
+  // Mutação que derruba: trocar `if (!cruzamento.feito)` por
+  // `if (!cruzamento.escreveu)` em `incluirInscricao`. A suíte inteira continua
+  // verde com ela, e o efeito em produção é uma rodada completa (~5.500 leituras)
+  // a cada promoção idempotente — o desperdício que a regra da marca existe para
+  // impedir, dentro do clique mais caro do dia do evento.
+  const amb = cenarioDaFila(null, true);
+  // O Atualizar da véspera: a ficha de quem espera já nasce aqui (a fila é uma
+  // inscrição como outra qualquer — `montarAluno_` não lê `em_espera`).
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const antes = amb.propriedades.get('painel_reconciliacao');
+  verdadeiro(amb.api.marcaDaReconciliacao_().inscricoes > 0, 'a marca precisa nascer com a contagem real');
+
+  amb.zerar();
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  igual(r.ok, true, r.erro);
+  igual(r.promovida_da_fila, true);
+  igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
+
+  // `feito: true, escreveu: false`, medido: a ficha já estava certa, então o
+  // incremental não gravou em `alunos` — e é exatamente por isso que a mutação
+  // passa despercebida em toda asserção de conteúdo.
+  igual(gravacoes(amb.falso).filter((q) =>
+    (q.url + JSON.stringify(q.corpo || '')).indexOf('/alunos/') !== -1).length, 0,
+    'a ficha já estava certa: o incremental não tinha o que gravar');
+
+  igual(amb.propriedades.get('painel_reconciliacao'), antes,
+    'o sucesso sem escrita declarou o cadastro sujo — o próximo Atualizar cruzaria as três coleções à toa');
+});
+
 teste('a falha do incremental não derruba a inclusão: o protocolo sai, e a tela sabe que a ficha ficou para depois', () => {
   // A inscrição já está gravada e registrada quando o incremental roda. Mutação
   // que derruba: deixar o erro subir — o `catch` de `incluirInscricao` devolveria
