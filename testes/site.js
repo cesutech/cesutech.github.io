@@ -1905,6 +1905,12 @@ async function rodar() {
     // "fiquei sem os dois".
     const t = perdeuAVaga.texto('aviso-perda-vaga');
     verdadeiro(perdeuAVaga.visivel('aviso-perda-vaga'), 'o aviso não apareceu');
+    // O TÍTULO é o da situação, e são três, como as do detalhe. *Mutação:* dar
+    // ao título só dois ramos (o que ele tinha) → o esgotado continua certo e as
+    // outras duas viram "as inscrições foram encerradas" em negrito.
+    verdadeiro(contem(t, 'ficou sem vaga'), 'o título não é o do esgotado: ' + t);
+    verdadeiro(contem(t, 'prazo deste projeto terminou') === false, t);
+    verdadeiro(contem(t, 'saiu da lista') === false, t);
     verdadeiro(contem(t, 'continua valendo'), t);
     verdadeiro(contem(t, 'nada foi cancelado'), t);
     verdadeiro(contem(t, 'Arte Digital Floripa'), t);
@@ -1959,6 +1965,8 @@ async function rodar() {
     const t = fechouNoMeio.texto('aviso-perda-vaga');
     verdadeiro(contem(t, 'foram encerradas'), t);
     verdadeiro(contem(t, 'acabaram agora') === false, 'a abertura do esgotado vazou: ' + t);
+    verdadeiro(contem(t, 'prazo deste projeto terminou'), 'o título não é o do fechado: ' + t);
+    verdadeiro(contem(t, 'ficou sem vaga') === false, 'o título do esgotado vazou: ' + t);
     verdadeiro(contem(t, 'nada foi cancelado'), t);
   });
 
@@ -1977,6 +1985,13 @@ async function rodar() {
     // vai procurar o prazo em vez de procurar a coordenação.
     const t = desligado.texto('aviso-perda-vaga');
     verdadeiro(contem(t, 'não está mais disponível'), t);
+    // A EXCLUSÃO vale para o aviso INTEIRO, e não só para o detalhe: o título é
+    // um `<strong>` no MESMO elemento, e por muito tempo ele dizia "as
+    // inscrições foram encerradas" logo acima de "não está mais disponível" —
+    // as duas coisas ao mesmo tempo, sobre o mesmo projeto.
+    verdadeiro(contem(t, 'foram encerradas') === false, 'a abertura do fechado vazou: ' + t);
+    verdadeiro(contem(t, 'saiu da lista'), 'o título não é o do projeto desligado: ' + t);
+    verdadeiro(contem(t, 'acabaram agora') === false, t);
     verdadeiro(contem(t, 'nada foi cancelado'), t);
   });
 

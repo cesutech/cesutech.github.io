@@ -1648,15 +1648,29 @@
    * Avisa que a inscrição não entrou porque a situação do projeto mudou
    * enquanto o aluno preenchia — tipicamente a última vaga sendo levada por
    * outra pessoa que enviou primeiro.
+   *
+   * O título tem as MESMAS TRÊS situações do detalhe (`fraseDoQueFicou` e a
+   * gêmea dela no servidor, `fraseDaVagaPerdida_` em 04_Inscricoes.gs), e não
+   * duas: com duas, um projeto DESLIGADO pela coordenação ganhava o título das
+   * inscrições encerradas e o aviso dizia as duas coisas na mesma faixa
+   * vermelha — "as inscrições foram encerradas" em cima e "não está mais
+   * disponível" embaixo. Quem lê a primeira procura o prazo; quem lê a segunda
+   * procura a coordenação.
+   *
+   * E o título NÃO repete a frase do detalhe: ele diz o motivo em duas palavras
+   * (sem vaga / prazo terminado / fora da lista) e o detalhe diz o motivo com o
+   * nome do projeto e o que sobrou. Repetir seria gastar a linha em negrito
+   * para dizer de novo o que vem logo abaixo.
    */
   function anunciarPerdaDeVaga(r) {
     var el = document.getElementById('aviso-perda-vaga');
 
     el.innerHTML = '';
     var titulo = document.createElement('strong');
-    titulo.textContent = r.situacao === 'ESGOTADO'
-      ? 'Sua inscrição não foi concluída — as vagas acabaram agora.'
-      : 'Sua inscrição não foi concluída — as inscrições foram encerradas.';
+    var motivo = 'o projeto ficou sem vaga';
+    if (r.situacao === 'FECHADO') motivo = 'o prazo deste projeto terminou';
+    else if (r.situacao !== 'ESGOTADO') motivo = 'este projeto saiu da lista';
+    titulo.textContent = 'Sua inscrição não foi concluída — ' + motivo + '.';
     el.appendChild(titulo);
 
     var detalhe = document.createElement('span');

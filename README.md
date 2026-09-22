@@ -62,10 +62,11 @@ matrículas e os telefones são inventados.
 ## Um projeto por aluno, e a troca
 
 A regra é opcional e vive numa chave: **`aluno_projeto_unico`**, na aba
-Configurações. O padrão é **NAO**, e em NAO nada muda — as duas portas apenas
-avisam que a pessoa já está em outro projeto, como sempre fizeram. Em **SIM**,
-cada matrícula participa de **um projeto ativo por semestre**, e a regra vale
-nas **duas portas**:
+Configurações. O padrão é **NAO**, e em NAO a **regra** não muda nada — as duas
+portas apenas avisam que a pessoa já está em outro projeto, como sempre fizeram.
+(Publicar o código, esse sim, muda três coisas com a chave em NAO: está no fim
+desta seção.) Em **SIM**, cada matrícula participa de **um projeto ativo por
+semestre**, e a regra vale nas **duas portas**:
 
 **No formulário do aluno**, quem já está em outro projeto não é recusado: o site
 pergunta, e a confirmação **troca** — a inscrição anterior é cancelada e a nova
@@ -123,8 +124,37 @@ igual nas duas.
    ou nome), porque para a regra elas são invisíveis.
 5. **Homologação com duas abas**: duas primeiras inscrições ao mesmo tempo, e uma
    troca confirmada nas duas.
-6. **Virar a chave pela tela de Configurações.** Publicar o código com a chave em
-   NAO não muda nada.
+6. **Virar a chave pela tela de Configurações.** É o último passo, e é o único
+   que liga a regra — mas não é o único que muda alguma coisa: o que vem logo
+   abaixo já vale desde a publicação.
+
+### O que muda ao publicar, mesmo com a chave em NAO
+
+Três coisas não dependem da chave, e valem a partir do deploy:
+
+1. **Promover da fila passa a recusar a corrida em vez de sobrescrever calado.**
+   Vale nas duas portas que promovem — a aba **Geral** (lote de até 200) e
+   **Incluir aluno** (uma). Cada escrita leva a versão que a tela leu; se
+   qualquer inscrição do lote mudou desde então (outra aba editou, a coordenação
+   anulou, o aluno trocou de projeto), o banco recusa o lote **inteiro**,
+   **ninguém** é promovido, e a resposta manda recarregar: *"a lista da tela é
+   de antes"* na aba Geral, *"a ficha é de antes"* no Incluir. Antes, a
+   promoção gravava por cima do que tivesse mudado. O preço é dito: um lote de
+   200 volta inteiro quando **uma** das 200 mudou — clicar de novo depois de
+   recarregar é mais barato do que promover por cima.
+2. **Alunos → Editar → Projeto move a inscrição num `:commit` só.** Eram duas
+   requisições (criar no endereço novo, apagar o velho) e uma janela entre elas
+   em que a inscrição existia nos dois lugares; agora é uma, tudo ou nada. Se o
+   endereço novo já estiver ocupado, a edição é recusada e o documento velho
+   **continua vivo**.
+3. **A aba Geral mostra a procedência de cada inscrição** — o selo de quem foi
+   incluído pela coordenação (`incluido_por`) e, quando houver, o de quem veio
+   de uma troca (`trocada_de`, que só nasce com a chave em SIM).
+
+Com a chave em **SIM** é que entra a regra em si: a pergunta e a troca no
+formulário do aluno, a pergunta antes de gravar no Incluir aluno, a recusa da
+troca para quem tem matrícula cancelada ou inscrição feita pela coordenação, e a
+guarda da restauração no Geral.
 
 **Regra operacional, com a chave em SIM:** não rode a **Revisão de divergências**
 com a janela de inscrição aberta. Entre a releitura e o apaga da revisão passam

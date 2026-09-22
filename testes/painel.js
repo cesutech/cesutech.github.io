@@ -3419,7 +3419,9 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
   //
   // Mutação que derruba: ignorar `escritaIndeterminada_` e responder a frase da
   // corrida — a coordenação lê "ninguém foi promovido" sobre uma pessoa que
-  // acabou de ganhar vaga, e clica de novo.
+  // acabou de ganhar vaga, e clica de novo. A outra, gêmea da de
+  // testes/auditorio.js: sair daqui sem `registrar` — o `registrar` de sucesso
+  // fica depois deste ramo, e a promoção entraria sem UMA linha no Histórico.
   const amb = cenarioDaFila(null, true);
   amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
@@ -3432,6 +3434,14 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
 
   // E a promoção entrou — é o estado que a frase antiga negava.
   igual(amb.api.ler('inscricoes', amb.fila.id).em_espera, undefined, 'a promoção não foi aplicada');
+
+  // A trilha sai MESMO ASSIM: é o único rastro de uma promoção que pode ter
+  // entrado, porque a resposta diz que não sabe e a ficha não guarda a tentativa.
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 1,
+    'o efeito pode ter entrado, e o Histórico não registrou nem a tentativa');
+  const detalhe = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe;
+  verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('coordenacao@exemplo.com') !== -1, 'o detalhe foi: ' + detalhe);
 });
 
 teste('a recusa do Incluir chega à tela SEM o caminho do documento (D-27)', () => {

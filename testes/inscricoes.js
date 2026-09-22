@@ -111,6 +111,16 @@ function acoesDoLog(falso) {
   return acoes;
 }
 
+/** O detalhe da primeira linha desta ação — a gêmea de testes/auditorio.js. */
+function detalheDoLog(falso, acao) {
+  let achado = '';
+  falso.documentos.forEach((campos, chave) => {
+    if (achado || chave.indexOf('log/') !== 0) return;
+    if (campos.acao.stringValue === acao) achado = campos.detalhe.stringValue;
+  });
+  return achado;
+}
+
 function criarProjeto(api, id, campos) {
   api.inserir('projetos', Object.assign({
     codigo: id,
@@ -2140,6 +2150,102 @@ teste('a coordenação anula a antiga entre a consulta e o commit: a troca compl
   igual(inscricoesGravadas(falso), [r.protocolo]);
   igual(api.ler('inscricoes_anuladas', 'i_x').anulado_motivo, 'TROCA',
     'a cópia da troca sobrescreve a da coordenação — o que se perde é trilha, nunca o aluno');
+});
+
+// Os dois lados do 409 de G7. O `criar` leva `exists:false`, e o ALREADY_EXISTS
+// que volta dele diz só que o documento de Y já estava lá — nunca quem o pôs. É
+// `retentou` (02_Repo.gs) que separa "fui eu, na tentativa anterior" de "foi
+// outra porta", e o estado do banco é OPOSTO nos dois: num, a troca entrou; no
+// outro, nada entrou e a antiga continua viva. Mutação que derruba os dois de
+// uma vez: apagar o ramo `escrito.jaExistia` — a função segue para o `return` da
+// troca feita e anuncia um cancelamento que o banco recusou.
+teste('o 503 na RESPOSTA do commit da troca: ela ENTROU, e a trilha da troca sai mesmo assim', () => {
+  // O 503 que chega depois de o banco aplicar o `:commit`. `fsFetch_` retenta, a
+  // segunda tentativa manda o mesmo `exists:false` — que o próprio efeito acabou
+  // de invalidar — e volta ALREADY_EXISTS. A troca ACONTECEU: a antiga está na
+  // quarentena, a nova está viva. Mutação que derruba: ignorar `retentou` e
+  // responder o mesmo dos dois lados (o que o ramo fazia) — a troca entra e a
+  // única linha do Histórico é a `INSCRICAO_PROJETO` de uma "duplicada", sem
+  // nada que diga que uma inscrição foi cancelada e por quê.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+  falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true, 'a inscrição de Y existe — quem a criou é que não se sabe');
+
+  // O estado que a resposta descreve: a troca entrou inteira, porque o `:commit`
+  // é tudo ou nada.
+  igual(inscricoesGravadas(falso), [r.protocolo], 'a antiga continua viva em `inscricoes`');
+  igual(anuladas(falso), ['i_x']);
+
+  // E a trilha sai MESMO ASSIM, dizendo o que não se pode confirmar — é a régua
+  // do ramo indeterminado do Auditório e do Incluir aluno, e aqui ela é a única
+  // prova de que a inscrição em Robótica foi cancelada por uma troca.
+  igual(acoesDoLog(falso), ['INSCRICAO_PROJETO', 'INSCRICAO_TROCADA']);
+  const detalhe = detalheDoLog(falso, 'INSCRICAO_TROCADA');
+  verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('i_x') !== -1 && detalhe.indexOf(r.protocolo) !== -1,
+    'o detalhe foi: ' + detalhe);
+  verdadeiro(detalhe.indexOf('Robótica na Escola') !== -1 && detalhe.indexOf('Horta Comunitária') !== -1,
+    'o detalhe foi: ' + detalhe);
+
+  igual(r.aviso, undefined, 'a antiga foi cancelada: dizer que ele "também consta" nela seria falso');
+});
+
+teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: duplicada honesta, sem cancelamento nenhum', () => {
+  // O 409 SEM retentativa nenhuma, e ele é alcançável sem 503: `incluirInscricao`
+  // (10_Painel.gs) grava em `inscricoes` com a MESMA `chaveDedup_` e SEM o lock.
+  // O `:commit` inteiro é recusado — a antiga continua VIVA, a quarentena vazia
+  // —, e o aluno está em Y por outra via. Mutação que derruba: responder aqui o
+  // `duplicada` seco, sem o `tambem_em` — a resposta afirma que a troca
+  // aconteceu, o site esquece Robótica do `localStorage` (D17) e o aluno fica em
+  // DOIS projetos sem uma palavra sobre o segundo.
+  const { api, falso } = cenarioDaTroca('SIM');
+  inscreverEm(api, 'i_x');
+  comLock(api, falso);
+
+  const idNova = api.chaveDedup_({
+    projeto_id: 'p_y', matricula: '9110001', email: 'maria@exemplo.com', nome: 'Maria da Silva'
+  });
+  const real = api.UrlFetchApp;
+  let incluiu = false;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      // Entre G1 e a escrita: o corpo do `:commit` já está montado, e a
+      // coordenação inclui a mesma pessoa no mesmo projeto pela outra porta.
+      if (!incluiu && String(url).indexOf(':commit') !== -1) {
+        incluiu = true;
+        inscreverEm(api, idNova, {
+          projeto_id: 'p_y', projeto_nome: 'Horta Comunitária',
+          origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com'
+        });
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.UrlFetchApp = real;
+
+  verdadeiro(incluiu, 'o cenário não chegou a acontecer');
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+  igual(r.duplicada, true);
+  igual(r.protocolo, idNova, 'o protocolo é o do documento que existe');
+
+  // NADA foi cancelado: é isto que a resposta não pode contradizer.
+  igual(inscricoesGravadas(falso).sort(), [idNova, 'i_x'].sort(), 'a antiga tem de continuar viva');
+  igual(anuladas(falso), [], 'a quarentena recebeu uma cópia de uma troca que não houve');
+  igual(acoesDoLog(falso), ['INSCRICAO_PROJETO'], 'nada foi trocado, e a trilha não pode dizer que foi');
+
+  igual(r.trocada, undefined);
+  igual(r.mensagem.indexOf('cancelada'), -1, 'a mensagem foi: ' + r.mensagem);
+  verdadeiro(r.aviso.indexOf('Robótica na Escola') !== -1,
+    'o aviso tem de NOMEAR a inscrição que continua de pé: ' + r.aviso);
 });
 
 // O invariante inteiro, com a regra ligada: o que muda é o gravador, e ele não

@@ -1001,7 +1001,10 @@ function copiaParaQuarentena_(inscricao, carimbo, idNova) {
  *       atual, sem escrita (D9). Nunca "cancelo o que eu achar";
  *   G6  o projeto novo encheu enquanto ele decidia -> recusa, e a antiga fica de
  *       pé (D8). Troca NUNCA cai em lista de espera: "sem vaga, nada muda";
- *   G7  a troca: cópia + delete + create, UMA requisição, tudo ou nada.
+ *   G7  a troca: cópia + delete + create, UMA requisição, tudo ou nada. E o 409
+ *       que pode voltar dela tem DUAS leituras, que `retentou` separa: a minha
+ *       própria tentativa anterior (a troca entrou) ou outra porta (nada
+ *       entrou, e a antiga continua viva) — está escrito lá embaixo.
  *
  * O QUE ESTE GRAVADOR NÃO FAZ, e é decisão, não esquecimento: ele não MONTA
  * resposta. G5, G6 e G7 devolvem o conjunto de inscrições e param — nome e
@@ -1111,11 +1114,56 @@ function gravadorDaTroca_(dados, ctx) {
 
     var escrito = escreverAtomico(escritas);
 
-    // Só alcançável quando um 503 chegou na resposta de um commit que o banco JÁ
-    // aplicou e a retentativa encontrou a inscrição nova no lugar (ver o
-    // cabeçalho de `escreverAtomico`). "Você já estava inscrito" é a leitura
-    // certa do estado do banco.
-    if (escrito.jaExistia) return { ok: true, duplicada: true, id: idNova, em_espera: false };
+    // O 409 do `criar` diz uma coisa só: o documento de Y JÁ ESTAVA no lugar
+    // quando o commit chegou. Ele NÃO diz quem o pôs lá — e são duas histórias
+    // opostas, que `retentou` (02_Repo.gs) separa. Sem ler `retentou`, as duas
+    // saíam com a mesma frase, e numa delas a frase era falsa.
+    //
+    //   COM retentativa: o 503 chegou na RESPOSTA de um `:commit` que o banco já
+    //   tinha aplicado, e a segunda tentativa encontrou a inscrição nova no
+    //   lugar. O commit é atômico — se o `criar` entrou, a cópia e o delete
+    //   entraram com ele —, então a TROCA ACONTECEU e "você já está inscrito
+    //   neste projeto" é a leitura certa do banco. O que não se pode é calar:
+    //   este é o único ramo em que a troca entra sem a resposta anunciá-la, e a
+    //   linha `INSCRICAO_TROCADA` sai MESMO ASSIM, dizendo o que não se pode
+    //   confirmar. É a régua do ramo indeterminado do Auditório
+    //   (13_Auditorio.gs) e do Incluir aluno (10_Painel.gs), aplicada ao
+    //   terceiro escritor de `escreverAtomico`. Quem registra é
+    //   `decorarComATroca_`, fora do lock, como toda escrita de log daqui.
+    //
+    //   SEM retentativa: alguém gravou Y entre G1 e este commit, e não é
+    //   hipótese — `incluirInscricao` (10_Painel.gs) grava em `inscricoes` com a
+    //   MESMA `chaveDedup_` e SEM o lock, que é a porta da coordenação. Aqui o
+    //   commit inteiro foi RECUSADO: a inscrição antiga continua VIVA, a
+    //   quarentena está vazia, nada foi cancelado. A resposta é a duplicada
+    //   HONESTA — o aluno está em Y, por outra via — e não pode afirmar
+    //   cancelamento nenhum; o `tambem_em` é o mesmo de G2, e é ele que NOMEIA a
+    //   inscrição que continua de pé, para o aluno não descobrir sozinho que
+    //   está em dois projetos.
+    if (escrito.jaExistia) {
+      if (escrito.retentou) {
+        return {
+          ok: true, duplicada: true, id: idNova, em_espera: false,
+          // Só id e nome, montados aqui com o que G1 já tinha na mão: a linha do
+          // log não lê projeto nenhum, e ler dentro do lock é fila para quem
+          // está atrás (o contrato de `reservarVaga`).
+          troca_indeterminada: {
+            de: ativas.outras.map(function (inscricao) {
+              return {
+                id: String(inscricao._id),
+                projeto_nome: String(inscricao.projeto_nome || inscricao.projeto_id)
+              };
+            }),
+            para: ctx.nomeDoAlvo
+          }
+        };
+      }
+
+      return {
+        ok: true, duplicada: true, id: idNova, em_espera: false,
+        tambem_em: nomesDasAtivas_(ativas.outras)
+      };
+    }
 
     // Os DOCUMENTOS cancelados, como G1 os viu. O resumo que a tela lê (nome e
     // código do projeto) é montado fora do lock, em `decorarSaidaDaTroca_`: ele
@@ -1485,6 +1533,23 @@ function decorarComATroca_(r, saida) {
     saida.mensagem += r.trocada.de.length === 1
       ? ' Sua inscrição anterior em ' + nomes + ' foi cancelada.'
       : ' Suas inscrições anteriores em ' + nomes + ' foram canceladas.';
+  }
+
+  // A TROCA QUE PODE TER ENTRADO SEM NINGUÉM SABER (G7 com `retentou`): o 409
+  // veio depois de uma retentativa, então o `:commit` anterior pode ter sido
+  // aplicado e a troca ter acontecido. A resposta diz o que o banco MOSTRA (a
+  // inscrição em Y existe — é a frase da duplicada); a trilha diz o que ele NÃO
+  // confirma. A linha sai mesmo assim porque este é o único ramo em que a troca
+  // entra sem nenhuma outra prova: a cópia na quarentena pode ser sobrescrita, e
+  // a resposta ao aluno não anuncia cancelamento nenhum. É a régua do ramo
+  // indeterminado do Auditório e do Incluir aluno, com as palavras desta porta.
+  if (r.troca_indeterminada) {
+    registrar('INSCRICAO_TROCADA', 'inscricao', r.id,
+      'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a troca pode ' +
+      'ter entrado — de ' +
+      r.troca_indeterminada.de.map(function (a) { return a.id; }).join(',') + ' para ' + r.id +
+      ' (' + r.troca_indeterminada.de.map(function (a) { return a.projeto_nome; }).join(', ') +
+      ' → ' + r.troca_indeterminada.para + ')');
   }
 
   // O aviso de sempre, agora vindo de dentro do lock: quem reenviou para o

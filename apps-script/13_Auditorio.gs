@@ -981,10 +981,14 @@ function promoverDaEspera(payload) {
       // de novo gente que já está com vaga. A frase não afirma nenhum dos dois
       // lados e manda fazer a única coisa que resolve: olhar a lista.
       //
-      // E a linha do log sai MESMO ASSIM, porque este é o único ramo em que o
-      // efeito pode ter entrado sem nenhuma trilha. `registrar` é à prova de
-      // falha (04_Log.gs) e a linha diz o que se sabe: o que foi tentado, por
-      // quem, e que o resultado não foi confirmado.
+      // E a linha do log sai MESMO ASSIM, porque num ramo indeterminado o efeito
+      // pode ter entrado sem nenhuma trilha — o `registrar` de sucesso fica
+      // depois daqui, e quem sai por este caminho passaria por fora dele. São
+      // TRÊS os ramos com essa propriedade, e todos registram antes de
+      // responder: este, a promoção do Incluir aluno (10_Painel.gs) e a troca de
+      // projeto do aluno (`decorarComATroca_`, 04_Inscricoes.gs). `registrar` é
+      // à prova de falha (04_Log.gs) e a linha diz o que se sabe: o que foi
+      // tentado, por quem, e que o resultado não foi confirmado.
       registrar('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
         'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
         'pode ter entrado — por ' + quemMexeu_(payload.token) +
@@ -1091,8 +1095,10 @@ function promoverDaEspera(payload) {
  * mudar o que "promover" escreve no documento muda nos dois lugares — inclusive
  * a PRECONDIÇÃO: ele também grava com `versao` (o ramo da duplicada), e recusa
  * com a frase dele, "a ficha é de antes: esta inscrição mudou enquanto a janela
- * estava aberta". A janela de lá é maior que esta, e não menor: sem lock, o
- * documento é lido e reescrito com segundos de Apps Script no meio.
+ * estava aberta". E inclusive a LINHA DO LOG do indeterminado: lá, como aqui,
+ * ela sai antes da resposta, porque é o único rastro que sobra de uma promoção
+ * que pode ter entrado. A janela de lá é maior que esta, e não menor: sem lock,
+ * o documento é lido e reescrito com segundos de Apps Script no meio.
  */
 function promoverDentroDoLock_(candidatos, projetos, recusadas) {
   // A pergunta da fila é feita AQUI, antes do `waitLock`, e não é para usar a
