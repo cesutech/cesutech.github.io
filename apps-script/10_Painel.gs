@@ -861,7 +861,10 @@ function buscarMatriculado(payload) {
  * trilha diz "(promovida da fila)". Nada do que a coordenação digitou
  * sobrescreve a inscrição do aluno: ela ganha a vaga como está — o mesmo que a
  * promoção pelo Auditório. Custa uma leitura a mais na duplicata, que é o caso
- * raro; no caminho feliz não custa nada.
+ * raro; no caminho feliz não custa nada. E a escrita leva a VERSÃO dessa
+ * leitura: sem lock, a janela fica aberta por segundos, e nesse tempo o aluno
+ * pode ter trocado de projeto — promover por cima disso ressuscitaria a
+ * inscrição que a troca apagou (ver o ramo da duplicata).
  *
  * O teto PERGUNTA ANTES de saber se é fila: a dedup é o 409, e não uma leitura
  * prévia, então a pergunta do teto ("2/2, incluir deixa 3/2") sai sem saber que
@@ -871,10 +874,14 @@ function buscarMatriculado(payload) {
  * na pergunta, custaria uma leitura em TODA inclusão para melhorar a frase do
  * caso raro.
  *
- * Outro projeto da mesma pessoa NÃO recusa, e avisa nomeando-o: é a semântica do
- * modo NAO de `aluno_projeto_unico`, o padrão. Se a intenção era MOVER, o caminho
- * é Alunos → Editar → Projeto, e o aviso diz isso — incluir de novo deixaria a
- * pessoa em dois projetos.
+ * Outro projeto da mesma pessoa NUNCA recusa, e o que muda com
+ * `aluno_projeto_unico` é QUANDO a coordenação fica sabendo. Em NAO (o padrão),
+ * grava e avisa nomeando o outro projeto: se a intenção era MOVER, o caminho é
+ * Alunos → Editar → Projeto, e o aviso diz isso — incluir de novo deixaria a
+ * pessoa em dois. Em SIM, a mesma notícia vira PERGUNTA, antes de qualquer
+ * escrita (ver o bloco da segunda porta, lá embaixo): a regra que o formulário
+ * público passa a impor não pode ter uma porta por onde duplicidades novas
+ * entram caladas.
  *
  * ---------------------------------------------------------------- E depois
  *
@@ -919,15 +926,23 @@ function incluirInscricao(payload) {
     var vagas = Number(projeto.vagas || 0);
     var projetoNome = String(projeto.nome || '');
 
-    // Só o teto pergunta, e só UMA vez: o segundo envio traz `confirmar_teto` e
-    // pula a contagem de antes. A de depois é feita de qualquer jeito — é ela que
-    // vai para a resposta e para o log. 0 vagas é ilimitado, e não pergunta.
+    // O teto pergunta UMA vez: o segundo envio traz `confirmar_teto` e pula a
+    // contagem de antes. A de depois é feita de qualquer jeito — é ela que vai
+    // para a resposta e para o log. 0 vagas é ilimitado, e não pergunta.
+    //
+    // `confirmar_campo` diz À TELA qual campo marcar no reenvio, e é o que
+    // permite existir uma SEGUNDA pergunta (a da duplicidade, logo abaixo) sem
+    // que a tela precise adivinhar: ela responde ao nome que veio, acumulando
+    // os "sim" já dados. Sem isso, uma tela que respondesse sempre
+    // `confirmar_teto` a qualquer `precisa_confirmar` ficaria em laço — a
+    // segunda pergunta voltaria para sempre e nada seria gravado.
     if (payload.confirmar_teto !== true && vagas > 0) {
       var antes = contarInscritos_(projetoId);
       if (antes >= vagas) {
         return {
           ok: false,
           precisa_confirmar: true,
+          confirmar_campo: 'confirmar_teto',
           inscritos: antes,
           vagas: vagas,
           erro: 'Este projeto está com ' + antes + '/' + vagas + '. Incluir deixa ' +
@@ -950,6 +965,54 @@ function incluirInscricao(payload) {
     var cancelada = oficial !== null && cadastroCancelado_(oficial);
     var conhecida = oficial !== null && !cancelada;
     var jaEstaEm = outrosProjetosDe_({ matricula: payload.matricula, projeto_id: projetoId });
+
+    // ------------------------------------- A segunda porta de `aluno_projeto_unico`
+    //
+    // Com a chave em SIM, o formulário público não deixa a mesma matrícula ficar
+    // em dois projetos ativos: ele pergunta, e a troca cancela a anterior no
+    // mesmo `:commit` (04_Inscricoes.gs). Esta porta não passava por lugar
+    // nenhum que conhecesse a regra — ela gravava a SEGUNDA inscrição ativa e
+    // avisava DEPOIS, com o aviso amarelo lá embaixo. Com isso, "a regra é só
+    // para frente" seria falso: a coordenação criaria duplicidades novas depois
+    // de a chave ser virada, e nenhuma delas passaria por uma pergunta.
+    //
+    // PERGUNTA, e não recusa, porque é a régua de TODA outra trava desta porta
+    // (a janela, `cadastro_aberto`, o anti-abuso, o teto): a coordenação passa
+    // por fora, sabendo. Recusar a deixaria sem saída justamente depois do
+    // prazo, que é quando esta função existe para ser usada.
+    //
+    // Custa ZERO leitura: `jaEstaEm` é a consulta que já estava aqui, e a chave
+    // vem de `config()`, que o documento de configuração já trouxe (a régua da
+    // matrícula o leu, lá em cima, antes de qualquer outra coisa).
+    //
+    // Vale também para a PROMOÇÃO DA FILA, e de propósito: esta pergunta sai
+    // antes do 409 que revela que a inscrição já existe em espera, e promover
+    // quem tem outro projeto ativo transforma uma inscrição que NÃO ocupava vaga
+    // numa que ocupa — a segunda ativa, pela porta de dentro. A frase é
+    // verdadeira nos dois desfechos, e por isso é uma só.
+    //
+    // O que ela NÃO diz é o conselho do aviso lá embaixo ("use Alunos → Editar
+    // → Projeto"): ele está certo para a inclusão comum e errado para a
+    // promoção — Editar moveria a OUTRA inscrição, e mover ESTA para onde ela
+    // já está bate no 409 de `gravarInscricaoEditada_`. A pergunta nomeia o
+    // projeto e para por aí.
+    if (String(config('aluno_projeto_unico', 'NAO')).toUpperCase() === 'SIM' &&
+        jaEstaEm.length && payload.confirmar_outro_projeto !== true) {
+      return {
+        ok: false,
+        precisa_confirmar: true,
+        confirmar_campo: 'confirmar_outro_projeto',
+        // NOMES, e não `{id, projeto_id, ...}` como o `ja_em` de
+        // `buscarMatriculado`: lá a janela marca "(este projeto)" pelo id — o
+        // nome é desnormalizado e um projeto renomeado deixaria a marca errada
+        // —, e aqui ninguém marca nada. A pergunta é uma frase, e o campo leva
+        // os mesmos nomes dela, para quem responde por HTTP não ter de recortar
+        // texto. Os dois vêm da MESMA consulta (`inscricoesDaPessoa_`).
+        ja_em: jaEstaEm,
+        erro: 'Cada aluno participa de um projeto por semestre. Este aluno já está inscrito em ' +
+              jaEstaEm.join(', ') + '. Incluir aqui deixa ele em DOIS.'
+      };
+    }
 
     // Só o que o formulário também manda: os aceites e quem incluiu NÃO entram
     // aqui — vão no segundo argumento de `gravarInscricao` (ver o cabeçalho).
@@ -988,13 +1051,47 @@ function incluirInscricao(payload) {
       // campo: as marcas são APAGADAS, e não zeradas — o documento de quem
       // ocupa vaga não tem esses campos, e `em_espera: NAO` gravado seria uma
       // terceira forma de documento que a primeira consulta "tem o campo?"
-      // leria errado. E é o documento LIDO que volta inteiro, porque
-      // `escreverEmLote` substitui: mandar só as duas chaves apagaria o resto
-      // da inscrição. O que a coordenação digitou no formulário NÃO entra —
-      // a inscrição é a do aluno, e ganha a vaga como está.
+      // leria errado. E é o documento LIDO que volta inteiro, porque o `gravar`
+      // do `:commit` é update SEM máscara: mandar só as duas chaves apagaria o
+      // resto da inscrição. O que a coordenação digitou no formulário NÃO
+      // entra — a inscrição é a do aluno, e ganha a vaga como está.
       delete recusada.em_espera;
       delete recusada.espera_de;
-      escreverEmLote(INSCRICOES_COLECAO, [recusada]);
+
+      // E a escrita leva a VERSÃO lida três linhas acima (D12), como a do
+      // Auditório. Era `escreverEmLote` — upsert sem precondição nenhuma, fora
+      // do lock —, e a sequência que isso permitia é concreta desde que a troca
+      // de projeto existe: (1) o Incluir leva o 409 e lê a inscrição em espera
+      // de X; (2) o aluno confirma a troca X→Y e o `:commit` apaga X e cria Y;
+      // (3) este upsert grava o que leu e RESSUSCITA X, agora sem as marcas de
+      // fila — ocupando vaga. O aluno fica com duas ativas, a cópia em
+      // `inscricoes_anuladas/{idX}` fica órfã e o teto de X vai a +1.
+      //
+      // É VERSÃO e não `exists:true` pelo motivo de `atualizarEmLote`
+      // (02_Repo.gs): `exists:true` não distingue "o mesmo documento" de "o
+      // documento REESCRITO" — e reescrito é exatamente o que ele fica quando
+      // alguém promove ou edita pela outra porta enquanto a janela está aberta.
+      // Nada é aplicado na recusa, e a frase manda recarregar: retentar aqui
+      // seria promover por cima do que mudou.
+      try {
+        escreverAtomico([{
+          gravar: {
+            colecao: INSCRICOES_COLECAO,
+            id: gravacao.id,
+            objeto: recusada,
+            versao: recusada._versao
+          }
+        }]);
+      } catch (corrida) {
+        // Qualquer outro erro (rede, cota) segue subindo para o `catch` lá
+        // embaixo, que é onde ele sempre terminou.
+        if (!corridaDeEscrita_(corrida)) throw corrida;
+        return {
+          ok: false,
+          erro: 'A ficha é de antes: esta inscrição mudou enquanto a janela estava aberta — ' +
+                'ninguém foi promovido. Recarregue e tente de novo.'
+        };
+      }
       promovida = recusada;
     }
 
@@ -1054,8 +1151,14 @@ function incluirInscricao(payload) {
                 (vagas > 0 ? '/' + vagas : ' inscrito(s)') + '.'
     };
   } catch (err) {
-    console.error('incluirInscricao: ' + err.message);
-    return { ok: false, erro: err.message };
+    // A régua D-27 (`semCaminhoDeDocumento_`, 02_Repo.gs): a mensagem de uma
+    // escrita recusada carrega o caminho inteiro do documento — o id do projeto
+    // Cloud e, numa inscrição, o PROTOCOLO do aluno. Desde que a promoção acima
+    // escreve com precondição, este ramo ficou alcançável por um erro de
+    // escrita, e ele responde À TELA e loga no console de execução.
+    var limpo = semCaminhoDeDocumento_(err);
+    console.error('incluirInscricao: ' + limpo);
+    return { ok: false, erro: limpo };
   }
 }
 
@@ -1860,24 +1963,45 @@ function resolverAluno(payload) {
  * O id do documento em `inscricoes` É a chave de dedup (`chaveDedup_`,
  * 04_Inscricoes.gs), e ela é feita de projeto + matrícula (ou CPF, ou e-mail+nome).
  * Mudar a matrícula ou o projeto muda o ENDEREÇO do documento — não dá para
- * "atualizar" a inscrição, ela precisa MUDAR DE LUGAR. O que acontece, na ordem:
+ * "atualizar" a inscrição, ela precisa MUDAR DE LUGAR. As duas escritas — criar
+ * no endereço NOVO e apagar o VELHO — vão num `:commit` só (`escreverAtomico`,
+ * 02_Repo.gs): tudo ou nada, numa requisição.
  *
- *   1. `inserir` no endereço NOVO, com `documentId`. Se o endereço já estiver
- *      ocupado, o banco responde 409 ALREADY_EXISTS e a operação PARA AQUI, sem
- *      ter apagado nada. Endereço ocupado significa exatamente uma coisa: esta
- *      pessoa já tem inscrição neste projeto. É a mesma garantia atômica que
- *      protege o formulário público, e é ela — e não uma consulta nossa — que
- *      impede a correção de criar duas inscrições da mesma pessoa no mesmo
- *      projeto;
- *   2. `excluir` no endereço VELHO.
+ * O `criar` leva `currentDocument:{exists:false}`, que é o 409 ALREADY_EXISTS de
+ * sempre — e é ele, e não uma consulta nossa, que impede a correção de criar
+ * duas inscrições da mesma pessoa no mesmo projeto. Endereço ocupado significa
+ * exatamente uma coisa: esta pessoa já tem inscrição neste projeto. O que muda
+ * com o commit é que a recusa chega SEM ter apagado nada e sem depender da
+ * ordem: antes eram duas requisições, e a morte da execução entre elas deixava
+ * duas inscrições da mesma pessoa (o projeto contava um inscrito a mais e o
+ * professor via a linha duplicada). Era feio, visível e corrigível — mas era um
+ * defeito escrito neste cabeçalho, e a primitiva que faltava passou a existir
+ * com a troca de projeto do aluno (04_Inscricoes.gs).
  *
- * As duas escritas NÃO são atômicas entre si (o Repo não tem `:commit` misto, e
- * usar `escreverEmLote` seria pior: ele é upsert, e SOBRESCREVERIA a inscrição de
- * quem já estivesse no endereço novo). Se a segunda falhar, sobram duas inscrições
- * da mesma pessoa — uma no endereço velho, uma no novo —, o projeto conta um
- * inscrito a mais e o professor vê a linha duplicada na tela. Feio, visível e
- * corrigível; não é perda de dado. É a mesma troca que a edição de disciplinas já
- * fez (12_Disciplinas.gs), pelo mesmo motivo.
+ * `escreverEmLote` continua NÃO servindo, e vale dizer por quê antes que alguém
+ * tente: ele é upsert sem precondição e SOBRESCREVERIA a inscrição de quem já
+ * estivesse no endereço novo. O par igual em 12_Disciplinas.gs continua com as
+ * duas escritas soltas; é item próprio, e não entrou aqui de carona.
+ *
+ * ------------------- Esta migração e a TROCA DO ALUNO não são a mesma coisa
+ *
+ * As duas movem uma inscrição de projeto, e a semelhança para por aí. São três
+ * diferenças, e todas as três são de propósito:
+ *
+ *   atomicidade ... igual desde esta PR: um `:commit`, tudo ou nada, nos dois;
+ *   teto .......... a migração do painel ESTOURA o teto do projeto de destino,
+ *                   calada — é a coordenação decidindo, com "2/2 · Esgotado"
+ *                   lido no select antes de escolher. A troca do aluno morre em
+ *                   ESGOTADO e a inscrição anterior fica de pé;
+ *   quarentena .... a migração NÃO deixa cópia em `inscricoes_anuladas`: o
+ *                   documento é o MESMO, mudou de endereço, e o protocolo novo
+ *                   é o que a ficha passa a mostrar. A troca do aluno copia a
+ *                   antiga para a quarentena com `anulado_motivo: 'TROCA'`,
+ *                   porque ali houve um CANCELAMENTO — e é o que permite à
+ *                   coordenação desfazê-lo.
+ *
+ * Quem for equiparar as duas muda regra de negócio, não código: por isso está
+ * escrito aqui e no README, e não deduzido do diff.
  *
  * ---------------------------------------------------- E o cadastro por cima
  *
@@ -2372,7 +2496,15 @@ function gravarInscricaoEditada_(inscricao, plano) {
     return { ok: true, id: velha, pessoa: chaveDePessoa_(novo) };
   }
 
-  var gravacao = inserir(INSCRICOES_COLECAO, novo, nova);
+  // A mudança de endereço num `:commit` só: criar o novo e apagar o velho, tudo
+  // ou nada (ver o cabeçalho de `editarAluno`). O `apagar` vai SEM `versao` de
+  // propósito, pelo mesmo motivo da troca do aluno: quem lê o documento é a
+  // janela, segundos antes, e uma anulação no meio derrubaria o commit inteiro
+  // — o certo é a inscrição mudar de lugar, não a correção morrer.
+  var gravacao = escreverAtomico([
+    { criar: { colecao: INSCRICOES_COLECAO, id: nova, objeto: novo } },
+    { apagar: { colecao: INSCRICOES_COLECAO, id: velha } }
+  ]);
   if (gravacao.jaExistia) {
     return {
       ok: false,
@@ -2384,7 +2516,6 @@ function gravarInscricaoEditada_(inscricao, plano) {
     };
   }
 
-  excluir(INSCRICOES_COLECAO, velha);
   return { ok: true, id: nova, pessoa: chaveDePessoa_(novo) };
 }
 

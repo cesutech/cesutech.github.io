@@ -32,6 +32,16 @@
  *     diferentes. Aqui o que se prova é que a lembrança sobrevive a uma
  *     recarga da página, reabrindo o site com o mesmo armazenamento.
  *
+ * E, da pergunta da TROCA DE PROJETO (22/09) — aqui se prova que o bloco existe,
+ * que ele tem `role="alertdialog"` e que os dois botões estão lá; o que falta é
+ * do navegador, e vale um olhar na homologação, junto do teste das duas abas:
+ *   - que o leitor de tela ANUNCIA o `alertdialog` quando ele aparece no meio do
+ *     formulário, e que o foco entra nele de verdade (`focus()` num elemento com
+ *     `tabindex="-1"` é coisa de navegador);
+ *   - que os dois botões, um sob o outro, não deixam o [Trocar para Y e cancelar
+ *     X] a um polegar de distância do [Manter] no celular — é layout, e cancelar
+ *     por engano é o erro que não tem desfazer pela tela do aluno.
+ *
  * Uso:  node testes/site.js
  */
 

@@ -3530,12 +3530,42 @@
     itens.forEach(function (i) {
       html += linhaTocavel('recentes', i.id, i.nome,
         escapar(i.matricula || 'sem matrícula') + ' &middot; ' + escapar(i.projeto_nome || '—') +
-        (i.em_espera ? ' &middot; <span class="selo selo--DIVERGENCIA">na espera</span>' : ''),
+        (i.em_espera ? ' &middot; <span class="selo selo--DIVERGENCIA">na espera</span>' : '') +
+        selosDaProcedencia_(i),
         [diaDe(i.criado_em), horaDe(i.criado_em)]);
     });
 
     el.innerHTML = html + '</div>' + rodapeDeRecentes(itens.length);
     desenharAcoes('recentes');
+  }
+
+  /**
+   * DE ONDE VEIO esta inscrição — os dois selos que a linha do Geral ganhou.
+   *
+   * Sem eles, a inscrição que a coordenação incluiu à mão e a que nasceu de uma
+   * troca de projeto do aluno são indistinguíveis de uma inscrição comum, e a
+   * pergunta "por que esta pessoa está aqui?" só tem resposta no Histórico —
+   * que é por ação, não por inscrição, e que ninguém abre no meio de uma
+   * conferência. `resumoParaAuditorio_` (13_Auditorio.gs) já manda os dois
+   * campos; aqui eles viram frase.
+   *
+   * São dois campos e não um `origem` só porque dizem coisas diferentes:
+   * `incluido_por` é POR QUEM (a inscrição entrou pela porta da coordenação,
+   * por fora da janela e do teto — o e-mail de quem clicou não entra na tela,
+   * ele está no Histórico), e `trocada_de` é DE ONDE (o aluno cancelou a
+   * inscrição anterior para fazer esta, e o protocolo antigo, que ele pode ter
+   * fotografado, está na quarentena). Uma inscrição pode ter os dois.
+   *
+   * Os selos reusam as classes que a tela já tem (`estilos.css` é gêmeo byte a
+   * byte do `<style>` de apps-script/Estilos.html): classe nova aqui obrigaria a
+   * regenerar o gêmeo, e nenhuma das duas notícias é mais grave que "na espera",
+   * que já usa a cor de atenção.
+   */
+  function selosDaProcedencia_(i) {
+    return (i.incluido_por
+      ? ' &middot; <span class="selo selo--SO_MATRICULADO">incluída pela coordenação</span>' : '') +
+      (i.trocada_de
+        ? ' &middot; <span class="selo selo--SO_INSCRITO">trocou de projeto</span>' : '');
   }
 
   /**
@@ -5034,9 +5064,25 @@
   }
 
   /**
-   * O clique em Incluir. `confirmarTeto` vem `true` só na SEGUNDA chamada, depois
-   * de a coordenação aceitar o "N/V → N+1/V" — a primeira vai sem ele, e é o
-   * servidor quem diz se há o que confirmar (ver `incluirInscricao`).
+   * O clique em Incluir. `confirmados` é a lista de perguntas que a coordenação
+   * já respondeu — nomes de campo do payload —, e vem vazia no primeiro clique:
+   * é o servidor quem diz se há o que confirmar (ver `incluirInscricao`).
+   *
+   * UMA LISTA, e não o `confirmarTeto: true` de antes, porque as perguntas
+   * passaram a ser DUAS: o teto ("2/2, incluir deixa 3/2") e, com
+   * `aluno_projeto_unico` em SIM, a duplicidade ("este aluno já está inscrito em
+   * X"). Elas saem uma de cada vez, na ordem em que o servidor as encontra, e a
+   * segunda só aparece depois de a primeira ser respondida. Responder sempre
+   * `confirmar_teto` a qualquer `precisa_confirmar` — o que esta função fazia —
+   * viraria LAÇO: o servidor perguntaria a duplicidade, a tela responderia o
+   * teto, e a pergunta voltaria para sempre sem nada ser gravado. Por isso a
+   * resposta traz `confirmar_campo` (o nome do campo a marcar) e a tela ACUMULA
+   * os "sim" já dados: o segundo envio leva os dois.
+   *
+   * Se o servidor repetir um campo já confirmado, a tela PARA em vez de
+   * reenviar. É a mesma frase de erro, com a notícia de que nada foi incluído:
+   * um laço é defeito de servidor, e perguntar para sempre transforma o defeito
+   * num diálogo que a coordenação não consegue fechar.
    *
    * A segunda passa por `aoGravar` de novo, com o MESMO botão: `chamar()` o
    * destrava antes de entregar a resposta, e travá-lo outra vez é o que impede o
@@ -5049,12 +5095,14 @@
    * está com 2/2. Continuar?" pode chegar com OUTRO projeto escolhido na tela.
    * Reler `INCLUSAO.projetoId` na segunda chamada mandava o "sim" — com
    * `confirmar_teto`, que passa por cima do teto — ao projeto novo, sobre o qual
-   * ninguém perguntou. Quando os dois divergem, nada sai: a janela explica, e o
-   * Incluir seguinte pergunta sobre o projeto que está na tela. Recusar, e não
-   * travar o select junto com o botão, porque travar à mão é o que `aoGravar`
-   * existe para não se fazer — um destravamento esquecido num desfecho (a rede
-   * caindo) deixaria o select preso. Pela lista do projeto os dois nunca
-   * divergem, e nada muda.
+   * ninguém perguntou. A guarda vale para TODA confirmação, e não só a do teto:
+   * o "sim" da duplicidade foi dado sobre os projetos de uma pessoa NAQUELE
+   * projeto, e o outro pode ser um em que ela nem está. Quando os dois divergem,
+   * nada sai: a janela explica, e o Incluir seguinte pergunta sobre o projeto
+   * que está na tela. Recusar, e não travar o select junto com o botão, porque
+   * travar à mão é o que `aoGravar` existe para não se fazer — um destravamento
+   * esquecido num desfecho (a rede caindo) deixaria o select preso. Pela lista
+   * do projeto os dois nunca divergem, e nada muda.
    *
    * Sem projeto escolhido (o select da aba Alunos ainda em "escolha"), recusa
    * ANTES de mandar: o servidor recusaria do mesmo jeito, mas uma ida ao Apps
@@ -5082,13 +5130,18 @@
    * resposta é redesenhada, e a aba Alunos é atualizada de qualquer jeito. O que
    * o sucesso tardio NUNCA faz é reabrir a janela que a coordenação fechou.
    */
-  function incluirInscricaoUI(confirmarTeto, projetoPerguntado) {
+  function incluirInscricaoUI(confirmados, projetoPerguntado) {
     if (!INCLUSAO) return;
     if (!INCLUSAO.projetoId) { avisar('erro', 'Escolha o projeto.'); return; }
-    if (confirmarTeto === true && projetoPerguntado !== INCLUSAO.projetoId) {
+
+    // A lista das perguntas já respondidas. Sempre um array daqui para baixo: o
+    // primeiro clique vem do `onclick`, sem argumento nenhum.
+    var jaConfirmados = confirmados || [];
+
+    if (jaConfirmados.length && projetoPerguntado !== INCLUSAO.projetoId) {
       // O "sim" foi dado a uma pergunta sobre outro projeto (ver o cabeçalho).
       // Ninguém adota o botão, e `aoGravar` o devolve.
-      avisar('erro', 'A pergunta do teto era sobre ' + nomeDoProjetoEmProjetos_(projetoPerguntado) +
+      avisar('erro', 'A pergunta era sobre ' + nomeDoProjetoEmProjetos_(projetoPerguntado) +
         ', e o projeto foi trocado enquanto ela viajava: nada foi incluído. Confira o projeto ' +
         'e clique em Incluir de novo.');
       return;
@@ -5104,7 +5157,10 @@
       curso_fase: cursoEFaseDaInclusao(),
       observacoes: campoTexto_('inc-observacoes')
     };
-    if (confirmarTeto === true) payload.confirmar_teto = true;
+    // Os "sim" acumulados, cada um no campo que o servidor pediu. Só entram
+    // campos `confirmar_*`: o nome vem da resposta, e um payload que aceitasse
+    // qualquer nome deixaria o servidor marcar o próprio pedido.
+    jaConfirmados.forEach(function (campo) { payload[campo] = true; });
 
     chamar('incluirInscricao', payload, function (r) {
       if (!r) return;                       // chamar() já explicou o motivo
@@ -5112,8 +5168,17 @@
 
       if (!r.ok && r.precisa_confirmar) {
         if (!aindaAqui) return;
+        // `confirmar_teto` é o padrão pela compatibilidade: uma resposta antiga,
+        // sem `confirmar_campo`, só pode ser a do teto — era a única pergunta.
+        var campo = confirmacaoValida_(r.confirmar_campo) ? r.confirmar_campo : 'confirmar_teto';
+        if (jaConfirmados.indexOf(campo) !== -1) {
+          // Pergunta repetida: o laço que `confirmar_campo` existe para fechar.
+          avisar('erro', r.erro + ' Esta pergunta já tinha sido respondida — nada foi incluído.');
+          return;
+        }
         if (!window.confirm(r.erro + ' Continuar?')) return;
-        aoGravar(document.getElementById('modal-salvar'), incluirInscricaoUI, true, payload.projeto_id);
+        aoGravar(document.getElementById('modal-salvar'), incluirInscricaoUI,
+          jaConfirmados.concat([campo]), payload.projeto_id);
         return;
       }
       if (!r.ok) {
@@ -5144,6 +5209,21 @@
       // projeto, num clique de coordenação.
       if (projetoId) carregarProjetos();
     });
+  }
+
+  /**
+   * O nome do campo que a resposta mandou marcar é de confiar?
+   *
+   * Ele vem do servidor e vira CHAVE do próximo payload, então a régua é de
+   * forma, não de lista: só `confirmar_<alguma coisa>`. Sem ela, uma resposta
+   * (ou um intermediário que a reescrevesse) poria `token: true` ou
+   * `projeto_id: true` no pedido seguinte — o servidor marcando o próprio
+   * pedido. A lista fechada foi descartada de propósito: a terceira pergunta
+   * que nascer no servidor teria de ser repetida aqui para funcionar, e a tela
+   * que não conhecesse o nome novo cairia no laço que isto veio fechar.
+   */
+  function confirmacaoValida_(campo) {
+    return typeof campo === 'string' && /^confirmar_[a-z_]+$/.test(campo);
   }
 
   /** O nome de um projeto de `PROJETOS` — ou o id, quando a lista não o tem. */

@@ -77,6 +77,33 @@
  *                               (dentro de `reservarVaga`) e a contagem de vagas
  *   GET ?api=projetos  2 x (1+P) app.js recarrega a lista depois do sucesso
  *
+ * A TROCA DE PROJETO, que só existe com `aluno_projeto_unico=SIM` e que o modo
+ * NAO não paga em leitura nenhuma (a conta acima fica byte a byte):
+ *
+ *   POST inscrição       7      com SIM, as 6 acima mais a consulta do conjunto
+ *                               ativo da matrícula, que roda DENTRO do lock — é
+ *                               ela que impede duas abas de gravarem a primeira
+ *                               inscrição em dois projetos. Vazia, cobra o
+ *                               mínimo de 1
+ *   POST rodada 1        7      o aluno já está em X e pede Y: pergunta e NÃO
+ *                               escreve, nem pega o lock. Configuração,
+ *                               matrícula, o projeto Y, a consulta do conjunto
+ *                               ativo, o projeto de X (para nomeá-lo na
+ *                               pergunta) e a situação de Y — o projeto de novo
+ *                               mais a contagem —, que é cortesia: não se
+ *                               convida para uma troca impossível, e quem decide
+ *                               a vaga é a contagem de DENTRO do lock, na
+ *                               rodada 2
+ *   POST rodada 2        8      a confirmação: as 7 do POST com SIM mais o
+ *                               projeto de X, para nomeá-lo na resposta. UMA
+ *                               escrita — o `:commit` que copia X para a
+ *                               quarentena, apaga X e cria Y
+ *
+ * Uma troca inteira custa 15 leituras e 4 escritas (3 no commit + o log), contra
+ * as 7 de uma inscrição comum. Trinta trocas num evento de 300 inscrições são
+ * ~450 leituras a mais — ruído, dentro dos 50 mil. Os três números são MEDIDOS
+ * no falso (testes/api.js, no mesmo grupo do 33), e não afirmados aqui.
+ *
  * Somando com P=5 e a coleção de disciplinas vazia: 2 + 11 + 3 + 6 + 11 = TRINTA
  * E TRÊS leituras por aluno (eram 31 antes de a fila de espera existir; as duas
  * a mais são a mesma pergunta de configuração, uma por carga do site). Esse

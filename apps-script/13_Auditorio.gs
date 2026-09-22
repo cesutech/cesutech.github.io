@@ -1038,11 +1038,11 @@ function promoverDaEspera(payload) {
  * `incluirInscricao` (10_Painel.gs) promove UMA inscrição do mesmo jeito — as
  * duas marcas apagadas, o documento lido reescrito inteiro —, sem o lock e por
  * fora do teto e da situação, porque é a coordenação decidindo por fora. Quem
- * mudar o que "promover" escreve no documento muda nos dois lugares. E ELE AINDA
- * ESCREVE SEM PRECONDIÇÃO (10_Painel.gs, o ramo da duplicada): é o mesmo buraco
- * descrito acima, pela outra porta, e fecha-se do mesmo jeito — `escreverAtomico`
- * com `{ gravar: { ..., versao: recusada._versao } }` e a frase "a ficha é de
- * antes: esta inscrição mudou enquanto a janela estava aberta".
+ * mudar o que "promover" escreve no documento muda nos dois lugares — inclusive
+ * a PRECONDIÇÃO: ele também grava com `versao` (o ramo da duplicada), e recusa
+ * com a frase dele, "a ficha é de antes: esta inscrição mudou enquanto a janela
+ * estava aberta". A janela de lá é maior que esta, e não menor: sem lock, o
+ * documento é lido e reescrito com segundos de Apps Script no meio.
  */
 function promoverDentroDoLock_(candidatos, projetos, recusadas) {
   // A pergunta da fila é feita AQUI, antes do `waitLock`, e não é para usar a

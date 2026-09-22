@@ -765,9 +765,10 @@ function excluirEmLote(colecao, ids) {
  * a leitura certa do estado do banco, ainda que a primeira resposta tenha sido
  * perdida.
  *
- * A MEDIR contra o banco de verdade (20_Prova.gs, ao lado de
- * `provaAtualizarEmLote`): os status exatos das precondições DENTRO de um
- * `:commit` misto. O falso dos testes imita `exists:false` com o documento no
+ * A MEDIR contra o banco de verdade: os status exatos das precondições DENTRO
+ * de um `:commit` misto. A prova já está escrita — `provaCommitMisto`
+ * (20_Prova.gs), ao lado de `provaAtualizarEmLote` —, e rodá-la é o item 1 do
+ * checklist de ligar `aluno_projeto_unico=SIM` (README). O falso dos testes imita `exists:false` com o documento no
  * lugar como 409 ALREADY_EXISTS, `exists:true` em documento ausente como 404
  * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
  * divergir, corrigem-se o falso e esta função — nunca o contrário.
