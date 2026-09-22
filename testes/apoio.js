@@ -275,6 +275,16 @@ function criarFirestoreFalso() {
               ') does not match the required base version (' + pre.updateTime + ') for ' + nome);
           }
         }
+        // UMA escrita por documento por transação: o Firestore recusa o
+        // commit inteiro com INVALID_ARGUMENT quando o mesmo documento aparece
+        // duas vezes. É a regra que `escreverAtomico` (02_Repo.gs) recusa antes
+        // de mandar; sem ela aqui, o falso seria mais permissivo que o banco e
+        // a guarda passaria a parecer zelo — que é como o prefixo `projects/`
+        // escapou por 491 testes verdes.
+        if (pendentes.some((p) => p.chave === chave)) {
+          return erro(400, 'INVALID_ARGUMENT',
+            'Document cannot be written more than once per transaction: ' + nome);
+        }
         pendentes.push({ w, chave });
       }
       for (const { w, chave } of pendentes) {

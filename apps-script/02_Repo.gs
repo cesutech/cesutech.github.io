@@ -4,9 +4,13 @@
  * Este arquivo é o ÚNICO caminho de dados do sistema. Não existe planilha por
  * baixo, não existe segundo repositório: tudo que é lido ou gravado passa por
  * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar`,
- * `escreverEmLote`, `excluirEmLote` e `atualizarEmLote` (mais `contarVarios`,
- * que é `contar` em paralelo). Se uma função de negócio precisa tocar em dado,
- * ela chama uma destas.
+ * `escreverEmLote`, `excluirEmLote`, `atualizarEmLote` e `escreverAtomico`
+ * (mais `contarVarios`, que é `contar` em paralelo). Se uma função de negócio
+ * precisa tocar em dado, ela chama uma destas.
+ *
+ * Todas menos uma são recortes do mesmo pedido: um verbo, uma coleção.
+ * `escreverAtomico` é a exceção e a única escrita multidocumento atômica que
+ * existe aqui — verbos e coleções diferentes num `:commit` só, tudo ou nada.
  *
  * A API pública é deliberadamente a mesma que o projeto irmão
  * (o sistema anterior, sobre Google Sheets) expõe sobre o Google Sheets. Lá
@@ -658,6 +662,179 @@ function excluirEmLote(colecao, ids) {
     apagados += bloco.length;
   }
   return apagados;
+}
+
+/**
+ * VÁRIOS verbos, VÁRIAS coleções, UM `:commit`: tudo entra ou nada entra.
+ *
+ * É a única escrita multidocumento ATÔMICA do sistema, e existe por um par que
+ * não pode ser dividido: a troca de projeto do aluno (item 4) copia a inscrição
+ * antiga para `inscricoes_anuladas`, APAGA a antiga em `inscricoes` e CRIA a
+ * nova — três escritas, duas coleções. Partir isso em requisições separadas não
+ * é resolvido pelo lock: o lock serializa a decisão, mas não impede a execução
+ * de morrer entre duas escritas, e cada meio-estado possível é um desastre
+ * diferente (o aluno sem projeto nenhum, o aluno em dois, a vaga do antigo
+ * presa). O `:commit` é o que garante o EFEITO inteiro contra qualquer falha.
+ *
+ * Nenhuma das primitivas em lote acima serve, e é bom dizer por quê antes que
+ * alguém tente de novo: `escreverEmLote` é update-only e sem precondição
+ * nenhuma; `atualizarEmLote` é PATCH de UMA coleção e sempre com precondição;
+ * `excluirEmLote` é delete-only. Nenhuma delas MISTURA verbos, e nenhuma
+ * atravessa coleções na mesma chamada. Marcar a antiga como anulada no próprio
+ * documento, em vez de apagá-la, também está fechado: `contarInscritos_`
+ * (09_Projetos.gs) conta por igualdade em `projeto_id` só, e um segundo filtro
+ * pediria índice composto.
+ *
+ * Os três verbos, e a precondição de cada um:
+ *
+ *   { criar:  { colecao, id, objeto } } ........ update + `exists:false` — o
+ *                 mesmo 409 de `inserir`, na forma explícita: o `createDocument`
+ *                 que `inserir` usa é um endpoint próprio, e dentro de um
+ *                 `:commit` a precondição tem de vir escrita;
+ *   { gravar: { colecao, id, objeto, versao } } . update sem `updateMask`, isto
+ *                 é, o documento INTEIRO: upsert, cria ou substitui. Com
+ *                 `versao`, leva `currentDocument: { updateTime }` e o banco só
+ *                 aplica se o documento ainda estiver naquele carimbo; SEM
+ *                 `versao`, vai sem precondição nenhuma — nem `exists:true`;
+ *   { apagar: { colecao, id, versao } } ........ delete, com a mesma escolha de
+ *                 precondição. Sem `versao` é idempotente: apagar o que não
+ *                 existe é 200.
+ *
+ * POR QUE A VERSÃO É PARÂMETRO E NÃO `fsPrecondicao_(objeto)`. Esta é a
+ * primeira primitiva que escreve em mais de uma COLEÇÃO na mesma chamada, e
+ * `_versao` é carimbo de UM documento de UMA coleção. A cópia da troca é um
+ * objeto lido de `inscricoes` e gravado em `inscricoes_anuladas` sob o mesmo
+ * id: `fsPrecondicao_` mandaria o `updateTime` do documento ERRADO, e a troca
+ * morreria em FAILED_PRECONDITION; e o fallback `exists:true` dela quebraria
+ * esse mesmo upsert na primeira troca de todas, quando a cópia ainda não
+ * existe. Por isso quem chama diz explicitamente qual carimbo vale, e
+ * `fsPrecondicao_` fica intocada (a revisão de divergências depende dela).
+ *
+ * E é de propósito que o `apagar` da troca vá SEM `versao`, mesmo com a versão
+ * de graça na mão: se a coordenação anulou a inscrição antiga entre a consulta
+ * e o commit, um delete versionado derrubaria o commit INTEIRO e o aluno
+ * ficaria sem nada — a antiga já na quarentena e a nova nunca criada.
+ *
+ * As três guardas, todas antes de qualquer requisição:
+ *
+ *   não FATIA em blocos de 500 — lança acima de `FS_LOTE_MAXIMO`. Os irmãos
+ *   fatiam porque são idempotentes e ninguém prometeu atomicidade entre blocos;
+ *   aqui fatiar transformaria "um commit" em dois, e a promessa cairia junto
+ *   com a conta de idas dentro do lock (são 3, e não podem virar 4);
+ *
+ *   no máximo UM `criar` por chamada — o 409 não diz QUAL escrita falhou, e a
+ *   mensagem que diria é justamente a que sai daqui sem o caminho do documento.
+ *   Com um `criar` só, `{ jaExistia: true }` é inequívoco;
+ *
+ *   duas escritas no MESMO documento são recusadas — o Firestore recusa o
+ *   commit inteiro ('Document cannot be written more than once per
+ *   transaction'), e é mais barato e mais claro recusar aqui, com o nome do
+ *   defeito, do que gastar a ida para receber um INVALID_ARGUMENT genérico.
+ *
+ * Retorno simétrico a `inserir`, porque a unicidade é a mesma: ALREADY_EXISTS
+ * é resultado esperado e volta como `{ jaExistia: true }` sem lançar; qualquer
+ * outra recusa (NOT_FOUND, FAILED_PRECONDITION) lança. 429, 503 e ABORTED já
+ * são retentados por `fsFetch_`, e isto aqui não muda nada disso — o que ele
+ * traz de volta é um caso REGISTRADO E NÃO RESOLVIDO: se o 503 vier na resposta
+ * de um commit que o banco JÁ aplicou, a retentativa recebe ALREADY_EXISTS e
+ * esta função responde `jaExistia`. Quem chama trata como "já estava lá", que é
+ * a leitura certa do estado do banco, ainda que a primeira resposta tenha sido
+ * perdida.
+ *
+ * A MEDIR contra o banco de verdade (20_Prova.gs, ao lado de
+ * `provaAtualizarEmLote`): os status exatos das precondições DENTRO de um
+ * `:commit` misto. O falso dos testes imita `exists:false` com o documento no
+ * lugar como 409 ALREADY_EXISTS, `exists:true` em documento ausente como 404
+ * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
+ * divergir, corrigem-se o falso e esta função — nunca o contrário.
+ *
+ * Devolve `{ aplicado, jaExistia, id, escritas }`. `id` é o do `criar`, quando
+ * houve um — e como há no máximo um, ele é o único que o 409 pode ter recusado.
+ */
+function escreverAtomico(escritas) {
+  if (!escritas || !escritas.length) return { aplicado: false, jaExistia: false, id: '', escritas: 0 };
+
+  if (escritas.length > FS_LOTE_MAXIMO) {
+    throw new Error(
+      'escreverAtomico: ' + escritas.length + ' escritas passam do limite de ' + FS_LOTE_MAXIMO +
+      ' de um :commit, e fatiar quebraria a atomicidade que esta função promete'
+    );
+  }
+
+  // Nome de RECURSO, sem host — ver fsRecurso_().
+  var raiz = fsRecurso_();
+  var enderecos = {};
+  var idCriado = '';
+  var writes = [];
+
+  escritas.forEach(function (pedido) {
+    var criar = pedido && pedido.criar;
+    var gravar = pedido && pedido.gravar;
+    var apagar = pedido && pedido.apagar;
+    var alvo = criar || gravar || apagar;
+
+    if (!alvo || (criar && gravar) || (criar && apagar) || (gravar && apagar)) {
+      throw new Error('escreverAtomico: cada escrita é UM de { criar }, { gravar } ou { apagar }');
+    }
+    if (!alvo.colecao || !alvo.id) {
+      throw new Error('escreverAtomico: toda escrita precisa de colecao e id — escrita sem endereço não tem alvo');
+    }
+
+    // O endereço, e não o id: duas coleções podem ter o mesmo id de propósito, e
+    // é exatamente o caso da troca (a cópia da quarentena guarda o id da
+    // inscrição). As mensagens das guardas nomeiam a coleção e não o id, porque
+    // o id de uma inscrição é o PROTOCOLO do aluno e isto aqui pode virar log.
+    var endereco = alvo.colecao + '/' + alvo.id;
+    if (enderecos[endereco]) {
+      throw new Error(
+        'escreverAtomico: duas escritas no mesmo documento (' + alvo.colecao +
+        ') na mesma chamada — o Firestore recusa o commit inteiro'
+      );
+    }
+    enderecos[endereco] = true;
+
+    if (apagar) {
+      var remocao = { delete: raiz + '/' + apagar.colecao + '/' + apagar.id };
+      if (apagar.versao) remocao.currentDocument = { updateTime: String(apagar.versao) };
+      writes.push(remocao);
+      return;
+    }
+
+    if (criar && idCriado) {
+      throw new Error('escreverAtomico: no máximo um `criar` por chamada — com dois, ALREADY_EXISTS não diz qual documento já existia');
+    }
+
+    var documento = paraDocumento_(alvo.objeto);
+    documento.name = raiz + '/' + alvo.colecao + '/' + alvo.id;
+
+    var escrita = { update: documento };
+    if (criar) {
+      idCriado = criar.id;
+      escrita.currentDocument = { exists: false };
+    } else if (gravar.versao) {
+      escrita.currentDocument = { updateTime: String(gravar.versao) };
+    }
+    writes.push(escrita);
+  });
+
+  try {
+    fsFetch_('post', ':commit', { writes: writes });
+  } catch (e) {
+    if (e.status === 'ALREADY_EXISTS') {
+      return { aplicado: false, jaExistia: true, id: idCriado, escritas: writes.length };
+    }
+    // A mensagem do Firestore carrega o caminho inteiro do documento recusado —
+    // o id do projeto Cloud e, numa inscrição, o protocolo do aluno. Quem chama
+    // responde e loga, então a régua D-27 vale já na saída daqui
+    // (`semCaminhoDeDocumento_`). `status` e `codigo` seguem intactos: é por
+    // eles que se decide, nunca pelo texto.
+    var limpo = new Error(semCaminhoDeDocumento_(e));
+    limpo.status = e.status;
+    limpo.codigo = e.codigo;
+    throw limpo;
+  }
+
+  return { aplicado: true, jaExistia: false, id: idCriado, escritas: writes.length };
 }
 
 // ---------------------------------------------------------------- Leitura
