@@ -662,6 +662,44 @@ teste('a cópia para a quarentena vai ANTES da exclusão', () => {
     'na ordem inversa, morrer no meio apaga a inscrição de um aluno de verdade');
 });
 
+teste('a recusa do anular chega à tela e ao console SEM o caminho do documento (D-27, camada do Auditório)', () => {
+  // O Geral chama `anularInscricoes` DIRETO — não passa pela revisão, que
+  // tem a própria régua. Se o catch daqui voltar a devolver `err.message`
+  // cru, o texto do Firestore ('projects/<id do projeto Cloud>/databases/...')
+  // vai para a faixa da tela e para o log de execução: o id do projeto é o
+  // começo da trilha para quem quiser sondar (02_Repo.gs). Mutação que
+  // derruba: `erro: err.message` no catch; ou `console.error(... + err.message)`.
+  const { api, falso, registros } = ambiente();
+  auditorioLotado(api);
+
+  const real = api.UrlFetchApp;
+  api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':commit') !== -1) {
+        return {
+          getResponseCode: () => 400,
+          getContentText: () => JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT',
+            message: 'Document name "projects/meu-projeto-123/databases/(default)/documents/inscricoes_anuladas/i2" lacks a valid id' } }),
+          getHeaders: () => ({})
+        };
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  igual(r.ok, false);
+  igual(r.erro.indexOf('projects/'), -1, 'o caminho vazou na resposta: ' + r.erro);
+  igual(r.erro.indexOf('meu-projeto-123'), -1, r.erro);
+  verdadeiro(r.erro.indexOf('(documento)') !== -1, 'o caminho tem de virar "(documento)", não sumir: ' + r.erro);
+  verdadeiro(registros.erros.length >= 1, 'a falha não foi ao log de execução');
+  verdadeiro(registros.erros.every((e) => e.indexOf('projects/') === -1 && e.indexOf('meu-projeto-123') === -1),
+    'o caminho vazou no log de execução: ' + registros.erros.join(' | '));
+  igual(idsDe(falso, 'inscricoes'), ['i1', 'i2', 'i3', 'i4', 'i5'], 'a cópia falhou e mesmo assim apagou');
+  igual(idsDe(falso, 'inscricoes_anuladas'), []);
+});
+
 teste('com a quarentena caída, NADA é apagado', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);

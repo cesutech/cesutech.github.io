@@ -1091,6 +1091,31 @@ teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscri
   verdadeiro(documento(amb.falso, 'matriculados', '9110002') !== null, 'EXCLUIR apagou um já cancelado');
   igual(documento(amb.falso, 'matriculados_excluidos', '9110002'), null);
   verdadeiro(documento(amb.falso, 'inscricoes', incluida.id) !== null);
+
+  // O LOTE MISTO é o que exercita a linha de verdade: sozinho, o já cancelado
+  // sai no "Nada a fazer" antes do passo da anulação, e a mutação "juntar
+  // `jaCancelados` aos anulados" sobrevive sem que nenhuma linha a rode. Com
+  // um candidato VIVO na mesma chamada, o passo roda — e é aí que a inscrição
+  // deliberada da Beatriz tem de ficar de pé enquanto a do Felipe cai.
+  const FELIPE = ['FELIPE EXEMPLO (09110005)', 'ADS41'];
+  importar(amb, ADS41_2026_2, [ANA, CARLOS_DE_ADS31, DUDA, FELIPE], { nome: 'ads41-terca.csv' });
+  const l3 = importar(amb, ADS41_2026_2, [ANA, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-quarta.csv' }).loteId;
+  const doFelipe = inscrever(amb, '9110005', 'Felipe Exemplo', 'p1');
+  igual(amb.api.contarInscritos_('p1'), 2);
+
+  amb.zerar();
+  const misto = chamar(amb, 'aplicarRevisao', { loteId: l3, turma: 'ADS41', decisoes: [
+    { matricula: '9110005', acao: 'CANCELAR' }, { matricula: '9110002', acao: 'CANCELAR' }
+  ] });
+  igual(misto.ok, true, misto.erro);
+  igual(misto.cancelados, 1, 'o Felipe tinha de ser cancelado');
+  igual(misto.jaCancelados, 1, 'a Beatriz tinha de ser contada como já cancelada');
+  igual(misto.anuladas, 1, 'só a inscrição do Felipe podia cair — caíram ' + misto.anuladas);
+  igual(documento(amb.falso, 'inscricoes', doFelipe), null, 'a inscrição do Felipe ficou viva');
+  verdadeiro(documento(amb.falso, 'inscricoes', incluida.id) !== null,
+    'no lote misto, a inscrição deliberada da Beatriz foi anulada junto com a do Felipe');
+  igual(amb.api.contarInscritos_('p1'), 1);
+  igual(documento(amb.falso, 'matriculados', '9110002').cancelado_em, carimbo, 'recarimbou o já cancelado');
 });
 
 // ------------------------------------------------- O que sai, e a trilha parcial
@@ -1102,8 +1127,12 @@ teste('a recusa de anularInscricoes chega à tela e ao log SEM o caminho do docu
   // 400 com o nome do documento inteiro — 'projects/<id do projeto>/...' — e
   // `an.erro` ia cru para a resposta. O id de inscrição é hash, mas o id do
   // projeto Cloud é "o começo da trilha para quem quiser sondar" (02_Repo.gs).
-  // Mutação que derruba: concatenar `an.erro` sem `fraseSegura_`; ou, no
-  // Auditório, devolver `err.message` cru (a segunda régua cai sozinha).
+  // São DUAS réguas em camadas — `semCaminhoDeDocumento_` no catch de
+  // `anularInscricoes` (13) e `fraseSegura_(an.erro)` aqui — e cada uma cobre
+  // a outra: tirar UMA sozinha não muda o que este teste vê. A mutação que
+  // este teste derruba é tirar as duas (ou a primitiva em 02_Repo.gs). A
+  // camada do 13 tem teste PRÓPRIO em auditorio.js, porque o Geral chama
+  // `anularInscricoes` direto, sem passar por aqui.
   const amb = ambiente();
   const { l1 } = cenario(amb);
   projeto(amb, 'p1');
@@ -1160,6 +1189,14 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   amb.api.varrerInscricoes_ = (teto) => {
     const v = varredura(teto);
     importar(amb, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
+    // Armados DEPOIS da reimportação, de propósito: `importar` avança o relógio
+    // 60 s (o cache de 30 s expiraria sozinho) e `confirmarImportacao` já
+    // esquece a marca. Armados antes, as duas asserções lá embaixo passariam
+    // com o `catch` sem fazer nada — e é o `catch` que este teste vigia.
+    amb.propriedades.set('painel_reconciliacao', JSON.stringify({
+      inscricoes: 3, matriculados: 5, em: '2026-09-21 09:00:00', dia: '2026-09-21', gasto: 1200, custo: 300
+    }));
+    amb.api.CacheService.getScriptCache().put('painel_estatisticas', '{"ok":true,"velho":1}', 30);
     return v;
   };
   const r = chamar(amb, 'aplicarRevisao', {
@@ -1194,7 +1231,9 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   igual(JSON.parse(lote.revisao_resumo), { cancelados: 0, excluidos: 0, anuladas: 2, pulados: 1, ja_cancelados: 0, situacao: 'PARCIAL' });
   igual(chamar(amb, 'revisarLote', { loteId: l1 }).revisado.resumo.situacao, 'PARCIAL', 'a janela tem de poder dizer "interrompida"');
 
-  igual(JSON.parse(amb.propriedades.get('painel_reconciliacao')).inscricoes, -1, 'a contagem mudou e a marca não foi esquecida');
+  const marca = JSON.parse(amb.propriedades.get('painel_reconciliacao'));
+  igual(marca.inscricoes, -1, 'a contagem mudou e a marca não foi esquecida');
+  igual([marca.dia, marca.gasto, marca.custo], ['2026-09-21', 1200, 300], 'esquecer a marca não pode zerar o orçamento do dia');
   igual(amb.api.CacheService.getScriptCache().get('painel_estatisticas'), null, 'os números velhos do Painel ficaram no cache');
 
   // A trilha diz o que foi anulado DE FATO: a inscrição que o Geral anulou à
