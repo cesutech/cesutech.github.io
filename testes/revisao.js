@@ -13,11 +13,15 @@
  *      cada passo relata o que já fez quando o seguinte cai; e o patch e o
  *      delete levam a VERSÃO relida — a reimportação que entra DENTRO do
  *      Aplicar não vira cancelamento de quem acabou de voltar.
- *   4. TODAS AS INSCRIÇÕES. A que traz a matrícula (varredura) e a que a
- *      reconciliação casou por e-mail/CPF/nome (ficha de `alunos`) — as duas
- *      ocupam vaga, as duas são anuladas.
+ *   4. SÓ PELA MATRÍCULA. O Aplicar anula só a inscrição que traz a matrícula
+ *      do candidato (varredura). A que a reconciliação casou por e-mail/CPF/
+ *      nome (ficha de `alunos`) é INFORMAÇÃO na janela — nem CONFIRMADO nem
+ *      DIVERGENCIA são seguidos, porque nome casa homônimo e e-mail casa
+ *      família — e quem já está cancelado não sofre ação nenhuma.
  *   5. O QUE SAI. O log leva matrículas e nunca nome; a mensagem de erro do
- *      Firestore perde o caminho do documento antes de chegar à tela.
+ *      Firestore perde o caminho do documento antes de chegar à tela, em TODO
+ *      ramo; e o Aplicar que morre depois de já ter escrito deixa a trilha
+ *      parcial: quem perdeu a inscrição, nominalmente.
  *
  * As listas entram pelo caminho REAL da importação (`analisarArquivo` +
  * `confirmarImportacao`, CSV no formato do sistema acadêmico), com o relógio
@@ -699,6 +703,8 @@ teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pes
   igual(amb.api.matriculaConhecida('9110002'), true, 'quem está na lista mais nova saiu do formulário');
   igual(documento(amb.falso, 'inscricoes', inscricao), null);
   igual(registrosDoLog(amb.falso, 'LOTE_REVISADO').length, 0, 'um Aplicar recusado não é revisão');
+  igual(registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL').length, 1, 'mas a anulação que entrou deixa a trilha parcial');
+  igual(r.parcial.anuladas.map((a) => a.matricula), ['9110002'], 'a resposta diz de QUEM era a inscrição anulada');
 
   // O mesmo para EXCLUIR: o delete leva a versão relida, e o documento novo fica.
   const outro = ambiente();
@@ -777,11 +783,14 @@ teste('EXCLUIR: a cópia com o mesmo id existe ANTES do apagar, com excluido_*; 
 teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só quando ficou sem origem', () => {
   // Quatro fichas de quatro excluídos: a só-matriculada some; a que tinha
   // inscrição pela matrícula (anulada agora) some; a cuja inscrição não tem
-  // matrícula (casou por e-mail) TAMBÉM some — a inscrição é anulada pela
-  // ponte das fichas; a que aponta uma inscrição já anulada à mão depois da
-  // última rodada (ficha velha, inscrição que não existe) FICA — não foi este
-  // Aplicar que a deixou órfã, e a rodada seguinte a recalcula.
-  // Mutação que derruba: apagar sem conferir a inscrição — a quarta sumiria.
+  // matrícula (casou por e-mail) FICA — a inscrição da Clara não é anulada
+  // (as fichas não decidem anulação), então a ficha ainda tem origem e a
+  // rodada seguinte a recalcula; a que aponta uma inscrição já anulada à mão
+  // depois da última rodada (ficha velha, inscrição que não existe) FICA —
+  // não foi este Aplicar que a deixou órfã.
+  // Mutação que derruba: apagar sem conferir a inscrição — a terceira e a
+  // quarta sumiriam; ou seguir a ficha da Clara na anulação — a inscrição dela
+  // sumiria e a ficha iria junto.
   const amb = ambiente();
   const l0 = importar(amb, ADS41_2026_2, [
     ['ANA EXEMPLO (09110001)', 'ADS41'], ['BEATRIZ EXEMPLO (09110002)', 'ADS41'],
@@ -820,23 +829,22 @@ teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só
   });
   igual(r.ok, true, r.erro);
   igual(r.excluidos, 4);
-  igual(r.anuladas, 2, 'a da Beatriz (matrícula) e a da Clara (e-mail); a da Flávia já não existia');
-  igual(r.fichasApagadas, 3);
+  igual(r.anuladas, 1, 'só a da Beatriz (matrícula); a da Clara não tem a matrícula e a da Flávia já não existia');
+  igual(r.fichasApagadas, 2);
   igual(fichaDe('9110001'), undefined, 'a ficha só-matriculada ficou');
   igual(fichaDe('9110002'), undefined, 'a ficha da Beatriz (inscrição anulada) ficou');
-  igual(fichaDe('9110003'), undefined, 'a ficha da Clara (inscrição anulada pela ponte) ficou');
+  verdadeiro(fichaDe('9110003') !== undefined, 'a ficha da Clara sumiu com a inscrição dela viva');
   verdadeiro(fichaDe('9110006') !== undefined, 'a ficha da Flávia sumiu sem ter sido este Aplicar a deixá-la órfã');
-  igual(documento(amb.falso, 'inscricoes', daClara), null, 'a inscrição da Clara, casada por e-mail, ficou viva');
+  verdadeiro(documento(amb.falso, 'inscricoes', daClara) !== null, 'a inscrição da Clara, casada por e-mail, foi anulada');
   igual(idsDe(amb.falso, 'matriculados'), ['9110004', '9110005']);
   verdadeiro(l0.length > 0);
 });
 
-teste('inscrição casada por e-mail (sem matrícula) é "com projeto", diz por quem casou, e é anulada — a vaga volta', () => {
-  // Mutação que derruba: cruzar só pela varredura por matrícula (tirar a ponte
-  // das fichas de `alunos`) — a pessoa apareceria como "sem projeto", o
-  // Cancelar não anularia nada e a vaga continuaria ocupada por alguém que a
-  // lista oficial não tem mais. Ou ignorar `porPessoa` — a segunda inscrição
-  // da mesma pessoa (outro projeto) ficaria viva.
+teste('inscrição casada por e-mail (sem matrícula) NÃO é anulada: é "possível" na linha do candidato, e a vaga fica', () => {
+  // Mutação que derruba: seguir a ficha de `alunos` na anulação (a ponte que
+  // existiu até a rodada 2 de 21/09) — a inscrição sem matrícula sumiria e a
+  // pessoa iria para "com projeto"; ou esquecer `possiveis` — a coordenação
+  // não saberia que existe uma inscrição a conferir no Geral.
   const amb = ambiente();
   const { l1 } = cenario(amb);
   amb.api.atualizar('matriculados', '9110002', { email: 'beatriz@exemplo.com' });
@@ -855,36 +863,110 @@ teste('inscrição casada por e-mail (sem matrícula) é "com projeto", diz por 
 
   amb.zerar();
   const r = chamar(amb, 'revisarLote', { loteId: l1 });
-  igual(r.semProjeto, [], 'quem tem inscrição casada por e-mail não é "sem projeto"');
-  igual(r.comProjeto.map((i) => i.matricula), ['9110002']);
-  igual(r.comProjeto[0].inscricoes.map((i) => i.id).sort(), [semMatricula, segunda].sort(),
-    'as DUAS inscrições da pessoa: a ficha aponta a primeira, a chave de pessoa traz a segunda');
-  igual(r.comProjeto[0].inscricoes.map((i) => i.casadaPor), ['E-mail', 'E-mail']);
+  igual(r.comProjeto, [], 'sem inscrição COM a matrícula, ninguém é "com projeto"');
+  igual(r.semProjeto.map((i) => i.matricula), ['9110002']);
+  igual(r.semProjeto[0].inscricoes, [], 'nada a anular');
+  // A ficha aponta a primeira; a segunda (mesmo e-mail, outro projeto) não é
+  // endereçada por ficha nenhuma e fica de fora até a rodada seguinte — é a
+  // limitação escrita no cabeçalho.
+  igual(r.semProjeto[0].possiveis.map((p) => [p.id, p.projetoNome, p.casadaPor, p.status]),
+    [[semMatricula, 'Robótica', 'E-mail', 'CONFIRMADO']]);
   verdadeiro(r.lidas.fichas >= 1);
   // UMA consulta em `alunos`, pela turma — não uma por candidato.
   igual(consultaPor(amb.falso, 'turma').filter((q) => q.from[0].collectionId === 'alunos').length, 1);
   igual(consultaPor(amb.falso, 'matricula_id').length, 0, 'consulta por candidato custa uma ida cada');
 
   igual(amb.api.contarInscritos_('p1'), 1);
+  amb.zerar();
   const a = chamar(amb, 'aplicarRevisao', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
   });
   igual(a.ok, true, a.erro);
   igual(a.cancelados, 1);
-  igual(a.anuladas, 2, 'as duas inscrições anuladas: a vaga tem de ser liberada');
-  igual(documento(amb.falso, 'inscricoes', semMatricula), null);
-  igual(documento(amb.falso, 'inscricoes', segunda), null);
-  igual(amb.api.contarInscritos_('p1'), 0);
-  igual(amb.api.contarInscritos_('p2'), 0);
+  igual(a.anuladas, 0, 'a inscrição sem a matrícula não é da revisão anular');
+  verdadeiro(documento(amb.falso, 'inscricoes', semMatricula) !== null, 'a inscrição casada por e-mail foi anulada');
+  verdadeiro(documento(amb.falso, 'inscricoes', segunda) !== null);
+  igual(amb.api.contarInscritos_('p1'), 1);
+  igual(amb.api.contarInscritos_('p2'), 1);
+  igual(consultaPor(amb.falso, 'turma').filter((q) => q.from[0].collectionId === 'alunos').length, 0,
+    'o Aplicar leu as fichas: elas não decidem nada, e cada ida custa');
 
-  // Pela matrícula a inscrição não diz "casada por": veio pelo caminho normal.
+  // Pela matrícula a inscrição entra em `inscricoes`, sem "casadaPor": veio
+  // pelo caminho normal, e é anulada.
   const outro = ambiente();
   const c = cenario(outro);
   projeto(outro, 'p1');
-  inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p1');
+  const pelaMatricula = inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p1');
   outro.api.reconciliar();
   const pela = chamar(outro, 'revisarLote', { loteId: c.l1 });
-  igual(pela.comProjeto[0].inscricoes.map((i) => i.casadaPor), ['']);
+  igual(pela.comProjeto[0].inscricoes.map((i) => i.id), [pelaMatricula]);
+  igual(pela.comProjeto[0].inscricoes[0].casadaPor, undefined, 'o campo morreu com a ponte');
+  igual(pela.comProjeto[0].possiveis, [], 'a inscrição que VAI ser anulada não é "possível"');
+});
+
+teste('a ficha DIVERGENCIA (nome exato, nome parecido, CPF diverge) e a resolvida à mão não anulam a inscrição de OUTRA pessoa', () => {
+  // O cenário dos achados 1, 4 e 7 da rodada 2: a Beatriz da lista não veio;
+  // uma HOMÔNIMA da comunidade (sem matrícula, e-mail próprio) se inscreveu, e
+  // a cascata ligou as duas por 'Nome exato' — DIVERGENCIA, "precisa de
+  // gente". Com a ponte das fichas, CANCELAR a Beatriz anulava a inscrição da
+  // homônima e a vaga dela ia para a fila; a homônima, fora da lista, não
+  // voltava por "Incluir aluno". Mutação que derruba: seguir a ficha
+  // (qualquer status) na anulação; ou apontar como "possível" a ficha que a
+  // coordenação já resolveu como "não é a mesma pessoa".
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  projeto(amb, 'p1', 'Robótica');
+  const daHomonima = amb.api.gravarInscricao({
+    matricula: '', nome: 'Beatriz Exemplo Martins', email: 'outra.pessoa@exemplo.com',
+    projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
+  }).id;
+  amb.api.reconciliar();
+  const ficha = () => amb.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
+  igual(ficha().status, 'DIVERGENCIA');
+  igual(ficha().metodo_match, 'Nome exato');
+  igual(ficha().inscricao_id, daHomonima);
+
+  // Antes de a coordenação decidir: informação, com o degrau e a divergência.
+  const antes = chamar(amb, 'revisarLote', { loteId: l1 });
+  igual(antes.comProjeto, []);
+  igual(antes.semProjeto[0].inscricoes, []);
+  igual(antes.semProjeto[0].possiveis.map((p) => [p.id, p.casadaPor, p.status]), [[daHomonima, 'Nome exato', 'DIVERGENCIA']]);
+
+  // A coordenação resolve à mão: não é a mesma pessoa. A ficha mantém os dois
+  // ids (é assim que `resolverAluno` grava), e a decisão tem de mandar.
+  igual(amb.api.resolverAluno({ token: amb.token, id: ficha()._id, status: 'SO_INSCRITO', observacoes: 'homônima' }).ok, true);
+  igual(ficha().status, 'SO_INSCRITO');
+  igual(ficha().inscricao_id, daHomonima, 'resolver à mão não tira o id da inscrição');
+  const depois = chamar(amb, 'revisarLote', { loteId: l1 });
+  igual(depois.semProjeto[0].possiveis, [], 'a ficha resolvida como "não é a mesma pessoa" ainda é apontada');
+
+  igual(amb.api.contarInscritos_('p1'), 1);
+  const cancelar = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  igual(cancelar.ok, true, cancelar.erro);
+  igual(cancelar.cancelados, 1);
+  igual(cancelar.anuladas, 0);
+  verdadeiro(documento(amb.falso, 'inscricoes', daHomonima) !== null, 'a inscrição da homônima foi anulada');
+  igual(amb.api.contarInscritos_('p1'), 1, 'a vaga da homônima foi liberada');
+
+  // EXCLUIR, na mesma família: a inscrição fica e a ficha da outra pessoa
+  // também (tem origem viva).
+  const outro = ambiente();
+  const c = cenario(outro);
+  projeto(outro, 'p1', 'Robótica');
+  const daParecida = outro.api.gravarInscricao({
+    matricula: '', nome: 'Beatriz Exemplo Martinez', email: 'martinez@exemplo.com',
+    projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
+  }).id;
+  outro.api.reconciliar();
+  const fichaDela = outro.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
+  verdadeiro(/^Nome aproximado/.test(fichaDela.metodo_match), fichaDela.metodo_match);
+  const excluir = chamar(outro, 'aplicarRevisao', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
+  igual(excluir.ok, true, excluir.erro);
+  igual(excluir.excluidos, 1);
+  igual(excluir.anuladas, 0);
+  igual(excluir.fichasApagadas, 0, 'a ficha da outra pessoa foi apagada');
+  verdadeiro(documento(outro.falso, 'inscricoes', daParecida) !== null);
+  verdadeiro(documento(outro.falso, 'alunos', fichaDela._id) !== null);
 });
 
 teste('as inscrições são anuladas PRIMEIRO, pela quarentena de verdade, e a vaga volta', () => {
@@ -964,23 +1046,219 @@ teste('anulação recusada = nada cancelado, nada excluído — e a resposta diz
   igual(documento(amb.falso, 'matriculados', '9110002').situacao_cadastro, undefined, 'cancelou antes de anular');
   verdadeiro(documento(amb.falso, 'matriculados', '9110001') !== null, 'excluiu antes de anular');
   igual(registrosDoLog(amb.falso, 'LOTE_REVISADO'), []);
+  igual(registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL'), [], 'nada foi escrito: a trilha parcial não tem o que dizer');
+  igual(r.parcial, undefined, 'a recusa antes da primeira escrita não é "parcial"');
 });
 
-teste('já cancelado que se reinscreveu: CANCELAR não recarimba, mas a inscrição É anulada', () => {
+teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscrição que ele ganhou DEPOIS da marca', () => {
+  // O achado 2 da rodada 2: a coordenação cancelou a Beatriz e DEPOIS a
+  // incluiu num projeto pelo Alunos, com o aviso de CANCELADA na tela — é
+  // deliberado. Um Aplicar com as mesmas decisões (janela estagnada, replay)
+  // anulava essa inscrição. Mutação que derruba: juntar `jaCancelados` aos que
+  // têm inscrição anulada; ou mandar o já cancelado para `excluir` quando a
+  // ação é EXCLUIR.
   const amb = ambiente();
   const { l1 } = cenario(amb);
-  projeto(amb, 'p1');
+  projeto(amb, 'p1', 'Robótica');
   chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   const carimbo = documento(amb.falso, 'matriculados', '9110002').cancelado_em;
-  const nova = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
 
+  const incluida = amb.api.incluirInscricao({
+    token: amb.token, matricula: '9110002', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
+    projeto_id: 'p1', motivo: 'voltou a cursar'
+  });
+  igual(incluida.ok, true, incluida.erro);
+  verdadeiro(/CANCELADA na lista oficial/.test(incluida.aviso), 'a inclusão de um cancelado avisa: ' + incluida.aviso);
+  igual(amb.api.contarInscritos_('p1'), 1);
+
+  amb.zerar();
   const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, true);
   igual(r.jaCancelados, 1);
   igual(r.cancelados, 0);
-  igual(r.anuladas, 1);
-  igual(documento(amb.falso, 'inscricoes', nova), null);
+  igual(r.anuladas, 0, 'a inscrição incluída depois da marca foi anulada');
+  verdadeiro(/já estava feito/.test(r.mensagem), r.mensagem);
+  verdadeiro(documento(amb.falso, 'inscricoes', incluida.id) !== null);
+  igual(amb.api.contarInscritos_('p1'), 1);
   igual(documento(amb.falso, 'matriculados', '9110002').cancelado_em, carimbo);
+  igual(amb.falso.requisicoes.filter(ESCRITA).length, 0, 'já cancelado escreveu alguma coisa');
+
+  const e = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
+  igual(e.ok, true);
+  igual(e.jaCancelados, 1);
+  igual(e.excluidos, 0);
+  igual(e.anuladas, 0);
+  verdadeiro(documento(amb.falso, 'matriculados', '9110002') !== null, 'EXCLUIR apagou um já cancelado');
+  igual(documento(amb.falso, 'matriculados_excluidos', '9110002'), null);
+  verdadeiro(documento(amb.falso, 'inscricoes', incluida.id) !== null);
+});
+
+// ------------------------------------------------- O que sai, e a trilha parcial
+
+grupo('aplicarRevisao — nenhum caminho de documento sai; o Aplicar interrompido deixa trilha');
+
+teste('a recusa de anularInscricoes chega à tela e ao log SEM o caminho do documento (D-27 no ramo da anulação)', () => {
+  // O achado 3 da rodada 2: o primeiro `:commit` (o da quarentena) responde
+  // 400 com o nome do documento inteiro — 'projects/<id do projeto>/...' — e
+  // `an.erro` ia cru para a resposta. O id de inscrição é hash, mas o id do
+  // projeto Cloud é "o começo da trilha para quem quiser sondar" (02_Repo.gs).
+  // Mutação que derruba: concatenar `an.erro` sem `fraseSegura_`; ou, no
+  // Auditório, devolver `err.message` cru (a segunda régua cai sozinha).
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  projeto(amb, 'p1');
+  inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
+
+  const real = amb.api.UrlFetchApp;
+  amb.api.UrlFetchApp = {
+    fetch(url, opcoes) {
+      if (String(url).indexOf(':commit') !== -1) {
+        return {
+          getResponseCode: () => 400,
+          getContentText: () => JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT',
+            message: 'Document name "projects/meu-projeto-123/databases/(default)/documents/inscricoes_anuladas/abc" lacks a valid id' } }),
+          getHeaders: () => ({})
+        };
+      }
+      return real.fetch(url, opcoes);
+    },
+    fetchAll: (lote) => real.fetchAll(lote)
+  };
+
+  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  igual(r.ok, false);
+  verdadeiro(/anulação das inscrições falhou e nada mais foi feito/.test(r.erro), r.erro);
+  igual(r.erro.indexOf('projects/'), -1, 'o caminho vazou na resposta: ' + r.erro);
+  igual(r.erro.indexOf('meu-projeto-123'), -1, r.erro);
+  verdadeiro(r.erro.indexOf('(documento)') !== -1, 'o caminho tem de virar "(documento)", não sumir: ' + r.erro);
+  verdadeiro(amb.registros.erros.length >= 1, 'a falha não foi ao log de execução');
+  verdadeiro(amb.registros.erros.every((e) => e.indexOf('projects/') === -1 && e.indexOf('meu-projeto-123') === -1),
+    'o caminho vazou no log de execução: ' + amb.registros.erros.join(' | '));
+  igual(documento(amb.falso, 'matriculados', '9110002').situacao_cadastro, undefined);
+  igual(registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL'), [], 'nada foi feito: não é trilha parcial');
+});
+
+teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a inscrição, na resposta e no log', () => {
+  // O achado 6 da rodada 2: a Beatriz é reimportada entre a releitura e o
+  // patch; a inscrição dela já foi anulada, o patch é recusado e a resposta
+  // dizia só `anuladas:1` — sem QUEM. A pessoa está na lista mais nova, sem
+  // vaga e sem aviso. Mutação que derruba: `catch` só com contadores; log só
+  // no caminho de sucesso; marca do lote/cache/marca da reconciliação só no
+  // sucesso.
+  const amb = ambiente();
+  const { l1 } = cenario(amb);
+  projeto(amb, 'p1', 'Robótica');
+  projeto(amb, 'p2', 'Horta');
+  const i1 = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
+  const i2 = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p2', { projeto_nome: 'Horta' });
+  amb.propriedades.set('painel_reconciliacao', JSON.stringify({
+    inscricoes: 3, matriculados: 5, em: '2026-09-21 09:00:00', dia: '2026-09-21', gasto: 1200, custo: 300
+  }));
+  amb.api.CacheService.getScriptCache().put('painel_estatisticas', '{"ok":true,"velho":1}', 30);
+
+  const varredura = amb.api.varrerInscricoes_;
+  amb.api.varrerInscricoes_ = (teto) => {
+    const v = varredura(teto);
+    importar(amb, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
+    return v;
+  };
+  const r = chamar(amb, 'aplicarRevisao', {
+    loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '9110004', acao: 'CANCELAR' }]
+  });
+  amb.api.varrerInscricoes_ = varredura;
+
+  igual(r.ok, false);
+  igual(r.anuladas, 2);
+  igual(r.cancelados, 0);
+  igual(r.parcial.anuladas.map((a) => [a.matricula, a.id, a.projetoNome]).sort(),
+    [['9110002', i1, 'Robótica'], ['9110002', i2, 'Horta']].sort());
+  igual(r.parcial.excluidos, []);
+  igual(r.parcial.cancelados, []);
+  igual(r.avisos.length, 2, JSON.stringify(r.avisos));
+  verdadeiro(r.avisos.some((a) => a.indexOf('A inscrição de 9110002 (Robótica) foi anulada antes da recusa') === 0), r.avisos.join(' | '));
+  verdadeiro(r.avisos.some((a) => a.indexOf('A inscrição de 9110002 (Horta) foi anulada antes da recusa') === 0), r.avisos.join(' | '));
+  verdadeiro(r.avisos.every((a) => a.toUpperCase().indexOf('BEATRIZ') === -1), 'nome no aviso');
+  verdadeiro(/Incluir aluno/.test(r.avisos[0]), 'o aviso tem de dizer como desfazer: ' + r.avisos[0]);
+
+  igual(registrosDoLog(amb.falso, 'LOTE_REVISADO'), [], 'um Aplicar recusado não é revisão inteira');
+  const parcial = registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL');
+  igual(parcial.length, 1);
+  verdadeiro(parcial[0].detalhe.indexOf('ADS41: 0 cancelado(s) [], 0 excluído(s) [], 2 inscrição(ões) anulada(s) [9110002,9110002], 1 pulado(s), 0 já cancelado(s); INTERROMPIDO: A lista da tela é de antes') === 0, parcial[0].detalhe);
+  verdadeiro(/; por prof@exemplo\.com$/.test(parcial[0].detalhe), parcial[0].detalhe);
+  igual(parcial[0].detalhe.toUpperCase().indexOf('BEATRIZ'), -1);
+  igual(parcial[0].detalhe.indexOf('projects/'), -1);
+
+  const lote = documento(amb.falso, 'lotes', l1);
+  verdadeiro(Boolean(lote.revisado_em), 'o lote interrompido ficou sem revisado_em');
+  igual(lote.revisado_por, PROF);
+  igual(JSON.parse(lote.revisao_resumo), { cancelados: 0, excluidos: 0, anuladas: 2, pulados: 1, ja_cancelados: 0, situacao: 'PARCIAL' });
+  igual(chamar(amb, 'revisarLote', { loteId: l1 }).revisado.resumo.situacao, 'PARCIAL', 'a janela tem de poder dizer "interrompida"');
+
+  igual(JSON.parse(amb.propriedades.get('painel_reconciliacao')).inscricoes, -1, 'a contagem mudou e a marca não foi esquecida');
+  igual(amb.api.CacheService.getScriptCache().get('painel_estatisticas'), null, 'os números velhos do Painel ficaram no cache');
+
+  // A trilha diz o que foi anulado DE FATO: a inscrição que o Geral anulou à
+  // mão entre a varredura e a anulação já não existia (nao_encontradas), e
+  // não pode aparecer como "anulada antes da recusa". Mutação que derruba:
+  // listar todas as pedidas em vez de filtrar pelos `ids` do Auditório.
+  const outro = ambiente();
+  const c = cenario(outro);
+  projeto(outro, 'p1', 'Robótica');
+  projeto(outro, 'p2', 'Horta');
+  const j1 = inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p1');
+  const j2 = inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p2', { projeto_nome: 'Horta' });
+  const varredura2 = outro.api.varrerInscricoes_;
+  outro.api.varrerInscricoes_ = (teto) => {
+    const v = varredura2(teto);
+    igual(outro.api.anularInscricoes({ token: outro.token, ids: [j2] }).anuladas, 1);
+    importar(outro, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
+    return v;
+  };
+  const r2 = chamar(outro, 'aplicarRevisao', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  outro.api.varrerInscricoes_ = varredura2;
+  igual(r2.ok, false);
+  igual(r2.anuladas, 1, 'só a que existia');
+  igual(r2.parcial.anuladas.map((a) => a.id), [j1], 'a anulada à mão apareceu como anulada pela revisão');
+  igual(r2.avisos.length, 1);
+  verdadeiro(/\(Robótica\)/.test(r2.avisos[0]), r2.avisos[0]);
+  verdadeiro(/1 inscrição\(ões\) anulada\(s\) \[9110002\]/.test(registrosDoLog(outro.falso, 'LOTE_REVISADO_PARCIAL')[0].detalhe));
+});
+
+teste('EXCLUIR que entrou seguido de CANCELAR recusado: a exclusão irreversível fica na trilha parcial, com a matrícula', () => {
+  // O achado 8 da rodada 2: o passo 5 (EXCLUIR) entra, o 6 (CANCELAR) é
+  // recusado pela versão, e a única trilha da exclusão era o documento em
+  // matriculados_excluidos. Mutação que derruba: log só no fim.
+  const amb = ambiente();
+  const CARLOS_DE_ADS41 = ['CARLOS EXEMPLO (09110003)', 'ADS41'];
+  importar(amb, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS41], { nome: 'ads41-sexta.csv' });
+  const l1 = importar(amb, ADS41_2026_2, [ANA, DUDA], { nome: 'ads41-segunda.csv' }).loteId;
+  // Só a Beatriz volta na reimportação do meio: o delete do Carlos entra, o
+  // patch da Beatriz é recusado pela versão.
+  const varredura = amb.api.varrerInscricoes_;
+  amb.api.varrerInscricoes_ = (teto) => {
+    const v = varredura(teto);
+    importar(amb, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' });
+    return v;
+  };
+  const r = chamar(amb, 'aplicarRevisao', {
+    loteId: l1, turma: 'ADS41',
+    decisoes: [{ matricula: '9110003', acao: 'EXCLUIR' }, { matricula: '9110002', acao: 'CANCELAR' }]
+  });
+  amb.api.varrerInscricoes_ = varredura;
+
+  igual(r.ok, false);
+  igual(r.excluidos, 1);
+  igual(r.cancelados, 0);
+  igual(r.parcial, { anuladas: [], excluidos: ['9110003'], cancelados: [] });
+  igual(r.avisos, ['9110003 foi/foram excluído(s) antes da recusa (cópia em matriculados_excluidos).']);
+  igual(documento(amb.falso, 'matriculados', '9110003'), null);
+  verdadeiro(documento(amb.falso, 'matriculados_excluidos', '9110003') !== null);
+
+  const parcial = registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL');
+  igual(parcial.length, 1);
+  verdadeiro(parcial[0].detalhe.indexOf('ADS41: 0 cancelado(s) [], 1 excluído(s) [9110003], 0 inscrição(ões) anulada(s) [], 0 pulado(s)') === 0, parcial[0].detalhe);
+  igual(parcial[0].detalhe.indexOf('9110002'), -1, 'quem NÃO foi cancelado não pode estar listado como cancelado');
+  igual(JSON.parse(documento(amb.falso, 'lotes', l1).revisao_resumo).situacao, 'PARCIAL');
 });
 
 // ---------------------------------------------------- Releitura e tetos

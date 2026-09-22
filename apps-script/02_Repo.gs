@@ -315,6 +315,24 @@ function fsErro_(codigo, texto, metodo, caminho) {
   return erro;
 }
 
+/**
+ * A mensagem de erro SEM o caminho do documento — o que pode sair para a tela
+ * e para o log de execução.
+ *
+ * `fsErro_` (acima) monta a mensagem com o texto do Firestore, e esse texto
+ * carrega o caminho inteiro: 'projects/<id do projeto>/databases/(default)/
+ * documents/matriculados/9110001'. O caminho é duas coisas que não saem
+ * daqui: a matrícula (o id do documento) e o id do projeto Cloud — o começo
+ * da trilha para quem quiser sondar (ver `fsProjeto_`). Mora ao lado de quem
+ * monta a mensagem, e não em quem a mostra, para todo ramo de erro que
+ * responde ou loga ter a mesma régua (decisão D-27; a revisão, 05c, e o
+ * Auditório, 13, passam por aqui). Aceita o Error ou só o texto.
+ */
+function semCaminhoDeDocumento_(erro) {
+  var texto = (erro && erro.message) || erro || 'erro desconhecido';
+  return String(texto).replace(/projects\/\S+/g, '(documento)');
+}
+
 function fsValeRetentar_(erro) {
   if (erro.status === FS_STATUS_RETENTAVEL) return true;
   return FS_CODIGOS_RETENTAVEIS.indexOf(Number(erro.codigo)) !== -1;

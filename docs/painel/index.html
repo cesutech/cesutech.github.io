@@ -7560,6 +7560,8 @@
   /**
    * A coluna "Revisão": quando a última revisão rodou e o que ela fez, ou vazio.
    * O resumo vem como o JSON gravado no lote; ilegível é o mesmo que ausente.
+   * `situacao: 'PARCIAL'` é o Aplicar interrompido depois de já ter escrito: a
+   * coluna diz "interrompida", para ninguém ler o lote como revisado inteiro.
    */
   function revisaoDoLote(l) {
     if (!l.revisado_em) return '<span class="texto-fraco">—</span>';
@@ -7572,8 +7574,10 @@
       if (resumo.anuladas) partes.push(resumo.anuladas + ' inscrição(ões) anulada(s)');
       if (!partes.length) partes.push('nada a fazer');
     }
-    return 'revisado em ' + escapar(diaDe(l.revisado_em) || l.revisado_em) +
-      (partes.length ? ' · ' + escapar(partes.join(', ')) : '');
+    var interrompida = resumo && resumo.situacao === 'PARCIAL';
+    return (interrompida ? '<strong>revisão interrompida</strong> em ' : 'revisado em ') +
+      escapar(diaDe(l.revisado_em) || l.revisado_em) +
+      (partes.length ? ' · ' + escapar(partes.join(', ')) + (interrompida ? ' antes da falha' : '') : '');
   }
 
   /**
@@ -7658,6 +7662,14 @@
    * também a inscrição". Cancelar e Excluir SEMPRE anulam as inscrições vivas do
    * aluno — a vaga tem de ser liberada —, e quem descobre quais são é o servidor,
    * no instante do Aplicar. A lista "com projeto" mostra o projeto e diz a frase.
+   *
+   * O que ele anula é SÓ a inscrição que traz a matrícula do aluno. A que o
+   * cruzamento de Alunos ligou a ele por e-mail, CPF ou nome (`possiveis`) é
+   * uma linha de informação embaixo do nome — "possível inscrição sem esta
+   * matrícula em Robótica … confira no Geral" —, sem ação e sem entrar na
+   * contagem de "inscrições a anular": nome casa homônimo e e-mail casa
+   * família, e anular é destrutivo. Quem confere e decide é a coordenação, no
+   * Geral.
    */
   var REVISAO = null;
 
@@ -7730,7 +7742,8 @@
    * Duas listas com ação (sem projeto, com projeto) e dois blocos só de
    * informação (quem veio em outra lista deste semestre, quem já está
    * cancelado). Os já cancelados aparecem com as inscrições vivas, se houver —
-   * um cancelado que se reinscreveu ocupa vaga, e é a coordenação que decide.
+   * um cancelado que se reinscreveu ocupa vaga, e é a coordenação que decide,
+   * pelo Geral: o Aplicar não toca em quem já tem a marca.
    */
   function desenharRevisao(r) {
     var corpo = document.getElementById('modal-corpo');
@@ -7771,10 +7784,16 @@
 
     if (r.revisado) {
       var res = r.revisado.resumo || {};
-      html += '<p class="texto-fraco pequeno">Já revisada em ' + escapar(diaDe(r.revisado.em) || r.revisado.em) +
+      // 'PARCIAL' é o Aplicar que morreu depois de já ter escrito: o que ele
+      // fez está na trilha (LOTE_REVISADO_PARCIAL), e a janela avisa que a
+      // revisão não terminou — o resto ainda está nas listas abaixo.
+      html += '<p class="texto-fraco pequeno">' +
+        (res.situacao === 'PARCIAL' ? '<strong>Revisão interrompida</strong> em ' : 'Já revisada em ') +
+        escapar(diaDe(r.revisado.em) || r.revisado.em) +
         (r.revisado.por ? ' por ' + escapar(r.revisado.por) : '') +
         (res.cancelados !== undefined ? ' · ' + res.cancelados + ' cancelado(s), ' + (res.excluidos || 0) +
-          ' excluído(s), ' + (res.anuladas || 0) + ' inscrição(ões) anulada(s)' : '') + '.</p>';
+          ' excluído(s), ' + (res.anuladas || 0) + ' inscrição(ões) anulada(s)' : '') +
+        (res.situacao === 'PARCIAL' ? ' antes da falha — o que ficou por fazer está abaixo' : '') + '.</p>';
     }
 
     var lidas = (r.lidas || {});
@@ -7823,7 +7842,7 @@
             escapar(diaDe(i.cancelado_em) || i.cancelado_em) + (i.cancelado_por ? ' por ' + escapar(i.cancelado_por) : '') +
             '</td><td class="pequeno">' + (i.inscricoes.length
               ? projetosDaRevisao(i.inscricoes) + ' <span class="selo selo--DIVERGENCIA">ocupa vaga</span>'
-              : '<span class="texto-fraco">—</span>') + '</td></tr>';
+              : '<span class="texto-fraco">—</span>') + possiveisDaRevisao(i.possiveis) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
 
@@ -7853,7 +7872,7 @@
       (comProjeto ? '<th>Projeto</th>' : '') + '<th>Ação</th></tr></thead><tbody>';
 
     itens.forEach(function (i) {
-      html += '<tr><td>' + escapar(i.nome) + '</td>' +
+      html += '<tr><td>' + escapar(i.nome) + possiveisDaRevisao(i.possiveis) + '</td>' +
         '<td>' + escapar(i.matriculaOficial || i.matricula) + '</td>' +
         '<td class="pequeno">' + escapar(i.curso) + '</td>' +
         '<td class="pequeno">' + escapar(diaDe(i.importadoEm) || i.importadoEm) + '</td>' +
@@ -7874,17 +7893,31 @@
   }
 
   /**
-   * "Robótica · protocolo abc123 (em espera)", uma linha por inscrição.
-   * `casadaPor` é a inscrição que NÃO traz esta matrícula e a reconciliação
-   * casou por outro caminho (e-mail, CPF, nome): dizer isso ao lado do projeto
-   * é o que explica por que ela vai ser anulada junto.
+   * "Robótica · protocolo abc123 (em espera)", uma linha por inscrição — as
+   * que trazem esta matrícula, e por isso vão ser anuladas.
    */
   function projetosDaRevisao(inscricoes) {
     return inscricoes.map(function (i) {
       return '<strong>' + escapar(i.projetoNome || i.projetoId) + '</strong> · protocolo ' + escapar(i.id) +
-        (i.emEspera ? ' (em espera)' : '') +
-        (i.casadaPor ? ' <span class="texto-fraco">· sem esta matrícula, casada por ' + escapar(i.casadaPor) + '</span>' : '');
+        (i.emEspera ? ' (em espera)' : '');
     }).join('<br>');
+  }
+
+  /**
+   * A linha de informação dos `possiveis`: a inscrição que NÃO traz esta
+   * matrícula e o cruzamento de Alunos ligou a esta pessoa por outro caminho
+   * (e-mail, CPF, nome). Não vai ser anulada — nome casa homônimo, e-mail casa
+   * família —, então a linha diz por quem casou, se a própria cascata ficou
+   * em dúvida (divergência) e onde conferir. Vazio quando não há nenhuma.
+   */
+  function possiveisDaRevisao(possiveis) {
+    if (!possiveis || !possiveis.length) return '';
+    return possiveis.map(function (p) {
+      return '<div class="texto-fraco pequeno rev-possivel">possível inscrição sem esta matrícula em <strong>' +
+        escapar(p.projetoNome || p.projetoId) + '</strong> (protocolo ' + escapar(p.id) +
+        (p.emEspera ? ', em espera' : '') + ', casada por ' + escapar(p.casadaPor || 'cruzamento') +
+        (p.status === 'DIVERGENCIA' ? ', em divergência' : '') + ') — não será anulada; confira no Geral.</div>';
+    }).join('');
   }
 
   function rotuloDaAcao(acao) {
@@ -7982,7 +8015,12 @@
         if (resp.anuladas) parciais.push(resp.anuladas + ' inscrição(ões) anulada(s)');
         if (resp.excluidos) parciais.push(resp.excluidos + ' excluído(s)');
         if (resp.cancelados) parciais.push(resp.cancelados + ' cancelado(s)');
+        // Os contadores dizem quanto; `avisos` diz QUEM ("A inscrição de
+        // 9110002 (Robótica) foi anulada antes da recusa") — é por eles que a
+        // coordenação sabe quem reincluir por Alunos → Incluir aluno.
+        var nominais = (resp.avisos || []).join(' ');
         avisar('erro', (parciais.length ? 'Feito antes da falha: ' + parciais.join(', ') + '. ' : '') +
+          (nominais ? nominais + ' ' : '') +
           (resp.erro || 'Falha ao aplicar a revisão.'));
         return;
       }

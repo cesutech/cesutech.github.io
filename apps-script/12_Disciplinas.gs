@@ -822,10 +822,6 @@ function varrerInscricoes_(teto) {
         matricula: i.matricula || '',
         nome: i.nome || '',
         email: i.email || '',
-        // Com o e-mail e o nome, é o que `chaveDePessoa_` (06) precisa para a
-        // revisão (05c) juntar as inscrições de uma mesma pessoa sem matrícula.
-        // Fica na linha, em memória; nenhuma resposta copia a linha inteira.
-        cpf: i.cpf || '',
         projeto: i.projeto_nome || '',
         curso_fase: i.curso_fase || '',
         em_espera: String(i.em_espera).toUpperCase() === 'SIM',

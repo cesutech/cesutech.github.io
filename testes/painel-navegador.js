@@ -2763,17 +2763,24 @@ teste('a aba Importações mostra a turma, e rotula a que foi informada ou deduz
  */
 grupo('a revisão de divergências — passo 3, aba Importações e a janela');
 
-function itemDaRevisao(matricula, nome, inscricoes) {
+function itemDaRevisao(matricula, nome, inscricoes, possiveis) {
   return {
     matricula: matricula, matriculaOficial: '0' + matricula, nome: nome, curso: 'ADS', turma: 'ADS41',
     situacao: 'Matriculado', telefone: '', email: '', importadoEm: '2026-09-12 10:00:00',
     lote: { id: 'L0', arquivo: 'ads41-sexta.pdf', importadoEm: '2026-09-12 10:00:00', semestre: '2026/2' },
-    inscricoes: inscricoes || []
+    inscricoes: inscricoes || [],
+    possiveis: possiveis || []
   };
 }
 
 function inscricaoDaRevisao(id, projeto, emEspera) {
   return { id: id, projetoId: 'p1', projetoNome: projeto || 'Origem', emEspera: Boolean(emEspera), criadoEm: '2026-09-13 10:00:00' };
+}
+
+/** A inscrição que o cruzamento ligou à pessoa SEM esta matrícula — só informação. */
+function possivelDaRevisao(id, projeto, casadaPor, status) {
+  return { id: id, projetoId: 'p1', projetoNome: projeto || 'Robótica', emEspera: false,
+    casadaPor: casadaPor || 'E-mail', status: status || 'CONFIRMADO' };
 }
 
 /** A resposta completa de `revisarLote`: 3 sem projeto, 2 com projeto (3 inscrições), 1 em outra lista, 1 já cancelada. */
@@ -2786,7 +2793,7 @@ function respostaDaRevisao(extras) {
     outraListaDoSemestre: [{ matricula: '9110008', nome: 'Otto Exemplo',
       lote: { id: 'L31', arquivo: 'ads31.pdf', importadoEm: '2026-09-18 10:00:00', semestre: '2026/2' } }],
     jaCancelados: [{ matricula: '9110007', nome: 'Julia Exemplo', cancelado_em: '2026-09-15 09:00:00',
-      cancelado_por: 'coord@exemplo.com', inscricoes: [inscricaoDaRevisao('i7')] }],
+      cancelado_por: 'coord@exemplo.com', inscricoes: [inscricaoDaRevisao('i7')], possiveis: [] }],
     sumiramMaisQueVieram: false, avisos: [], lidas: { matriculados: 30, lotes: 3, inscricoes: 40 },
     loteMaximo: 100,
     semProjeto: [itemDaRevisao('9110001', 'Ana Exemplo'), itemDaRevisao('9110002', 'Bia Exemplo'),
@@ -2915,6 +2922,11 @@ teste('a aba Importações: Revisar em lote normal, "Revisar de novo" no revisad
         revisao_resumo: '{"cancelados":3,"excluidos":1,"anuladas":2,"pulados":0,"ja_cancelados":0}' }), 'L3');
       api.inserir('lotes', Object.assign({}, base, { arquivo: 'parcial.pdf', criado_em: '20260802T090000000Z', status: 'PARCIAL' }), 'L2');
       api.inserir('lotes', Object.assign({}, base, { arquivo: 'apagado.pdf', criado_em: '20260801T090000000Z', status: 'EXPURGADO' }), 'L1');
+      // O Aplicar interrompido depois de já ter escrito: o lote leva a marca
+      // com `situacao: 'PARCIAL'` no resumo (o status do lote NÃO muda).
+      api.inserir('lotes', Object.assign({}, base, { arquivo: 'interrompido.pdf', criado_em: '20260731T090000000Z', status: 'ATUALIZOU',
+        revisado_em: '2026-09-21 11:00:00', revisado_por: 'coord@exemplo.com',
+        revisao_resumo: '{"cancelados":0,"excluidos":1,"anuladas":2,"pulados":0,"ja_cancelados":0,"situacao":"PARCIAL"}' }), 'L0');
     }
   });
   cena.js.trocarAba('lotes');
@@ -2931,6 +2943,10 @@ teste('a aba Importações: Revisar em lote normal, "Revisar de novo" no revisad
   verdadeiro(/confirme de novo/.test(linhaDe('parcial.pdf')), linhaDe('parcial.pdf'));
   igual(linhaDe('apagado.pdf').indexOf('abrirRevisaoDeLote'), -1, 'EXPURGADO não tem o que comparar');
   igual(linhaDe('apagado.pdf').indexOf('expurgarLoteUI'), -1);
+  verdadeiro(/<strong>revisão interrompida<\/strong> em 21\/09\/2026 · 1 excluído\(s\), 2 inscrição\(ões\) anulada\(s\) antes da falha/.test(linhaDe('interrompido.pdf')),
+    'a coluna tem de dizer que a revisão não terminou: ' + linhaDe('interrompido.pdf'));
+  igual(linhaDe('interrompido.pdf').indexOf('revisado em'), -1, 'interrompida não é "revisado em"');
+  verdadeiro(/Revisar de novo/.test(linhaDe('interrompido.pdf')), 'a interrompida tem de poder ser revisada de novo');
   verdadeiro(cena.texto('conteudo-lotes').indexOf('bisturi') !== -1 && cena.texto('conteudo-lotes').indexOf('vassoura') !== -1,
     'o rito da virada de semestre saiu do parágrafo');
 });
@@ -2980,26 +2996,69 @@ teste('a janela diz "Já revisada em" quando o lote já passou por um Aplicar, e
   const primeira = abrirPainel({ semear: cadastroBase });
   abrirJanelaDeRevisao(primeira, respostaDaRevisao({ revisado: null }));
   igual(primeira.html('modal-corpo').indexOf('Já revisada'), -1, 'lote nunca revisado não pode dizer que foi');
+
+  // O Aplicar que morreu depois de já ter escrito (situacao PARCIAL) não é
+  // "já revisada": a janela diz que foi interrompida e que o resto está abaixo.
+  const parcial = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(parcial, respostaDaRevisao({
+    revisado: { em: '2026-09-21 11:00:00', por: 'coord@exemplo.com',
+      resumo: { cancelados: 0, excluidos: 1, anuladas: 2, pulados: 0, ja_cancelados: 0, situacao: 'PARCIAL' } }
+  }));
+  const corpoParcial = parcial.html('modal-corpo');
+  verdadeiro(/<strong>Revisão interrompida<\/strong> em 21\/09\/2026 por coord@exemplo.com · 0 cancelado\(s\), 1 excluído\(s\), 2 inscrição\(ões\) anulada\(s\) antes da falha — o que ficou por fazer está abaixo\./.test(corpoParcial),
+    corpoParcial.slice(corpoParcial.indexOf('interrompida') - 30, corpoParcial.indexOf('interrompida') + 200));
+  igual(corpoParcial.indexOf('Já revisada'), -1, 'interrompida não é revisada');
+  verdadeiro(parcial.elemento('modal-salvar'), 'a interrompida continua tendo Aplicar: o resto está nas listas');
 });
 
-teste('a inscrição casada por e-mail (sem esta matrícula) diz isso ao lado do projeto — e só ela', () => {
-  // Mutação que derruba: desenhar o protocolo sem `casadaPor` — a coordenação
-  // veria uma inscrição "de outra pessoa" ser anulada sem saber por quê.
+teste('a inscrição ligada SEM esta matrícula é linha de informação: não tem select, não conta, e manda conferir no Geral', () => {
+  // Mutação que derruba: somar `possiveis` em `porMatricula` — a contagem e a
+  // pergunta prometeriam anular o que o servidor não anula; desenhá-la com
+  // `projetosDaRevisao` — ganharia a frase "a inscrição será anulada"; ou
+  // esquecer a linha — a coordenação não saberia que existe algo a conferir.
   const cena = abrirPainel({ semear: cadastroBase });
   abrirJanelaDeRevisao(cena, respostaDaRevisao({
-    comProjeto: [itemDaRevisao('9110004', 'Dani Exemplo', [
-      Object.assign(inscricaoDaRevisao('i4'), { casadaPor: 'E-mail' }),
-      inscricaoDaRevisao('i4b', 'Horta')
-    ])],
+    semProjeto: [
+      itemDaRevisao('9110001', 'Ana Exemplo', [], [possivelDaRevisao('i9', 'Robótica', 'E-mail', 'CONFIRMADO')]),
+      itemDaRevisao('9110002', 'Bia Exemplo'), itemDaRevisao('9110003', 'Caio Exemplo')
+    ],
+    comProjeto: [
+      itemDaRevisao('9110004', 'Dani Exemplo', [inscricaoDaRevisao('i4')], [possivelDaRevisao('i9b', 'Horta', 'Nome exato', 'DIVERGENCIA')]),
+      itemDaRevisao('9110005', 'Edu Exemplo', [inscricaoDaRevisao('i5a'), inscricaoDaRevisao('i5b', 'Lotado', true)])
+    ],
+    jaCancelados: [{ matricula: '9110007', nome: 'Julia Exemplo', cancelado_em: '2026-09-15 09:00:00',
+      cancelado_por: 'coord@exemplo.com', inscricoes: [], possiveis: [possivelDaRevisao('i9c', 'Origem', 'CPF', 'CONFIRMADO')] }],
     lidas: { matriculados: 30, lotes: 3, inscricoes: 40, fichas: 7 }
   }));
   const corpo = cena.html('modal-corpo');
-  verdadeiro(/protocolo i4 <span class="texto-fraco">· sem esta matrícula, casada por E-mail<\/span>/.test(corpo),
-    corpo.slice(corpo.indexOf('protocolo i4'), corpo.indexOf('protocolo i4') + 120));
-  verdadeiro(/protocolo i4b<\/td>|protocolo i4b<br>|protocolo i4b<div/.test(corpo), 'a inscrição pela matrícula ganhou a frase: ' +
-    corpo.slice(corpo.indexOf('protocolo i4b'), corpo.indexOf('protocolo i4b') + 80));
-  igual((corpo.match(/casada por/g) || []).length, 1);
+
+  verdadeiro(/Ana Exemplo<div class="texto-fraco pequeno rev-possivel">possível inscrição sem esta matrícula em <strong>Robótica<\/strong> \(protocolo i9, casada por E-mail\) — não será anulada; confira no Geral\.<\/div>/.test(corpo),
+    corpo.slice(corpo.indexOf('Ana Exemplo'), corpo.indexOf('Ana Exemplo') + 260));
+  verdadeiro(/protocolo i9b, casada por Nome exato, em divergência\) — não será anulada; confira no Geral/.test(corpo),
+    'a divergência da própria cascata tem de ser dita: ' + corpo.slice(corpo.indexOf('protocolo i9b'), corpo.indexOf('protocolo i9b') + 120));
+  verdadeiro(/protocolo i9c, casada por CPF\) — não será anulada; confira no Geral/.test(corpo), 'o já cancelado também mostra a possível');
+  igual((corpo.match(/possível inscrição sem esta matrícula/g) || []).length, 3);
+  igual((corpo.match(/casada por/g) || []).length, 3, '"casada por" só existe na linha de informação');
+  igual((corpo.match(/a inscrição será anulada \(vaga liberada\)/g) || []).length, 2, 'a frase da anulação é só das inscrições COM a matrícula');
+  igual((corpo.match(/protocolo i9b/g) || []).length, 1, 'a possível apareceu também na coluna Projeto, como se fosse ser anulada');
+  igual((corpo.match(/protocolo i9c/g) || []).length, 1);
+  verdadeiro(/protocolo i4<\/td>|protocolo i4<br>|protocolo i4<div/.test(corpo), 'a inscrição pela matrícula ganhou frase a mais: ' +
+    corpo.slice(corpo.indexOf('protocolo i4'), corpo.indexOf('protocolo i4') + 80));
+  igual(selectsDaRevisao(cena).length, 5, 'a linha de informação não pode ganhar select');
   verdadeiro(/80 documento\(s\) lido\(s\)/.test(corpo), 'as fichas entram na conta de documentos lidos');
+
+  // A contagem viva: a Ana (só possível) marcada para cancelar libera ZERO
+  // vagas; a Dani, uma (a dela pela matrícula), e não duas.
+  marcar(cena, '9110001', 'CANCELAR');
+  igual(cena.texto('rev-resumo'), '1 a cancelar · 0 a excluir · 0 inscrições a anular · 4 mantido(s)');
+  marcar(cena, '9110004', 'CANCELAR');
+  igual(cena.texto('rev-resumo'), '2 a cancelar · 0 a excluir · 1 inscrições a anular · 3 mantido(s)');
+
+  // Sem possíveis, nenhuma linha de informação — nem vazia.
+  const limpa = abrirPainel({ semear: cadastroBase });
+  abrirJanelaDeRevisao(limpa);
+  igual(limpa.html('modal-corpo').indexOf('rev-possivel'), -1);
+  igual(limpa.html('modal-corpo').indexOf('casada por'), -1);
 });
 
 teste('a contagem viva soma as inscrições de quem sai, e "Marcar todos" de uma lista não toca a outra', () => {
@@ -3112,8 +3171,15 @@ teste('a resposta cai dentro da janela: o relato, os pulados, o Ver Alunos que c
 teste('erro do Aplicar fica na janela com o que já foi feito, e os selects continuam para reaplicar', () => {
   const cena = abrirPainel({ semear: cadastroBase });
   abrirJanelaDeRevisao(cena);
+  // Mutação que derruba: mostrar só os contadores — a coordenação saberia que
+  // DUAS inscrições sumiram, e não de quem; é pelo aviso nominal que ela sabe
+  // quem reincluir.
   cena.respostas.aplicarRevisao = { ok: false, erro: 'A lista da tela é de antes: alguém foi reimportado ou excluído no meio tempo.',
-    anuladas: 2, excluidos: 0, cancelados: 0 };
+    anuladas: 2, excluidos: 0, cancelados: 0,
+    parcial: { anuladas: [{ matricula: '9110004', id: 'i4', projetoId: 'p1', projetoNome: 'Origem' },
+      { matricula: '9110005', id: 'i5a', projetoId: 'p1', projetoNome: 'Origem' }], excluidos: [], cancelados: [] },
+    avisos: ['A inscrição de 9110004 (Origem) foi anulada antes da recusa — se a pessoa continua na lista, Alunos → Incluir aluno a devolve.',
+      'A inscrição de 9110005 (Origem) foi anulada antes da recusa — se a pessoa continua na lista, Alunos → Incluir aluno a devolve.'] };
 
   marcar(cena, '9110004', 'CANCELAR');
   marcar(cena, '9110005', 'EXCLUIR');
@@ -3122,6 +3188,10 @@ teste('erro do Aplicar fica na janela com o que já foi feito, e os selects cont
   verdadeiro(janelaAberta(cena));
   const erro = cena.texto('mensagem-modal');
   verdadeiro(erro.indexOf('Feito antes da falha: 2 inscrição(ões) anulada(s).') !== -1, erro);
+  verdadeiro(erro.indexOf('A inscrição de 9110004 (Origem) foi anulada antes da recusa') !== -1, 'quem perdeu a inscrição tem de estar na tela: ' + erro);
+  verdadeiro(erro.indexOf('A inscrição de 9110005 (Origem) foi anulada antes da recusa') !== -1, erro);
+  verdadeiro(erro.indexOf('Feito antes da falha') < erro.indexOf('9110004') && erro.indexOf('9110005') < erro.indexOf('A lista da tela é de antes'),
+    'a ordem é: contadores, nomes, motivo — ' + erro);
   verdadeiro(erro.indexOf('A lista da tela é de antes') !== -1, erro);
   igual(selectsDaRevisao(cena).map((s) => s.value), ['MANTER', 'MANTER', 'MANTER', 'CANCELAR', 'EXCLUIR'],
     'o erro apagou o que estava marcado');
