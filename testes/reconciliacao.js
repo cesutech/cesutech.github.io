@@ -807,6 +807,518 @@ teste('remoção em massa é recusada, e a rodada continua atualizando', () => {
   igual(amb.api.contar('alunos'), 4);
 });
 
+// ------------------------------------------------- O incremental de uma pessoa
+
+grupo('reconciliarPessoa_ — a mesma ficha da rodada, por 2 a 4 requisições');
+
+/** A ficha, sem o carimbo do banco: `_versao` conta escritas, não conteúdo. */
+function fichaDaMatricula(amb, matricula) {
+  const ficha = amb.api.ler('alunos', amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula(matricula)));
+  if (!ficha) return null;
+
+  // Chaves ordenadas: o que se compara é CAMPO A CAMPO, e não a ordem em que
+  // dois caminhos diferentes montaram o mesmo documento.
+  const comparavel = {};
+  Object.keys(ficha).sort().forEach((campo) => {
+    if (campo !== '_versao') comparavel[campo] = ficha[campo];
+  });
+  return comparavel;
+}
+
+/**
+ * O MESMO cenário em dois ambientes: num deles a rodada inteira, no outro só o
+ * incremental. É a única forma honesta de provar equivalência — comparar os dois
+ * documentos, e não uma lista de campos que alguém lembrou de conferir.
+ *
+ * O relógio dos dois ambientes começa igual e anda igual, então `atualizado_em`
+ * também entra na comparação em vez de ser perdoado.
+ */
+function doisCaminhos(caso) {
+  const rodada = ambiente();
+  const incremental = ambiente();
+
+  [rodada, incremental].forEach((amb) => {
+    caso.semear(amb);
+    if (caso.cruzarAntes) amb.api.reconciliar();
+    caso.novidade(amb);
+  });
+
+  rodada.api.reconciliar();
+  const r = incremental.api.reconciliarPessoa_(caso.matricula);
+  return { rodada: rodada, incremental: incremental, resultado: r };
+}
+
+/** Os quatro casos que o incremental decide sozinho — os quatro do dia a dia. */
+const CASOS_SEGUROS = [
+  {
+    nome: 'matrícula exata, ficha nova',
+    matricula: '09110001',
+    semear: (amb) => { comLista(amb); },
+    novidade: (amb) => {
+      semearInscricao(amb, {
+        nome: 'Ana P Souza', email: 'ana@exemplo.com', matricula: '091.100-01',
+        projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+      });
+    }
+  },
+  {
+    nome: 'SO_MATRICULADO vira CONFIRMADO — o caso do auditório',
+    matricula: '09110001',
+    cruzarAntes: true,
+    semear: (amb) => { comLista(amb); },
+    novidade: (amb) => {
+      semearInscricao(amb, {
+        nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+        projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+      });
+    }
+  },
+  {
+    nome: 'segunda inscrição de quem já tem ficha: os projetos se somam',
+    matricula: '09110001',
+    cruzarAntes: true,
+    semear: (amb) => {
+      comLista(amb);
+      semearInscricao(amb, {
+        nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+        projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+      });
+    },
+    novidade: (amb) => {
+      amb.relogio.avancar(60 * 1000);
+      semearInscricao(amb, {
+        nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+        projeto_id: 'p2', projeto_nome: 'CESUTECH DIGITAL'
+      });
+    }
+  },
+  {
+    nome: 'sem inscrição e cancelado na lista oficial',
+    matricula: '09110001',
+    cruzarAntes: true,
+    semear: (amb) => { comLista(amb); },
+    novidade: (amb) => { cancelarNaLista(amb, '09110001'); }
+  }
+];
+
+CASOS_SEGUROS.forEach((caso) => {
+  teste('o incremental produz a MESMA ficha da rodada — ' + caso.nome, () => {
+    // É o teste que autoriza os outros: enquanto ele passar, o incremental não é
+    // um segundo entendimento de status, é a mesma cascata com menos leitura.
+    // Mutação que derruba: reescrever o degrau 0 à mão; esquecer
+    // `juntarProjetos_`; esquecer `cadastroCancelado_`; trocar `preservarRevisao_`
+    // de lugar.
+    const { rodada, incremental, resultado } = doisCaminhos(caso);
+
+    igual(resultado.feito, true, resultado.motivo);
+    igual(resultado.escreveu, true, 'a ficha mudou e o incremental não gravou');
+    igual(fichaDaMatricula(incremental, caso.matricula), fichaDaMatricula(rodada, caso.matricula));
+    igual(incremental.api.contar('alunos'), rodada.api.contar('alunos'),
+      'o incremental criou ou deixou de criar documento');
+  });
+});
+
+teste('e a rodada seguinte, sobre o que o incremental gravou, não escreve nada', () => {
+  // A prova de que os dois caminhos convergem no BANCO, e não só na memória: se o
+  // incremental gravasse um campo diferente, a rodada de auditoria reescreveria a
+  // ficha e `escritos` seria 1. Mutação que derruba: qualquer divergência de
+  // conteúdo entre `reconciliarPessoa_` e `reconciliar`.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  igual(amb.api.reconciliarPessoa_('09110001').escreveu, true);
+  igual(amb.api.reconciliar().escritos, 0, 'a rodada discordou do incremental');
+});
+
+teste('o incremental duas vezes seguidas é UMA escrita', () => {
+  // O upsert por diferença do arquivo inteiro, aplicado a uma pessoa: a segunda
+  // chamada lê, compara e não grava. Mutação que derruba: tirar `mudou_`.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  let marca = amb.falso.requisicoes.length;
+  igual(amb.api.reconciliarPessoa_('09110001').escreveu, true);
+  igual(escritasDesde(amb, marca).length, 1, 'a primeira chamada tinha de gravar exatamente uma vez');
+
+  marca = amb.falso.requisicoes.length;
+  amb.relogio.avancar(3600 * 1000);
+  const segunda = amb.api.reconciliarPessoa_('09110001');
+
+  igual(segunda.feito, true);
+  igual(segunda.escreveu, false);
+  igual(escritasDesde(amb, marca).length, 0, 'a segunda chamada escreveu');
+});
+
+teste('depois da rodada completa, com o mesmo dado, o incremental não escreve', () => {
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  amb.api.reconciliar();
+
+  const marca = amb.falso.requisicoes.length;
+  igual(amb.api.reconciliarPessoa_('09110001').escreveu, false);
+  igual(escritasDesde(amb, marca).length, 0);
+});
+
+teste('o custo é o do cabeçalho: 2 consultas, 1 leitura de ponto e 1 escrita', () => {
+  // O número que justifica a peça inteira: a rodada custa três coleções, este
+  // custa quatro requisições. Mutação que derruba: chamar `reconciliar()` daqui,
+  // ou reler o matriculado que o chamador já leu.
+  const amb = comLista(ambiente());
+  // O id do documento na lista oficial é a matrícula NORMALIZADA — o zero à
+  // esquerda é formatação, e `normalizarMatricula` o tira (04_Inscricoes.gs).
+  const oficial = amb.api.ler('matriculados', '9110001');
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  const marca = amb.falso.requisicoes.length;
+  amb.api.reconciliarPessoa_('09110001', { matriculado: oficial });
+  const feitas = requisicoesDesde(amb, marca);
+
+  igual(feitas.filter((r) => /:runQuery/.test(r.url)).length, 2, 'as inscrições da pessoa e as fichas da matrícula');
+  igual(feitas.filter((r) => r.metodo === 'GET').length, 1, 'a ficha que a consulta não trouxe — é dela que vem o _versao');
+  igual(escritasDesde(amb, marca).length, 1);
+  igual(feitas.length, 4);
+
+  // Filtro num campo com ordenação por OUTRO exige índice COMPOSTO, e o plano é
+  // Spark: as duas consultas filtram por igualdade e deixam a ordem em
+  // `__name__`. A cronológica é feita na memória, como na rodada.
+  feitas.filter((r) => /:runQuery/.test(r.url)).forEach((r) => {
+    igual(r.corpo.structuredQuery.orderBy[0].field.fieldPath, '__name__');
+    igual(r.corpo.structuredQuery.where.fieldFilter.op, 'EQUAL');
+  });
+});
+
+teste('a ficha JÁ CASADA vem da consulta, e não custa leitura de ponto nenhuma', () => {
+  // SO_MATRICULADO e CONFIRMADO gravam `matricula_id`, então a consulta do G3 já
+  // trouxe a ficha atual — com o `_versao` junto. Mutação que derruba: ler sempre
+  // por id (uma leitura por inclusão, todo dia, para reler o que já está na mão).
+  const amb = comLista(ambiente());
+  amb.api.reconciliar();
+  // O id do documento na lista oficial é a matrícula NORMALIZADA — o zero à
+  // esquerda é formatação, e `normalizarMatricula` o tira (04_Inscricoes.gs).
+  const oficial = amb.api.ler('matriculados', '9110001');
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  const marca = amb.falso.requisicoes.length;
+  igual(amb.api.reconciliarPessoa_('09110001', { matriculado: oficial }).escreveu, true);
+  igual(requisicoesDesde(amb, marca).filter((r) => r.metodo === 'GET').length, 0);
+  igual(requisicoesDesde(amb, marca).length, 3, 'duas consultas e a escrita');
+});
+
+teste('a decisão da coordenação sobrevive ao incremental, e ele não grava por causa dela', () => {
+  // `preservarRevisao_` na MESMA posição da rodada. Mutação que derruba: tirá-la,
+  // ou escrever sem ter lido a ficha atual — nos dois casos o status humano, as
+  // observações e o "revisado por" sumiriam em silêncio, e `escreveu` viraria true.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, { nome: 'Joao Carlos Pereira', email: 'joao@exemplo.com', matricula: '09110001' });
+  amb.api.reconciliar();
+
+  const id = alunosGravados(amb)[0]._id;
+  igual(alunosGravados(amb)[0].status, 'DIVERGENCIA', 'o cenário precisa nascer em divergência');
+  revisar(amb, id, 'CONFIRMADO');
+
+  const marca = amb.falso.requisicoes.length;
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, true);
+  igual(r.escreveu, false, 'a decisão humana não muda nada, logo não há o que gravar');
+  igual(escritasDesde(amb, marca).length, 0);
+
+  const ficha = amb.api.ler('alunos', id);
+  igual(ficha.status, 'CONFIRMADO');
+  igual(ficha.observacoes, 'conferido na secretaria');
+  igual(ficha.revisado_por, 'coordenacao@exemplo.com');
+  igual(ficha.revisado_em, '2026-08-06 10:00:00');
+});
+
+teste('o CANCELADO da lista oficial passa por cima do status humano — e some quando a pessoa volta', () => {
+  // Os DOIS ramos de `preservarRevisao_`, pelo incremental. Mutação que derruba:
+  // inverter qualquer um deles — a pessoa cancelada continuaria "Confirmada" na
+  // tela, ou a reimportada ficaria presa em CANCELADO para sempre.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
+  amb.api.reconciliar();
+  const id = alunosGravados(amb)[0]._id;
+  revisar(amb, id, 'DIVERGENCIA');
+
+  amb.api.excluir('inscricoes', amb.api.ler('alunos', id).inscricao_id);
+  cancelarNaLista(amb, '09110001');
+  igual(amb.api.reconciliarPessoa_('09110001').status, 'CANCELADO');
+  igual(amb.api.ler('alunos', id).observacoes, 'conferido na secretaria', 'a observação some junto com o status');
+
+  // A reimportação devolve o documento da lista sem a marca.
+  comLista(amb);
+  igual(amb.api.reconciliarPessoa_('09110001').status, 'SO_MATRICULADO');
+  igual(amb.api.ler('alunos', id).revisado_por, 'coordenacao@exemplo.com');
+});
+
+teste('G1 — sem matrícula, declina com ZERO requisições', () => {
+  // O incremental é só da chave `mat:`. Mutação que derruba: aceitar `cpf:` ou
+  // `pes:` — os dois exigem consulta que não existe barata, e o degrau 5 varre a
+  // lista inteira.
+  const amb = comLista(ambiente());
+  const marca = amb.falso.requisicoes.length;
+
+  const r = amb.api.reconciliarPessoa_('');
+
+  igual(r.feito, false);
+  igual(r.escreveu, false);
+  igual(r.motivo, 'esta inscrição não tem matrícula');
+  igual(requisicoesDesde(amb, marca).length, 0);
+});
+
+teste('G2 — matrícula fora da lista oficial declina, e com o matriculado na mão custa ZERO', () => {
+  // `undefined` é "leia você"; `null` é "eu li e não existe". Confundir os dois
+  // custaria uma leitura por inclusão para reler o que o chamador acabou de ler.
+  // Mutação que derruba: consultar as inscrições antes de conferir a lista.
+  const amb = comLista(ambiente());
+
+  let marca = amb.falso.requisicoes.length;
+  const semNada = amb.api.reconciliarPessoa_('09119999');
+  igual(semNada.feito, false);
+  igual(semNada.motivo, 'a matrícula não está na lista oficial importada');
+  igual(requisicoesDesde(amb, marca).length, 1, 'a leitura de ponto da lista oficial, e nada mais');
+
+  marca = amb.falso.requisicoes.length;
+  const jaLido = amb.api.reconciliarPessoa_('09119999', { matriculado: null });
+  igual(jaLido.feito, false);
+  igual(jaLido.motivo, 'a matrícula não está na lista oficial importada');
+  igual(requisicoesDesde(amb, marca).length, 0, 'o chamador já tinha lido: não pode custar nada');
+});
+
+teste('G3 — outra ficha já usa esta matrícula: declina sem escrever', () => {
+  // Acontece quando a rodada casou este matriculado com uma pessoa de chave
+  // diferente (CPF, e-mail, nome). Mutação que derruba: apagar a consulta do G3 —
+  // nasceria a SEGUNDA ficha da mesma pessoa, que é o defeito que o id
+  // determinístico existe para não ter.
+  const amb = comLista(ambiente());
+  amb.api.inserir('alunos', {
+    nome: 'Ana Paula Souza', cpf: '', email: '', telefone: '', data_nascimento: '',
+    matricula: '09110001', matricula_conferida: 'SIM', projeto: '', curso: '', turma: '',
+    situacao: '', status: 'CONFIRMADO', metodo_match: 'CPF', score_match: '1',
+    inscricao_id: '', matricula_id: '9110001', revisado_por: '', revisado_em: '',
+    observacoes: '', situacao_cadastro: '', cancelado_em: '', atualizado_em: ''
+  }, 'ficha_de_outra_chave');
+
+  const marca = amb.falso.requisicoes.length;
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'outra ficha do cadastro já usa esta matrícula');
+  igual(escritasDesde(amb, marca).length, 0);
+  igual(amb.api.contar('alunos'), 1, 'nasceu uma segunda ficha para a mesma pessoa');
+});
+
+teste('G4 — cruzamento que não é do degrau 0 declina, em vez de gravar um palpite', () => {
+  // A guarda existe para o dia em que alguém mexer em `casar_`: a surpresa vira
+  // declínio, e não ficha errada. Mutação que derruba: trocar a conferência do
+  // método por uma asserção — ou por nada.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  amb.api.casar_ = () => ({ matriculado: null, metodo: 'Nome exato', score: 0.7, status: 'DIVERGENCIA' });
+
+  const marca = amb.falso.requisicoes.length;
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'o cruzamento desta matrícula não é decidível sozinho');
+  igual(escritasDesde(amb, marca).length, 0);
+});
+
+teste('G5 — matrícula em inscrições demais declina em vez de gravar uma ficha pela metade', () => {
+  // Página cheia não é "trouxe o começo". Mutação que derruba: ignorar
+  // `pagina.cursor` — a ficha sairia com os vinte primeiros projetos e sem os
+  // outros, e ninguém veria diferença na tela.
+  const amb = comLista(ambiente());
+  for (let i = 1; i <= amb.api.RECONCILIACAO_PESSOA_MAX_INSCRICOES; i++) {
+    semearInscricao(amb, {
+      nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+      projeto_id: 'p' + i, projeto_nome: 'Projeto ' + i
+    });
+    amb.relogio.avancar(60 * 1000);
+  }
+
+  const marca = amb.falso.requisicoes.length;
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'esta matrícula aparece em inscrições demais para eu conferir uma a uma');
+  igual(escritasDesde(amb, marca).length, 0);
+});
+
+teste('os projetos entram na ordem de CHEGADA, a mesma da rodada — e não na ordem do id', () => {
+  // A consulta volta ordenada por `__name__`, que é o hash da dedup: sem
+  // `porChegada_`, a ficha diria que a pessoa entrou primeiro no projeto errado e
+  // o resto dela (e-mail, protocolo) viria da inscrição errada. Mutação que
+  // derruba: ordenar pelo id do documento.
+  const amb = comLista(ambiente());
+  const primeira = semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'antiga@exemplo.com', matricula: '09110001',
+    projeto_id: 'p2', projeto_nome: 'CESUTECH DIGITAL'
+  });
+  amb.relogio.avancar(60 * 1000);
+  const segunda = semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'nova@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  // O cenário só tem sentido com as duas ordens DIFERENTES — senão o teste
+  // passaria com a ordenação errada e não provaria nada.
+  verdadeiro(String(primeira.id) > String(segunda.id),
+    'a inscrição mais ANTIGA precisa ter o id maior: ' + primeira.id + ' vs ' + segunda.id);
+
+  amb.api.reconciliarPessoa_('09110001');
+  const ficha = alunosGravados(amb)[0];
+
+  igual(ficha.projeto, 'CESUTECH DIGITAL | R+ CIDADES');
+  igual(ficha.inscricao_id, primeira.id, 'a inscrição mais antiga é a que manda no resto da ficha');
+  igual(ficha.email, 'antiga@exemplo.com');
+});
+
+teste('inscrição SEM projeto entra na conta, como na rodada', () => {
+  // `inscricoesDaPessoa_` (04_Inscricoes.gs) pula inscrição sem `projeto_id` — o
+  // formulário interno grava uma —, e a rodada não pula nada. Mutação que
+  // derruba: reusar aquela consulta: a ficha passaria a sair da inscrição errada.
+  const amb = comLista(ambiente());
+  const interna = semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'interna@exemplo.com', matricula: '09110001'
+  });
+  amb.relogio.avancar(60 * 1000);
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'site@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  amb.api.reconciliarPessoa_('09110001');
+  const ficha = alunosGravados(amb)[0];
+
+  igual(ficha.inscricao_id, interna.id, 'a inscrição sem projeto é a mais antiga: é dela que a ficha sai');
+  igual(ficha.email, 'interna@exemplo.com');
+  igual(ficha.projeto, 'R+ CIDADES');
+  igual(amb.api.reconciliar().escritos, 0, 'a rodada discordou do incremental');
+});
+
+teste('o incremental NÃO escreve o histograma de cursos', () => {
+  // Um delta não é idempotente, e o documento é truncado no top-100 com desempate
+  // por nome — histograma errado não parece errado. Mutação que derruba: chamar
+  // `atualizarAgregadoDeCursos_` daqui.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+
+  const marca = amb.falso.requisicoes.length;
+  igual(amb.api.reconciliarPessoa_('09110001').escreveu, true);
+  // A lista é tirada ANTES da conferência: ler o agregado para conferir é, ele
+  // mesmo, uma requisição.
+  const feitas = requisicoesDesde(amb, marca);
+
+  igual(amb.api.ler('agregados', 'cursos'), null, 'o incremental escreveu o agregado');
+  igual(feitas.filter((r) => JSON.stringify(r).indexOf('agregados') !== -1).length, 0,
+    'o incremental nem leu o agregado');
+});
+
+teste('o incremental NUNCA apaga ficha', () => {
+  // Remoção é global por construção: só quem perdeu as DUAS origens sai, e o teto
+  // de `planejarRemocoes_` existe para não levar junto decisão humana. Mutação que
+  // derruba: mandar apagar a ficha órfã que este cenário deixa para trás.
+  const amb = comLista(ambiente());
+  amb.api.reconciliar();
+  const id = alunosGravados(amb)[0]._id;
+
+  // A pessoa sai da lista oficial e não tem inscrição: a rodada apagaria a ficha.
+  amb.api.excluir('matriculados', '9110001');
+
+  const marca = amb.falso.requisicoes.length;
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'a matrícula não está na lista oficial importada');
+  igual(requisicoesDesde(amb, marca).filter((q) => q.metodo === 'DELETE').length, 0);
+  verdadeiro(amb.api.ler('alunos', id), 'a ficha foi apagada pelo incremental');
+});
+
+teste('a ficha mudou entre a leitura e a escrita: declina, e o documento gravado é o do OUTRO', () => {
+  // A precondição de versão, que é a diferença entre `escreverAtomico` e o upsert
+  // cego. Mutação que derruba: trocar por `escreverEmLote` — a escrita passaria
+  // por cima do que a outra aba gravou, sem ninguém saber.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  amb.api.reconciliar();
+  const id = alunosGravados(amb)[0]._id;
+
+  // Alguém grava DEPOIS da leitura da ficha e ANTES da escrita: `preservarRevisao_`
+  // é o último ponto em que as duas já estão em mãos.
+  const original = amb.api.preservarRevisao_;
+  amb.api.preservarRevisao_ = function (novo, atual) {
+    amb.api.preservarRevisao_ = original;
+    original(novo, atual);
+    amb.api.atualizar('alunos', id, { observacoes: 'escrito por outra aba' });
+  };
+
+  // Alguma mudança, para o incremental querer gravar.
+  semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', turma: 'ADS31' });
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'a ficha mudou enquanto eu recalculava');
+  igual(amb.api.ler('alunos', id).observacoes, 'escrito por outra aba', 'a escrita do outro foi sobrescrita');
+});
+
+teste('erro na escrita vira declínio, e não estouro', () => {
+  // A promessa do contrato: `reconciliarPessoa_` NUNCA lança — quem a chama já
+  // gravou a inscrição, e um erro aqui não pode virar "Falha ao incluir" na tela.
+  // Mutação que derruba: deixar o erro subir.
+  const amb = comLista(ambiente());
+  semearInscricao(amb, {
+    nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
+    projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
+  });
+  amb.api.escreverAtomico = () => { throw new Error('a rede caiu no meio'); };
+
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.escreveu, false);
+  igual(r.motivo, 'não consegui gravar a ficha');
+  verdadeiro(amb.registros.erros.some((linha) => /reconciliarPessoa_/.test(linha)),
+    'o erro tem de ficar no console de execução: ' + JSON.stringify(amb.registros.erros));
+});
+
+teste('erro na LEITURA também vira declínio, com o motivo certo', () => {
+  // O `catch` de fora cobre as duas consultas e as leituras de ponto: elas falham
+  // por rede e por cota, e a tela precisa de uma frase verdadeira — nada foi
+  // gravado. Mutação que derruba: cobrir só a escrita.
+  const amb = comLista(ambiente());
+  amb.api.listar = () => { throw new Error('cota diária de leitura esgotada'); };
+
+  const r = amb.api.reconciliarPessoa_('09110001');
+
+  igual(r.feito, false);
+  igual(r.motivo, 'não consegui ler o cadastro para recalcular a ficha');
+});
+
 // ------------------------------------------------------------ Contrato
 
 grupo('contrato com 10_Painel.gs');

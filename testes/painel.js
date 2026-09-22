@@ -2774,7 +2774,8 @@ teste('o caminho feliz grava UMA inscrição com origem COORDENACAO e quem inclu
   igual(r.situacao, 'ABERTO');
   igual(r.matricula_conferida, 'SIM');
   igual(r.aviso, '');
-  igual(r.reconciliacao_pendente, true);
+  igual(r.reconciliacao_pendente, false, 'a ficha em Alunos é recalculada aqui mesmo (22/09)');
+  igual(r.reconciliacao_motivo, '');
   verdadeiro(r.mensagem.indexOf('Protocolo ' + r.id) !== -1, r.mensagem);
   verdadeiro(r.mensagem.indexOf('R+ Cidades ficou 1/60') !== -1, r.mensagem);
 });
@@ -3041,9 +3042,13 @@ teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto
 
   // O custo: a tentativa recusada pelo 409, UMA escrita (o commit da promoção)
   // e o log. Leituras: o projeto, a lista oficial e a inscrição recusada.
-  igual(gravacoes(amb.falso).length, 3, 'a promoção é UMA escrita, além da tentativa e do log');
-  igual(leiturasForaDaConfig(amb.falso).length, 3);
-  igual(gravacoes(amb.falso).filter((q) => q.url.indexOf(':commit') !== -1).length, 1,
+  // Mais o incremental (22/09): duas consultas, a leitura da ficha que ainda não
+  // existe e a escrita dela — a promoção continua sendo UMA escrita.
+  igual(gravacoes(amb.falso).length, 4, 'a promoção é UMA escrita, além da tentativa, do log e da ficha');
+  igual(leiturasForaDaConfig(amb.falso).length, 4);
+  // Os commits de `inscricoes`: o da ficha em `alunos` é do incremental, e é outro.
+  igual(gravacoes(amb.falso).filter((q) => q.url.indexOf(':commit') !== -1 &&
+    JSON.stringify(q.corpo).indexOf('/inscricoes/') !== -1).length, 1,
     'a promoção tem de ser o mesmo commit de promoverDentroDoLock_ — o documento inteiro, de uma vez');
 
   const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
@@ -3218,20 +3223,27 @@ teste('acima do teto, a trilha diz ACIMA DO TETO — é ela que responde "por qu
   igual(linha.detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO');
 });
 
-teste('o custo é o do cabeçalho: 2 leituras de ponto, 2 agregações, 1 consulta, 2 escritas — e NENHUM cruzamento', () => {
-  // Mutação que derruba: chamar `reconciliar()` daqui (três coleções inteiras
-  // por inclusão), ou contar a ocupação duas vezes depois da escrita.
+teste('o custo é o do cabeçalho: 3 leituras de ponto, 2 agregações, 3 consultas, 3 escritas — e NENHUMA rodada inteira', () => {
+  // O pivô do incremental (22/09). Antes da peça eram 2 leituras, 1 consulta e 2
+  // escritas, e a ficha em `alunos` não nascia aqui. O que entrou foi
+  // `reconciliarPessoa_`: mais duas consultas (as inscrições da matrícula e as
+  // fichas que a reclamam), mais uma leitura de ponto (a ficha que ainda não
+  // existe, de onde sairia o `_versao`) e mais uma escrita (a ficha).
+  //
+  // Mutação que derruba: chamar `reconciliar()` daqui — as três coleções inteiras
+  // por inclusão, que é o preço que `editarAluno` só paga quando a CHAVE muda; ou
+  // reler o matriculado que esta função já leu (a leitura de ponto viraria 4).
   const amb = cenarioInclusao();
   amb.zerar();
 
   const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
   igual(r.ok, true, r.erro);
 
-  igual(leiturasForaDaConfig(amb.falso).length, 2, 'o projeto e a lista oficial');
+  igual(leiturasForaDaConfig(amb.falso).length, 3, 'o projeto, a lista oficial e a ficha do aluno');
   igual(agregacoes(amb.falso).length, 2, 'o teto antes e a ocupação depois');
-  igual(consultas(amb.falso).length, 1, 'os outros projetos da pessoa');
-  igual(gravacoes(amb.falso).length, 2, 'a inscrição e o log');
-  igual(amb.api.contar('alunos'), 0, 'a ficha em alunos NÃO nasce aqui — nasce no cruzamento');
+  igual(consultas(amb.falso).length, 3, 'os outros projetos da pessoa, as inscrições da matrícula e as fichas dela');
+  igual(gravacoes(amb.falso).length, 3, 'a inscrição, o log e a ficha');
+  igual(amb.api.contar('alunos'), 1, 'a ficha em alunos tem de nascer AQUI');
 
   // Com `confirmar_teto` a contagem de antes é pulada: uma agregação a menos.
   amb.zerar();
@@ -3239,22 +3251,146 @@ teste('o custo é o do cabeçalho: 2 leituras de ponto, 2 agregações, 1 consul
   igual(agregacoes(amb.falso).length, 1);
 });
 
-teste('a ficha aparece no próximo Atualizar da aba Alunos — o cruzamento roda sozinho porque a contagem mudou', () => {
-  // Mutação que derruba: `incluirInscricao` gravar em `alunos` à mão (a rodada
-  // seguinte apagaria), ou o freio 1 de `reconciliarSeValerAPena_` deixar de
-  // olhar a contagem de inscrições.
+teste('a ficha aparece NA HORA, e a rodada seguinte concorda com ela', () => {
+  // O outro pivô. Até 22/09 a coordenação incluía pela aba Projetos e a ficha só
+  // existia depois que alguém fosse à aba Alunos e clicasse em Atualizar — e quem
+  // inclui pela lista de inscritos do projeto não passa por aquele botão.
+  //
+  // A segunda metade é a que prova que o incremental não é um segundo
+  // entendimento de status: o Atualizar seguinte roda a rodada INTEIRA (a contagem
+  // de inscrições mudou, e o freio 1 não muda com esta peça) e não reescreve nada.
+  //
+  // Mutação que derruba: `reconciliacao_pendente: true` fixo; ou o incremental
+  // produzir documento diferente do da rodada — `escritos` viraria 1.
   const amb = cenarioInclusao();
   chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });   // a linha de base: nada a cruzar
   igual(chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).total, 1, 'só a matriculada, SO_MATRICULADO');
 
   const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
-  igual(r.reconciliacao_pendente, true);
+  igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
 
-  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
-  igual(depois.reconciliacao.rodou, true, 'o cruzamento devia ter rodado: entrou inscrição nova');
-  const ficha = depois.itens.filter((a) => a.matricula === '9110001')[0];
+  // SEM Atualizar nenhum no meio: a lista já mostra a ficha certa.
+  const agora = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
+  const ficha = agora.itens.filter((a) => a.matricula === '9110001')[0];
   verdadeiro(ficha, 'a aluna incluída não apareceu na lista');
   igual(ficha.status, 'CONFIRMADO', 'inscrição + lista oficial = confirmada');
+
+  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  igual(depois.reconciliacao.rodou, true, 'a contagem mudou: a rodada de auditoria continua rodando');
+  igual(depois.reconciliacao.resumo.escritos, 0, 'a rodada discordou do incremental e reescreveu a ficha');
+});
+
+teste('promovida da fila sem rodada nenhuma antes: a ficha NASCE aqui', () => {
+  // O ramo da promoção precisa do incremental mais do que o outro: a ficha pode
+  // nunca ter nascido, e a contagem de inscrições NÃO muda (o documento já
+  // existia). Mutação que derruba: pular o incremental na promoção — a ficha não
+  // existiria, e nem o Atualizar seguinte a criaria, porque o freio 1 fecharia.
+  const amb = cenarioDaFila(null, true);
+  igual(amb.api.contar('alunos'), 0, 'o cenário exige o cadastro ainda sem ficha nenhuma');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  igual(r.ok, true, r.erro);
+  igual(r.promovida_da_fila, true);
+  igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
+
+  const ficha = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).itens
+    .filter((a) => a.matricula === '9110001')[0];
+  verdadeiro(ficha, 'a ficha de quem foi promovido não nasceu');
+  igual(ficha.status, 'CONFIRMADO');
+});
+
+teste('declínio na promoção: a marca fica com -1, e o Atualizar seguinte cruza mesmo sem contagem nova', () => {
+  // A regra da marca, no ramo em que ela é obrigatória: promover não muda
+  // contagem nenhuma, então sem `esquecerMarcaDaReconciliacao_` a frase "a ficha
+  // fica pronta no próximo Atualizar" seria falsa — o freio 1 fecharia e a ficha
+  // nunca seria calculada. Mutação que derruba: não chamar `esquecerMarca` no
+  // declínio.
+  const amb = cenarioDaFila(null, true);
+  // A matrícula da fila está FORA da lista oficial: é o declínio do G2.
+  inscrever(amb.api, 'p2', 'Robótica', {
+    matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com', em_espera: 'SIM'
+  });
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });   // a marca nasce aqui
+  igual(amb.api.marcaDaReconciliacao_().inscricoes, 4, 'a marca precisa nascer com a contagem real');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+    projeto_id: 'p2', matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com',
+    confirmar_teto: true
+  }));
+  igual(r.ok, true, r.erro);
+  igual(r.promovida_da_fila, true);
+  igual(r.reconciliacao_pendente, true);
+  igual(r.reconciliacao_motivo, 'a matrícula não está na lista oficial importada');
+
+  igual(amb.api.contar('inscricoes'), 4, 'promover não cria documento: é por isso que o freio 1 não vê nada');
+  igual(amb.api.marcaDaReconciliacao_().inscricoes, -1, 'o declínio não declarou o cadastro sujo');
+  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
+});
+
+teste('o sucesso NÃO mexe na marca: nem nos contadores, nem no gasto do dia', () => {
+  // `marcarReconciliacao_` faz duas coisas que seriam mentira aqui: cobra
+  // |inscrições|+|matriculados|+|alunos|+1 do orçamento do dia — envenenando o
+  // freio 2 com ~5.500 leituras que não aconteceram — e declara "tudo foi
+  // cruzado", que é falso: o incremental não roda remoções nem o agregado.
+  // Mutação que derruba: chamar `marcarReconciliacao_` no sucesso.
+  const amb = cenarioInclusao();
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const antes = amb.propriedades.get('painel_reconciliacao');
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
+
+  igual(amb.propriedades.get('painel_reconciliacao'), antes, 'a inclusão bem-sucedida mexeu na marca');
+});
+
+teste('a falha do incremental não derruba a inclusão: o protocolo sai, e a tela sabe que a ficha ficou para depois', () => {
+  // A inscrição já está gravada e registrada quando o incremental roda. Mutação
+  // que derruba: deixar o erro subir — o `catch` de `incluirInscricao` devolveria
+  // "Falha ao incluir" sobre uma inscrição que ENTROU, e a coordenação a incluiria
+  // de novo (e leria "já está inscrito").
+  const amb = cenarioInclusao();
+  amb.api.reconciliarPessoa_ = () => { throw new Error('a rede caiu no meio'); };
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+
+  igual(r.ok, true, r.erro);
+  verdadeiro(r.mensagem.indexOf('Protocolo ' + r.id) !== -1, r.mensagem);
+  igual(r.reconciliacao_pendente, true);
+  igual(r.reconciliacao_motivo, 'não consegui recalcular a ficha');
+  igual(inscricoesGravadas(amb).length, 1, 'a inscrição tem de estar gravada');
+  igual(amb.api.marcaDaReconciliacao_().inscricoes, -1, 'a falha tem de declarar o cadastro sujo');
+});
+
+teste('a decisão da coordenação sobrevive à inclusão da MESMA pessoa em outro projeto', () => {
+  // `preservarRevisao_` roda dentro do incremental, na mesma posição da rodada.
+  // Mutação que derruba: escrever a ficha sem ela — a inclusão apagaria o status
+  // decidido à mão, as observações e o "revisado por", em silêncio, do lado de
+  // dentro de um clique que a coordenação acha que só cria uma inscrição.
+  const amb = cenarioInclusao();
+  inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
+  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+
+  const id = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).itens
+    .filter((a) => a.matricula === '9110001')[0].id;
+  igual(chamar(amb, 'resolverAluno', { id: id, status: 'DIVERGENCIA', observacoes: 'conferir na secretaria' }).ok, true);
+
+  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ confirmar_outro_projeto: true }));
+  igual(r.ok, true, r.erro);
+  igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
+
+  const ficha = amb.api.ler('alunos', id);
+  igual(ficha.status, 'DIVERGENCIA', 'o incremental passou por cima da decisão humana');
+  igual(ficha.observacoes, 'conferir na secretaria');
+  // 'anonimo' é o que `usuarioAtual()` responde no painel publicado (o cenário
+  // é o do GitHub Pages, ver `cenarioInclusao`). O que importa é o campo
+  // continuar preenchido: é ele o sinal de que houve gente.
+  igual(ficha.revisado_por, 'anonimo');
+  // A ordem é a da rodada: as duas inscrições nasceram no mesmo segundo, e
+  // `porChegada_` desempata pelo id do documento. Quem prova que ela é a mesma
+  // não é a frase acima — é a rodada de auditoria logo abaixo, que não reescreve.
+  igual(ficha.projeto, 'R+ Cidades | Robótica');
+  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.resumo.escritos, 0,
+    'a rodada discordou do incremental — inclusive da decisão preservada');
 });
 
 teste('a inclusão derruba o cache dos números do Painel', () => {

@@ -183,6 +183,28 @@ var RECONCILIACAO_BLOCO = 500;
 var RECONCILIACAO_MAX_REMOCOES = 100;
 
 /**
+ * Quantas inscrições da MESMA matrícula o incremental (`reconciliarPessoa_`)
+ * confere de uma vez.
+ *
+ * Vinte é o teto de `INSCRICOES_OUTROS_PROJETOS_MAX` (04_Inscricoes.gs), e pelo
+ * mesmo motivo: são as inscrições de UMA pessoa, e um semestre não tem vinte
+ * projetos. Página cheia aqui não é "trouxe o começo": é sinal de que aquela
+ * matrícula aparece em mais lugares do que uma pessoa cabe. Cortar em silêncio
+ * gravaria uma ficha com MENOS projetos do que a pessoa tem — por isso o
+ * incremental declina e deixa a rodada inteira, que lê tudo, decidir.
+ */
+var RECONCILIACAO_PESSOA_MAX_INSCRICOES = 20;
+
+/**
+ * Quantas fichas o incremental olha antes de escrever.
+ *
+ * Cinco, o mesmo de `apagarFichasOrfas_` (05c_Revisao.gs). A consulta responde a
+ * UMA pergunta — alguma OUTRA ficha já reclama esta matrícula? —, e uma resposta
+ * basta; cinco dão folga para o caso patológico sem virar varredura.
+ */
+var RECONCILIACAO_PESSOA_MAX_FICHAS = 5;
+
+/**
  * Quantos cursos distintos cabem no documento de agregados.
  *
  * Um por CAMPO do documento, e é isso que impõe o teto: mapeamento errado na
@@ -335,6 +357,218 @@ function reconciliar() {
   }
 
   return resumo;
+}
+
+// -------------------------------------------- O incremental de UMA pessoa (22/09)
+
+/**
+ * Recalcula a ficha de UMA matrícula, agora, sem cruzar as três coleções.
+ *
+ * Existe por uma porta só: o "Incluir aluno" pela lista de inscritos do projeto
+ * (10_Painel.gs). Ali a coordenação grava uma inscrição e a ficha em `alunos` só
+ * nascia no Atualizar seguinte da aba Alunos — e quem incluiu pela aba Projetos
+ * não passa por aquele botão, então a ficha podia esperar dias. Todas as outras
+ * ações do painel ou já deixam a ficha certa na hora (resolver, editar) ou são
+ * operações de massa, que não cabem num incremental (ver o cabeçalho de
+ * 05_Importacao.gs).
+ *
+ * --------------------------------------------------------------- O contrato
+ *
+ *   reconciliarPessoa_(matricula, opcoes) -> { feito, escreveu, motivo, id, status }
+ *
+ * `matricula` pode vir crua ou normalizada. `opcoes.matriculado` é o documento de
+ * `matriculados` que o chamador JÁ leu, e a distinção entre os dois "vazios" é
+ * deliberada: `undefined` é "leia você", `null` é "eu li e não existe".
+ * Confundi-los gastaria uma leitura por inclusão para reler o que
+ * `incluirInscricao` acabou de ler.
+ *
+ * NUNCA LANÇA — é o padrão de `reconciliarDepoisDaEdicao_` (10_Painel.gs). Uma
+ * falha aqui não pode derrubar a inclusão que já está gravada; ela vira
+ * `feito: false` com um `motivo` em pt-BR pronto para entrar no meio da frase da
+ * tela.
+ *
+ * ------------------------------------------- Por que ele reusa `casar_`, e não
+ *                                              um degrau 0 escrito à mão
+ *
+ * `casar_(insc, indexar_([mat]), {})` com um índice de UM matriculado e a
+ * inscrição vinda de uma consulta POR aquela matrícula: o degrau 0 é o único
+ * alcançável, e vem de graça a sub-ramificação 'Matrícula (nome diverge)' →
+ * DIVERGENCIA, que é decidível e é justamente o que a coordenação precisa ver
+ * aparecer. Nenhuma linha da cascata é reescrita: o teste que prova o incremental
+ * prova a MESMA função que a rodada usa. A conferência do método existe para o
+ * dia em que alguém mexer em `casar_` — a surpresa vira declínio, e não ficha
+ * errada.
+ *
+ * ------------------------------------------------------- O que ele NÃO faz
+ *
+ *   - só chave `mat:`. CPF, e-mail e nome não têm consulta barata (`chaveNome`
+ *     não é campo gravado, o degrau 4 exige contagem global e o 5 varre a lista
+ *     inteira), e uma chave só é o que mantém o custo em requisições contadas;
+ *   - NUNCA apaga ficha: remoção é global por construção, e o teto de
+ *     `planejarRemocoes_` existe para não levar junto decisão humana;
+ *   - NÃO toca `agregados/cursos`: um delta não é idempotente, e o documento é
+ *     truncado no top-100 com desempate por nome justamente para não ser
+ *     reescrito à toa. O cartão "Alunos por curso" pode ficar UMA pessoa
+ *     defasado até a próxima rodada — o painel já é desenhado para isso;
+ *   - NÃO mexe na marca da reconciliação. Isso é assunto do CHAMADOR: a marca
+ *     mora em 10_Painel.gs, e uma chamada daqui seria `ReferenceError` na suíte
+ *     que carrega este arquivo sozinho (testes/reconciliacao.js).
+ *
+ * ------------------------------------------------- A janela que fica aberta
+ *
+ * A rodada preenche `usados` por ordem de CHEGADA, não por força de degrau: uma
+ * inscrição mais antiga, sem matrícula, pode ter consumido este matriculado por
+ * CPF, e-mail ou nome. A consulta G3 só enxerga isso DEPOIS que uma rodada
+ * registrou o resultado numa ficha. Antes da primeira rodada, portanto, o
+ * incremental pode dizer CONFIRMADO onde a rodada dirá SO_INSCRITO.
+ *
+ * Isso é aceitável por construção, e não por otimismo: o incremental NUNCA
+ * suprime a rodada (quem o chama declara o cadastro sujo no declínio e não marca
+ * nada no sucesso), então a janela é "até o próximo Atualizar", nunca "para
+ * sempre". Fechá-la custaria consultar `matriculados` por CPF e por e-mail em
+ * TODA ação, para tratar uma colisão que a DIVERGENCIA já existe para expor.
+ *
+ * --------------------------------------------------------------- O custo
+ *
+ * 2 consultas + 0-1 leitura de ponto + 0-1 escrita = 2 a 4 requisições, 3 a 8
+ * leituras cobradas. A rodada inteira custa 14-21 requisições e ~5.500 leituras.
+ */
+function reconciliarPessoa_(matricula, opcoes) {
+  opcoes = opcoes || {};
+
+  var chave = normalizarMatricula(matricula);
+  if (!chave) return adiarReconciliacao_('esta inscrição não tem matrícula', '');
+
+  // O MESMO endereço que a rodada usaria: `chaveDePessoa_` devolve 'mat:' +
+  // matrícula sempre que há matrícula, então rodada e incremental escrevem no
+  // mesmo documento — o que pode divergir é o conteúdo, nunca o endereço. É por
+  // isso que este arquivo não produz ficha órfã.
+  var id = chaveAluno_('mat:' + chave);
+
+  try {
+    // `undefined` é "leia você"; `null` é "eu li e não existe". Ver o cabeçalho.
+    var mat = opcoes.matriculado !== undefined ? opcoes.matriculado : ler(MATRICULADOS_COLECAO, chave);
+    if (!mat) return adiarReconciliacao_('a matrícula não está na lista oficial importada', id);
+
+    // Consulta PRÓPRIA, e não `inscricoesDaPessoa_` (04_Inscricoes.gs): aquela
+    // descarta inscrição sem `projeto_id` (o formulário interno grava uma), e a
+    // rodada não descarta nada. Reusá-la faria o incremental escolher OUTRA
+    // inscrição como "a mais antiga" e divergir da rodada no resto da ficha.
+    var pagina = listar(INSCRICOES_COLECAO, {
+      campo: 'matricula', valor: chave, limite: RECONCILIACAO_PESSOA_MAX_INSCRICOES
+    });
+    if (pagina.cursor) {
+      return adiarReconciliacao_(
+        'esta matrícula aparece em inscrições demais para eu conferir uma a uma', id);
+    }
+
+    // A MESMA ordem da rodada, e ela decide o resto da ficha: a inscrição mais
+    // antiga é a que casa, e as outras só somam o nome do projeto.
+    var inscricoes = pagina.itens.sort(porChegada_);
+
+    // Alguma OUTRA ficha já reclama esta matrícula? Filtro de igualdade em um
+    // campo, sem ordenação — a mesma forma que `apagarFichasOrfas_` já usa em
+    // produção, e nenhum índice composto. Acontece quando a rodada casou este
+    // matriculado com uma pessoa de chave diferente (CPF, e-mail, nome): mexer
+    // aqui criaria a segunda ficha da mesma pessoa, que é o defeito que o id
+    // determinístico existe para não ter.
+    var fichas = listar(ALUNOS_COLECAO, {
+      campo: 'matricula_id', valor: chave, limite: RECONCILIACAO_PESSOA_MAX_FICHAS
+    }).itens;
+    var alheias = fichas.filter(function (f) { return f._id !== id; });
+    if (alheias.length) return adiarReconciliacao_('outra ficha do cadastro já usa esta matrícula', id);
+
+    // A ficha atual. A consulta acima já a trouxe quando ela está CASADA
+    // (SO_MATRICULADO e CONFIRMADO gravam `matricula_id`), que é o caso comum e
+    // sai de graça. SO_INSCRITO tem `matricula_id` vazio, e ficha nova não
+    // existe: aí a leitura de ponto é obrigatória — e é ela que traz o `_versao`
+    // da precondição da escrita.
+    var atual = fichas.filter(function (f) { return f._id === id; })[0] || ler(ALUNOS_COLECAO, id);
+
+    var novo;
+    if (inscricoes.length) {
+      var casamento = casar_(inscricoes[0], indexar_([mat]), {});
+      if (String(casamento.metodo).indexOf('Matrícula') !== 0) {
+        return adiarReconciliacao_('o cruzamento desta matrícula não é decidível sozinho', id);
+      }
+
+      novo = montarAluno_(inscricoes[0], casamento.matriculado, casamento.metodo,
+        casamento.score, casamento.status);
+
+      // Mesma pessoa, segundo projeto: os nomes se somam e o resto vem da
+      // inscrição mais antiga — a regra de "uma linha por PESSOA" da rodada.
+      inscricoes.slice(1).forEach(function (outra) {
+        novo.projeto = juntarProjetos_(novo.projeto, outra.projeto_nome);
+      });
+    } else {
+      // Sem inscrição viva: é o laço dos só-matriculados da rodada, com o mesmo
+      // desfecho para quem a lista oficial cancelou.
+      novo = montarAluno_(null, mat, '', 0,
+        cadastroCancelado_(mat) ? STATUS.CANCELADO : STATUS.SO_MATRICULADO);
+    }
+
+    // Na MESMA posição da rodada — depois do cálculo, antes da comparação. É
+    // função pura de (novo, atual), e sem ela a escrita apagaria status,
+    // observações e `revisado_por` da coordenação em silêncio.
+    preservarRevisao_(novo, atual);
+    if (!mudou_(novo, atual)) {
+      return { feito: true, escreveu: false, motivo: '', id: id, status: novo.status };
+    }
+
+    novo.atualizado_em = agora();
+
+    // `escreverAtomico` com precondição, e não `escreverEmLote`: custa a MESMA
+    // requisição e RECUSA quando a ficha mudou entre a leitura e a escrita —
+    // enquanto o upsert cego substituiria o documento inteiro por cima do que o
+    // outro gravou. Ficha nova entra por `criar` (`exists:false`), que é o mesmo
+    // 409 que a dedup de inscrições usa.
+    var escrita = atual
+      ? { gravar: { colecao: ALUNOS_COLECAO, id: id, objeto: novo, versao: atual._versao } }
+      : { criar: { colecao: ALUNOS_COLECAO, id: id, objeto: novo } };
+
+    try {
+      // Declinar aqui é seguro nos dois mundos possíveis: ou outra escrita
+      // chegou primeiro (e a ficha dela é mais nova que este cálculo), ou foi a
+      // retentativa desta mesma chamada (e a ficha já é esta). Em qualquer um,
+      // quem chama declara o cadastro sujo e o Atualizar seguinte confere.
+      if (escreverAtomico([escrita]).jaExistia) {
+        return adiarReconciliacao_('a ficha mudou enquanto eu recalculava', id);
+      }
+    } catch (erroDaEscrita) {
+      // A régua de sempre (02_Repo.gs): indeterminado ANTES de corrida, porque
+      // o indeterminado é uma corrida com `retentou` — e dizer "a ficha mudou"
+      // sobre uma escrita que pode ter entrado seria escolher um dos dois.
+      if (escritaIndeterminada_(erroDaEscrita)) {
+        return adiarReconciliacao_('não consegui confirmar a gravação da ficha', id);
+      }
+      if (corridaDeEscrita_(erroDaEscrita)) {
+        return adiarReconciliacao_('a ficha mudou enquanto eu recalculava', id);
+      }
+      // D-27: a mensagem de uma escrita recusada carrega o caminho do documento.
+      console.error('reconciliarPessoa_: ' + semCaminhoDeDocumento_(erroDaEscrita));
+      return adiarReconciliacao_('não consegui gravar a ficha', id);
+    }
+
+    return { feito: true, escreveu: true, motivo: '', id: id, status: novo.status };
+  } catch (erro) {
+    // Tudo que vem ANTES da escrita: as duas consultas e as leituras de ponto.
+    // Elas falham por rede e por cota, e a promessa desta função é não lançar —
+    // o motivo diz a verdade (não chegou a gravar nada) e a rodada refaz.
+    console.error('reconciliarPessoa_: ' + semCaminhoDeDocumento_(erro));
+    return adiarReconciliacao_('não consegui ler o cadastro para recalcular a ficha', id);
+  }
+}
+
+/**
+ * O "não deu, e por quê" do incremental.
+ *
+ * O motivo é uma frase curta, em pt-BR e em letra minúscula: ela entra no MEIO
+ * da frase da tela ("a ficha fica pronta no próximo Atualizar daquela aba — ..."),
+ * e não sozinha. Declinar nunca é falha: é adiar para a rodada completa, que
+ * roda no Atualizar seguinte e às 5h.
+ */
+function adiarReconciliacao_(motivo, id) {
+  return { feito: false, escreveu: false, motivo: motivo, id: id || '', status: '' };
 }
 
 /**

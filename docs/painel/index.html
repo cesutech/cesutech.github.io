@@ -5195,7 +5195,16 @@
       if (janela.daLista) {
         if (aindaAqui) voltarParaInscritos();
         else if (janelaMostraInscritosDe_(projetoId)) verInscritosProjeto(projetoId);
-        avisar(tipo, texto + ' A ficha em Alunos atualiza no próximo Atualizar daquela aba.');
+        // DUAS frases, e a antiga não foi apagada (22/09): o servidor recalcula a
+        // ficha na hora, mas pode DECLINAR — matrícula fora da lista oficial,
+        // outra ficha usando a mesma matrícula, a ficha mudou no meio. Com uma
+        // frase só, toda declinação silenciosa viraria ficha velha com a
+        // coordenação convencida do contrário; por isso o motivo vem junto, em
+        // pt-BR e pronto para entrar no meio da frase.
+        avisar(tipo, texto + (r.reconciliacao_pendente
+          ? ' A ficha em Alunos fica pronta no próximo Atualizar daquela aba — ' +
+            (r.reconciliacao_motivo || 'não consegui recalcular agora') + '.'
+          : ' A ficha em Alunos já está atualizada.'));
       } else {
         // O relato vai DENTRO do Atualizar, e não numa faixa antes dele: a
         // faixa do cruzamento apagaria o protocolo segundos depois de ele
