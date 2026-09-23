@@ -136,9 +136,12 @@
  * `incluirInscricao` CRIA uma inscrição — é a única função fora de
  * 04_Inscricoes.gs que chama `gravarInscricao` — ou PROMOVE a que já está na
  * fila de espera do projeto, como `promoverDentroDoLock_` (13_Auditorio.gs).
- * Nos dois casos escreve só na FONTE: a ficha em `alunos` nasce no cruzamento
- * seguinte, que roda sozinho no próximo Atualizar da aba Alunos (ver
- * `reconciliarSeValerAPena_`).
+ * Nos dois casos escreve na FONTE e, DEPOIS dela, recalcula a ficha daquela
+ * pessoa — `reconciliarPessoa_` (06_Reconciliacao.gs), 2 a 4 requisições, a
+ * mesma cascata da rodada. Quando o incremental declina (a matrícula não está na
+ * lista oficial, outra ficha já a usa, a ficha mudou no meio), a resposta diz o
+ * MOTIVO e o cadastro é declarado sujo, para o próximo Atualizar cruzar; a
+ * rodada inteira continua sendo a auditora, no botão e às 5h.
  *
  * -------------------------------------------------- Suposições sobre `alunos`
  *
@@ -885,24 +888,43 @@ function buscarMatriculado(payload) {
  *
  * ---------------------------------------------------------------- E depois
  *
- * A ficha em `alunos` NÃO muda aqui: `alunos` é derivada, e o cruzamento roda
- * sozinho no próximo Atualizar da aba Alunos, porque a contagem de inscrições
- * mudou (`reconciliarSeValerAPena_`, freio 1). Chamar `reconciliar()` daqui
- * custaria as três coleções inteiras por inclusão — o preço que `editarAluno` só
- * paga quando a CHAVE da pessoa muda. A resposta carrega
- * `reconciliacao_pendente: true` para a tela dizer isso em vez de a coordenação
- * abrir Alunos e não achar quem acabou de incluir.
+ * A ficha em `alunos` é recalculada AQUI, depois da escrita da fonte:
+ * `reconciliarPessoa_` (06_Reconciliacao.gs) refaz a ficha daquela matrícula por
+ * 2 a 4 requisições (~2,2 s no clique), com a MESMA cascata da rodada. Chamar
+ * `reconciliar()` daqui custaria as três coleções inteiras por inclusão — o preço
+ * que `editarAluno` só paga quando a CHAVE da pessoa muda.
+ *
+ * Era esta a única porta que deixava a coordenação esperando: incluir pela aba
+ * Alunos já cruzava (a TELA chama `atualizarAlunos` em seguida), mas incluir pela
+ * lista de inscritos do projeto não passa por aquele botão — a ficha ficava
+ * invisível até alguém ir à outra aba e clicar.
+ *
+ * O incremental NÃO reduz o número de rodadas completas neste ramo: a contagem de
+ * inscrições mudou, e o próximo Atualizar cruza de qualquer jeito. O que ele
+ * entrega é o fim da espera, com a rodada continuando como auditora — é ela que
+ * roda as remoções, o degrau 5 e o agregado de cursos.
+ *
+ * A resposta carrega `reconciliacao_pendente` e, quando ele declina,
+ * `reconciliacao_motivo`: a tela tem duas frases, e a de esperar continua
+ * existindo justamente porque declinar é possível.
  *
  * O log guarda ids, o e-mail de quem operou e o NOME DO PROJETO — nunca nome,
  * e-mail, telefone ou matrícula do aluno (a regra de `registrarEdicao_`: dado
  * pessoal já está na ficha, a um clique, e repeti-lo na trilha é espalhá-lo).
  *
- * Custo: 0 leituras quando o formato recusa; senão 1 leitura de ponto (o
- * projeto) + 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto
- * (a lista oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a
- * ocupação de depois) + o log. Duplicada: para na escrita recusada, mais 1
- * leitura de ponto para saber se é fila de espera ou vaga — e, na fila, mais 1
- * escrita (a promoção) e a agregação e o log de sempre.
+ * Custo, MEDIDO no falso e não estimado (testes/painel.js conta as requisições):
+ * 0 leituras quando o formato recusa; senão 1 leitura de ponto (o projeto) +
+ * 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto (a lista
+ * oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a ocupação
+ * de depois) + o log — e, desde que o incremental entrou, mais 2 consultas
+ * (as inscrições da pessoa e a ficha que já reclama a matrícula) + 1 leitura de
+ * ponto + 1 escrita. Onze requisições no caminho que cria, contra as sete de
+ * antes; ~2,2 s a mais no clique, e em troca a ficha em Alunos não espera o
+ * Atualizar. A promoção da fila custa 4 leituras e 4 escritas (eram 3 e 3).
+ *
+ * Duplicada: para na escrita recusada, mais 1 leitura de ponto para saber se é
+ * fila de espera ou vaga — e, na fila, mais 1 escrita (a promoção) e a agregação
+ * e o log de sempre.
  */
 function incluirInscricao(payload) {
   try {
@@ -1157,6 +1179,36 @@ function incluirInscricao(payload) {
         '. Se a intenção era mover, use Alunos → Editar → Projeto.');
     }
 
+    // ------------------------------------------- A FICHA EM `alunos`, AGORA
+    //
+    // DEPOIS da escrita da fonte, porque `alunos` é derivada: calcular a ficha de
+    // um estado que ainda não existe é inventar. E fora de qualquer lock, pela
+    // conta que `editarAluno` já fez e recusou — nada aqui disputa vaga.
+    //
+    // O matriculado vai junto: ele foi lido lá em cima, e reler custaria uma
+    // leitura por inclusão para saber o que já está na mão (`undefined` seria
+    // "leia você"; `null` é "eu li e não existe").
+    //
+    // A REGRA DA MARCA, e ela é uma só: sucesso NÃO toca na marca; declínio e
+    // falha a fazem esquecer. Marcar o sucesso como "tudo cruzado" seria falso —
+    // o incremental não roda remoções nem o agregado — e cobraria do orçamento do
+    // dia as ~5.500 leituras de uma rodada que não aconteceu, envenenando o freio
+    // 2 (ver `marcarReconciliacao_`). Esquecer no declínio é o que mantém a
+    // promessa da tela: no ramo que cria inscrição a contagem já mudou e o freio 1
+    // abre sozinho, mas na PROMOÇÃO DA FILA ela não muda — sem esta linha, "a
+    // ficha fica pronta no próximo Atualizar" seria mentira.
+    //
+    // `reconciliarPessoa_` promete não lançar; o try/catch é o cinto: a inscrição
+    // já está gravada e registrada, e nada daqui pode virar "Falha ao incluir" na
+    // tela.
+    var cruzamento = { feito: false, motivo: 'não consegui recalcular a ficha' };
+    try {
+      cruzamento = reconciliarPessoa_(payload.matricula, { matriculado: oficial });
+    } catch (falhaDoCruzamento) {
+      console.error('incluirInscricao (ficha em alunos): ' + semCaminhoDeDocumento_(falhaDoCruzamento));
+    }
+    if (!cruzamento.feito) esquecerMarcaDaReconciliacao_();
+
     // A inscrição que acabou de entrar muda "inscrições" e, no próximo cruzamento,
     // os status — os mesmos números que `resolverAluno` já invalida.
     invalidarCachePainel_();
@@ -1171,7 +1223,11 @@ function incluirInscricao(payload) {
       situacao: situacaoDe_(projeto, inscritos),
       matricula_conferida: conferida,
       aviso: avisos.join(' '),
-      reconciliacao_pendente: true,
+      // A tela diz UMA de duas frases, e é por isso que o motivo viaja junto: com
+      // uma só, toda declinação silenciosa vira ficha velha com a coordenação
+      // convencida do contrário.
+      reconciliacao_pendente: !cruzamento.feito,
+      reconciliacao_motivo: cruzamento.motivo || '',
       mensagem: (promovida ? 'Promovido da fila de espera. ' : 'Incluído. ') +
                 'Protocolo ' + gravacao.id + '. ' + projetoNome + ' ficou ' + inscritos +
                 (vagas > 0 ? '/' + vagas : ' inscrito(s)') + '.'

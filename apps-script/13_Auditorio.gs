@@ -901,6 +901,19 @@ var PROMOCAO_INDETERMINADA = { indeterminada: true };
  *
  * Idempotente: promover quem já está confirmado não escreve nem conta — a marca
  * de fila é o que se olha, e ela some na primeira promoção.
+ *
+ * POR QUE NÃO SE RECONCILIA AQUI (22/09). Desde que `incluirInscricao`
+ * (10_Painel.gs) recalcula a ficha do aluno no mesmo clique
+ * (`reconciliarPessoa_`, 06_Reconciliacao.gs), a ausência desta chamada aqui
+ * parece esquecimento — e não é: `alunos` NÃO deriva de `em_espera`.
+ * `montarAluno_` não lê o campo, então a ficha de quem espera já é a de quem
+ * está inscrito: promover não muda nome, projeto, curso, status nem contagem
+ * nenhuma. Não há o que recalcular, e chamar o incremental por pessoa num lote
+ * de até AUDITORIO_LOTE_MAXIMO seriam quatro requisições cada, dentro de uma
+ * execução de 6 minutos, para gravar exatamente o que já está gravado.
+ *
+ * Pela mesma razão a marca da reconciliação NÃO é esquecida aqui: não há ficha
+ * velha para o próximo Atualizar consertar.
  */
 function promoverDaEspera(payload) {
   try {

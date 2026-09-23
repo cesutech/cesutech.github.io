@@ -5886,7 +5886,31 @@ teste('projeto cheio: a tela pergunta com os números, e o "sim" reenvia com con
   igual(cena.api.contarInscritos_('p2'), 3, 'a inclusão não aconteceu');
   const aviso = cena.texto('mensagem-modal');
   verdadeiro(aviso.indexOf('Lotado ficou 3/2') !== -1, aviso);
-  verdadeiro(aviso.indexOf('A ficha em Alunos atualiza no próximo Atualizar') !== -1, aviso);
+  // A ficha foi recalculada na inclusão (22/09), e a faixa diz isso em vez de
+  // mandar a coordenação a outra aba. Mutação que derruba: manter a frase antiga
+  // — ela prometeria uma espera que já não existe.
+  verdadeiro(aviso.indexOf('A ficha em Alunos já está atualizada.') !== -1, aviso);
+});
+
+teste('a matrícula fora da lista oficial: a faixa promete o próximo Atualizar E diz o motivo', () => {
+  // A outra frase, e é por ela que as duas existem: aqui o servidor NÃO pôde
+  // recalcular a ficha na hora — a matrícula não está na lista oficial importada,
+  // e sem ela o cruzamento não tem com o que casar. Mutação que derruba: apagar o
+  // ramo do declínio — a tela prometeria imediatismo sempre, e a coordenação iria
+  // procurar na aba Alunos uma ficha que não mudou.
+  const cena = abrirPainel({ semear: cadastroParaIncluir });
+  abrirInclusao(cena, 'p1');
+  sairDaMatricula(cena, '9119999');
+  preencherInclusao(cena, { nome: 'Nova Aluna', email: 'nova@exemplo.com' });
+
+  botaoSalvar(cena).click();
+
+  const aviso = cena.texto('mensagem-modal');
+  verdadeiro(aviso.indexOf('não está na lista oficial importada: a inscrição entrou marcada como não conferida.') !== -1,
+    'o aviso amarelo de sempre: ' + aviso);
+  verdadeiro(aviso.indexOf('A ficha em Alunos fica pronta no próximo Atualizar daquela aba — ' +
+    'a matrícula não está na lista oficial importada.') !== -1,
+    'a faixa precisa dizer a espera E o motivo: ' + aviso);
 });
 
 teste('projeto cheio e a coordenação diz NÃO: nada é gravado e o formulário fica como estava', () => {
@@ -6532,16 +6556,23 @@ teste('a ressalva do servidor (matrícula fora da lista oficial) chega AMARELA �
   verdadeiro(sozinho.indexOf('nada entrou desde a última vez') !== -1, sozinho);
 });
 
-teste('o cruzamento recusado pelo orçamento do dia: a janela fecha, a faixa diz o protocolo E o "não cruzei", e a ficha NÃO ganha o projeto — o formulário não tinha prometido', () => {
+teste('o cruzamento recusado pelo orçamento do dia: a janela fecha, a faixa diz o protocolo E o "não cruzei" — e a ficha já está certa, porque o incremental não passa pelo orçamento', () => {
   // Cada Incluir pela aba gasta uma rodada do cruzamento — a inscrição nova
   // reabre o freio 1 —, e o freio 2 é por dia (PAINEL_ORCAMENTO_RECONCILIACAO,
   // 10_Painel.gs): no tamanho real do cadastro, a terceira inclusão do dia já
-  // pode cair nele. A primeira versão do formulário prometia "a ficha aparece
-  // com o projeto", e aqui ela não aparece: a lista recarrega, a ficha continua
-  // "só matriculada", e quem explica é a faixa.
+  // pode cair nele. Era aí que a recusa doía: no dia do evento, que é o dia em
+  // que o professor quer ver a lista enchendo, a ficha recém-incluída ficava
+  // invisível.
   //
-  // Mutação que derruba: o formulário voltar a prometer a ficha com o projeto;
-  // o ramo `motivo` de `contarReconciliacao` ignorar o relato (a faixa diria só
+  // Com o incremental (22/09) a recusa do freio 2 passa a ser só INFORMAÇÃO: a
+  // ficha foi recalculada na inclusão, por 2 a 4 requisições que não saem do
+  // orçamento da rodada. A faixa continua dizendo que não cruzou — e continua
+  // verdadeira, porque as remoções, o degrau 5 e o agregado de cursos são da
+  // rodada inteira e esses, sim, ficaram para depois.
+  //
+  // Mutação que derruba: pular o incremental quando o orçamento está estourado
+  // (a ficha voltaria a esperar); o ramo `motivo` de `contarReconciliacao`
+  // ignorar o relato (a faixa diria só
   // "Não cruzei", e o protocolo morreria — o teste da ressalva amarela cobre o
   // ramo `resumo`, não este); ou escrever esse ramo em verde — verde se apaga
   // sozinho em 6 s (`avisar`), e o relógio levaria o "não cruzei" junto,
@@ -6577,8 +6608,8 @@ teste('o cruzamento recusado pelo orçamento do dia: a janela fecha, a faixa diz
   // A inscrição existe, e a ficha não a tem — é exatamente o que a faixa diz.
   const doc = Object.values(cena.documentos('inscricoes')).filter((i) => i.matricula === '9110001')[0];
   igual(doc.projeto_id, 'p1', 'a inclusão não foi gravada');
-  igual(fichaDe(cena, '9110001').status, 'SO_MATRICULADO', 'a ficha mudou sem cruzamento?');
-  igual(fichaDe(cena, '9110001').projeto, '');
+  igual(fichaDe(cena, '9110001').status, 'CONFIRMADO', 'a ficha ficou esperando uma rodada que foi recusada');
+  igual(fichaDe(cena, '9110001').projeto, 'Origem');
   verdadeiro(/Ana Silva/.test(cena.texto('conteudo-alunos')), 'a lista não foi recarregada');
 });
 
