@@ -1172,6 +1172,180 @@ teste('a conta removida não entra mais pelo Google', () => {
   igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
 });
 
+// ================================================== Os dois níveis
+
+/**
+ * O QUE ESTE GRUPO PROVA: a gestão dos níveis pela tela de sempre — o cartão
+ * "Quem tem acesso ao painel". Os ATAQUES (o professor chamando as 30 da
+ * coordenação pelo POST, a autopromoção pelas quatro portas, a invariante do
+ * último coordenador pelos quatro caminhos) moram em `invasao.js`, que é onde
+ * ficam os testes escritos como ataque. Aqui é o lado de quem usa: o que a
+ * função devolve para a tela desenhar, e o que a trilha registra.
+ */
+grupo('os dois níveis — promover, rebaixar, e o que a trilha diz');
+
+const PROFESSORA = 'professora@exemplo.com';
+
+/** Dois e-mails na lista, com os níveis JÁ separados, e a sessão de quem coordena. */
+function comNiveis(opcoes) {
+  const o = opcoes || {};
+  const amb = ambiente({ allowlist: o.allowlist === undefined ? 'coordenacao@exemplo.com, ' + PROFESSORA : o.allowlist });
+  if (o.gerais !== undefined) amb.api.gravarConfig('coordenadores_gerais', o.gerais);
+  else amb.api.gravarConfig('coordenadores_gerais', 'coordenacao@exemplo.com');
+  amb.token = amb.api.criarSessao_(o.eu || 'coordenacao@exemplo.com');
+  return amb;
+}
+
+teste('promover e rebaixar mudam o nível, e só dele', () => {
+  const amb = comNiveis();
+
+  const promovida = amb.api.definirNivel({
+    token: amb.token, email: PROFESSORA, nivel: 'coordenador'
+  });
+  igual(promovida.ok, true, 'erro foi: ' + promovida.erro);
+  igual(promovida.pessoas, [
+    { email: 'coordenacao@exemplo.com', nivel: 'coordenador' },
+    { email: PROFESSORA, nivel: 'coordenador' }
+  ]);
+
+  const rebaixada = amb.api.definirNivel({
+    token: amb.token, email: PROFESSORA, nivel: 'professor'
+  });
+  igual(rebaixada.ok, true, 'erro foi: ' + rebaixada.erro);
+  igual(rebaixada.pessoas, [
+    { email: 'coordenacao@exemplo.com', nivel: 'coordenador' },
+    { email: PROFESSORA, nivel: 'professor' }
+  ]);
+  igual(rebaixada.emails, ['coordenacao@exemplo.com', PROFESSORA],
+    'a lista de acesso mudou junto — o nível não é porta');
+});
+
+teste('as QUATRO devolvem a mesma forma, e as duas listas concordam', () => {
+  // `desenharAcesso()` é chamada pelas quatro, e redesenha a tabela inteira com
+  // o que veio. Uma que devolvesse a forma antiga apagaria a coluna Nível
+  // depois de incluir alguém — defeito que passa em teste de unidade e aparece
+  // no dedo de quem usa.
+  //
+  // Mutação que derruba: qualquer uma das quatro voltar a devolver só `emails`.
+  const amb = comNiveis();
+
+  const respostas = [
+    amb.api.listarAdmins({ token: amb.token }),
+    amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }),
+    amb.api.incluirAdmin({ token: amb.token, email: 'nova@exemplo.com' }),
+    amb.api.removerAdmin({ token: amb.token, email: 'nova@exemplo.com' })
+  ];
+
+  respostas.forEach((r, i) => {
+    igual(r.ok, true, 'a ' + i + 'ª falhou: ' + r.erro);
+    verdadeiro(r.pessoas !== undefined, 'a ' + i + 'ª não devolveu `pessoas`');
+    igual(r.pessoas.map((p) => p.email), r.emails,
+      'a ' + i + 'ª tem duas listas que discordam');
+    r.pessoas.forEach((p) => {
+      verdadeiro(p.nivel === 'coordenador' || p.nivel === 'professor',
+        'nível estranho na ' + i + 'ª: ' + JSON.stringify(p));
+    });
+    igual(r.voce, 'coordenacao@exemplo.com');
+    igual(r.seuNivel, 'coordenador', 'a ' + i + 'ª não diz com que nível a tela está desenhada');
+  });
+});
+
+teste('a trilha do NIVEL_ALTERADO: a COLUNA diz quem mexeu, o detalhe diz o quê e por onde', () => {
+  // A coluna "Quem" passou a dizer o operador (04_Log.gs), então repetir o
+  // e-mail no detalhe seria escrevê-lo duas vezes na mesma linha. O que a coluna
+  // NÃO sabe é a mudança e a porta — e é isso que sobra para o detalhe.
+  //
+  // Mutação que derruba: gravar a mudança sem a linha (a trilha não responde
+  // "quem promoveu quem"); ou pôr o e-mail do operador de volta no detalhe.
+  const amb = comNiveis();
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
+  amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' });
+
+  const linha = linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_ALTERADO')[0];
+  verdadeiro(linha !== undefined, 'nenhum rastro: ' + JSON.stringify(acoesDoLog(amb)));
+  igual(linha.usuario, 'coordenacao@exemplo.com', 'a trilha não diz quem promoveu');
+  igual(linha.entidade_id, PROFESSORA, 'a trilha não diz quem foi promovido');
+  igual(linha.detalhe, 'professor -> coordenador geral, pela tela Quem tem acesso');
+  igual(linha.detalhe.indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail do operador está escrito duas vezes na mesma linha: ' + linha.detalhe);
+});
+
+teste('mudar de nível é UMA escrita no documento de configuração, e derruba o cache do link', () => {
+  // As duas chaves são campos do MESMO documento. Com dois `gravarConfig` em
+  // sequência existiria um instante — e, numa execução que morresse no meio, um
+  // estado gravado — com a lista de acesso nova e os coordenadores velhos.
+  //
+  // Mutação que derruba: gravar as duas chaves em duas chamadas; ou
+  // `gravarAcessos_` esquecer o `esquecerAllowlistDoLink_`, e aí quem mudou de
+  // nível continuaria valendo o nível velho no caminho do link por até cinco
+  // minutos.
+  const amb = comNiveis();
+  amb.api.allowlistParaLink_();
+  verdadeiro(amb.api.CacheService.getScriptCache().get(amb.api.LINK_CACHE_ALLOWLIST) !== null,
+    'o cache do link não esquentou: o teste não provaria nada');
+
+  amb.falso.requisicoes.length = 0;
+  igual(amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }).ok, true);
+
+  const escritas = amb.falso.requisicoes.filter(
+    (r) => r.metodo === 'PATCH' && String(r.url).indexOf('/config/geral') !== -1);
+  igual(escritas.length, 1, 'a mudança de nível custou ' + escritas.length + ' escritas');
+
+  const campos = Object.keys(escritas[0].corpo.fields).sort();
+  igual(campos, ['admin_emails', 'coordenadores_gerais'], 'a escrita não levou as duas chaves');
+
+  igual(amb.api.CacheService.getScriptCache().get(amb.api.LINK_CACHE_ALLOWLIST), null,
+    'a lista guardada do link sobreviveu à mudança de acesso');
+});
+
+teste('definirNivel recusa nível inventado e e-mail fora da lista, sem gravar nada', () => {
+  // Uma palavra desconhecida não pode virar "professor por omissão" nem
+  // "coordenador por omissão": as duas seriam uma decisão de acesso tomada por
+  // um erro de digitação.
+  const amb = comNiveis();
+
+  [
+    { email: PROFESSORA, nivel: 'COORDENADOR GERAL' },
+    { email: PROFESSORA, nivel: 'admin' },
+    { email: PROFESSORA, nivel: '' },
+    { email: PROFESSORA },
+    { email: 'ninguem@exemplo.com', nivel: 'coordenador' },
+    { nivel: 'professor' }
+  ].forEach((dados) => {
+    const r = amb.api.definirNivel(Object.assign({ token: amb.token }, dados));
+    igual(r.ok, false, JSON.stringify(dados) + ' passou');
+  });
+
+  amb.api.limparCacheConfig();
+  igual(amb.api.config('coordenadores_gerais'), 'coordenacao@exemplo.com');
+  igual(acoesDoLog(amb).indexOf('NIVEL_ALTERADO'), -1, 'gravou uma linha para uma recusa');
+});
+
+teste('as duas portas continuam distinguíveis na trilha depois da refatoração', () => {
+  // O e-mail de quem mexeu saiu do detalhe e virou coluna; o que sobrou no
+  // detalhe é a PORTA, e é só ela que separa o mesmo gesto feito na tela de
+  // acesso do mesmo gesto feito no campo de texto da aba Configurações. As duas
+  // frases passaram a ser escritas por `aplicarAcessos_`, e é por isso que este
+  // teste existe: elas não podem ter se perdido no caminho.
+  const amb = comNiveis();
+
+  amb.api.salvarConfiguracao({
+    token: amb.token, chave: 'admin_emails',
+    valor: 'coordenacao@exemplo.com, nova@exemplo.com'
+  });
+
+  const linhas = linhasDoLog(amb);
+  const incluida = linhas.filter((l) => l.acao === 'ADMIN_INCLUIDO')[0];
+  const removida = linhas.filter((l) => l.acao === 'ADMIN_REMOVIDO')[0];
+
+  igual(incluida.detalhe, 'pelo campo admin_emails');
+  igual(incluida.entidade_id, 'nova@exemplo.com');
+  igual(removida.detalhe, 'pelo campo admin_emails');
+  igual(removida.entidade_id, PROFESSORA);
+  igual(removida.usuario, 'coordenacao@exemplo.com', 'a coluna deixou de dizer quem mexeu');
+});
+
 // ================================================== Pela rota, ponta a ponta
 
 grupo('ponta a ponta: o painel fora do Google fala por POST');

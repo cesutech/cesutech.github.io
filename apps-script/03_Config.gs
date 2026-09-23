@@ -139,6 +139,45 @@ function gravarConfig(chave, valor) {
 }
 
 /**
+ * Grava AS DUAS chaves do acesso — quem entra e quem é coordenador geral — numa
+ * escrita só.
+ *
+ * Irmã burra de `gravarConfig`: ela não decide nada, e não pode. Quem decide é
+ * `aplicarAcessos_` (07_Auth.gs), a ÚNICA chamadora, e é lá dentro que mora a
+ * invariante de o painel nunca ficar sem nenhum coordenador geral.
+ *
+ * POR QUE UMA ESCRITA, E NÃO DUAS. As duas chaves são campos do MESMO documento
+ * (ver o cabeçalho deste arquivo), e mudar o nível de alguém é uma mudança só.
+ * Com dois `gravarConfig` em sequência existiria um instante que ninguém
+ * desenhou — a lista de acesso nova com os coordenadores velhos —, e uma
+ * execução que morresse no meio o deixaria gravado. `semearConfigPadrao_` já
+ * escreve o lote inteiro assim, pela mesma razão.
+ *
+ * O `esquecerAllowlistDoLink_` e a correção do cache são os mesmos de
+ * `gravarConfig`, e não são zelo: ESTE é o quinto caminho que o comentário de lá
+ * previu, e o sintoma de esquecê-lo seria alguém removido do acesso continuar
+ * recebendo link por cinco minutos.
+ *
+ * As listas chegam como vetor e viram texto aqui, com `', '` — o mesmo formato
+ * que as quatro funções de gestão sempre gravaram, e o que `adminEmails_` e
+ * `coordenadoresGerais_` sabem reler.
+ */
+function gravarAcessos_(emails, gerais) {
+  var campos = {
+    admin_emails: (emails || []).join(', '),
+    coordenadores_gerais: (gerais || []).join(', ')
+  };
+
+  atualizar(CONFIG_COLECAO, CONFIG_DOCUMENTO, campos);
+  esquecerAllowlistDoLink_();
+
+  if (CONFIG_CACHE) {
+    CONFIG_CACHE.admin_emails = campos.admin_emails;
+    CONFIG_CACHE.coordenadores_gerais = campos.coordenadores_gerais;
+  }
+}
+
+/**
  * Descarta o cache da execução.
  *
  * Existe para `provaConfigELog()` (20_Prova.gs) poder provar que o valor foi ao

@@ -438,12 +438,17 @@ function rotaDeLogin_(corpo) {
 /**
  * Despacha uma ação do painel para a função que a executa.
  *
- * ORDEM DAS TRÊS PERGUNTAS, e ela não é estética:
+ * A ORDEM DAS PERGUNTAS, e ela não é estética:
  *
  *   1. o token vale?      antes de qualquer coisa, e sem tocar no banco. Quem
  *                         não passa daqui não descobre nem que nomes existem;
  *   2. o nome está na     lista branca literal de `funcoesDoPainel_`;
- *   3. só então chama, com o payload — e com o token carimbado AQUI.
+ *   3. a ação é DESTE     nível? o que não está em `funcoesDoProfessor_` é da
+ *                         coordenação geral, e função nova nasce fechada ao
+ *                         professor (o fail-closed, lá embaixo);
+ *   4. já fiz isto?       o cache de idempotência — a pergunta que tem seção
+ *                         própria neste cabeçalho;
+ *   5. só então chama, com o payload — e com o token carimbado AQUI.
  *
  * O carimbo do token é o mesmo cuidado que o `doPost` tem com `origem` na
  * inscrição: as funções do painel leem `payload.token` e chamam `exigirAdmin`
@@ -522,6 +527,40 @@ function rotaDoPainel_(corpo) {
       : {};
     dados.token = corpo.token;
 
+    // ------------------------------------------ A TERCEIRA PERGUNTA: É SUA?
+    //
+    // Aqui, e não dentro de cada função, porque este é o ÚNICO ponto onde a
+    // recusa consegue carregar o campo `motivo`: uma função que recebe um
+    // `throw` devolve `{ok:false, erro: err.message}` no `catch` dela e perde os
+    // campos extras. É por `motivo: 'NIVEL'` que a tela sabe que não é para se
+    // deslogar, e por `nivel` que ela se corrige quando estiver desenhada com o
+    // nível errado.
+    //
+    // E o DEFAULT é o certo: o que não está em `funcoesDoProfessor_` é da
+    // coordenação geral. Função nova na lista branca nasce inalcançável para o
+    // professor — o mesmo argumento do cabeçalho de `funcoesDoPainel_`, um andar
+    // abaixo. Esquecer de decidir o balde recusa; esquecer ao contrário abriria.
+    //
+    // VEM ANTES DO CACHE DE IDEMPOTÊNCIA porque recusa não se guarda (ver as
+    // duas regras logo abaixo), e DEPOIS da lista branca porque só ali `fn` já é
+    // um dos nomes literais.
+    if (!Object.prototype.hasOwnProperty.call(funcoesDoProfessor_(), fn)) {
+      var quem = emailDaSessao_(corpo.token);
+      if (nivelDe_(quem) !== 'coordenador') {
+        // A trilha precisa dizer QUAL professor tentou. Nenhum `exigirAdmin`
+        // roda neste caminho — a função nem chega a ser chamada —, então o
+        // operador é anotado aqui, senão a linha sairia assinada por 'anonimo'
+        // e o Histórico não distinguiria as oito pessoas do painel.
+        anotarOperador_(quem);
+        registrarRecusa('NIVEL_NEGADO', 'painel', quem, 'tentou ' + fn, 'nivel_' + fn);
+        // 'professor' e não o nível lido: quem cai aqui ou é professor, ou tem
+        // sessão que a lista de acesso não reconhece mais — e a tela só sabe
+        // desenhar dois níveis. O nível mais baixo é o lado seguro para ela
+        // errar.
+        return { ok: false, erro: RECUSA_NIVEL, motivo: 'NIVEL', nivel: 'professor' };
+      }
+    }
+
     // Depois da lista branca, e não antes: `fn` entra na chave do cache, e só
     // aqui ele já é um dos nomes literais de `funcoesDoPainel_`.
     var chave = chaveIdempotente_(fn, corpo.idem);
@@ -587,10 +626,14 @@ function funcoesDoPainel_() {
     rodarReconciliacao: rodarReconciliacao,
     sincronizarForms: sincronizarForms,
 
-    // 07_Auth.gs — quem tem acesso ao painel
+    // 07_Auth.gs — quem tem acesso ao painel. As três de sempre mais
+    // `definirNivel`, que promove e rebaixa: as quatro cobram `exigirCoordenador`
+    // POR DENTRO, além do despacho, porque são a superfície de escalada de
+    // privilégio (ver `funcoesDoProfessor_`).
     listarAdmins: listarAdmins,
     incluirAdmin: incluirAdmin,
     removerAdmin: removerAdmin,
+    definirNivel: definirNivel,
 
     // 09_Projetos.gs
     salvarProjeto: salvarProjeto,
@@ -637,6 +680,68 @@ function funcoesDoPainel_() {
     anularInscricoes: anularInscricoes,
     restaurarInscricoes: restaurarInscricoes,
     promoverDaEspera: promoverDaEspera
+  };
+}
+
+/**
+ * O BALDE DO PROFESSOR: as funções que os DOIS níveis podem acionar.
+ *
+ * FAIL-CLOSED, e é o ponto inteiro: o que não está escrito aqui é da
+ * coordenação geral. Uma função nova na lista branca nasce fechada ao professor,
+ * e quem a quiser aberta escreve a linha — que é o momento em que se pensa se
+ * ela deveria estar aberta. O contrário (listar o que é fechado) faria cada
+ * esquecimento abrir uma porta em silêncio, e esquecimento é o modo normal de
+ * operação de uma lista que ninguém relê.
+ *
+ * As onze primeiras estão todas em `SO_LEITURA` no painel: leem, contam,
+ * montam tela, e não escrevem nada — nem uma linha de log. `listarLotes` entra
+ * porque é metadado de lote, sem dado pessoal, e a pergunta "a lista da
+ * secretaria já entrou?" chega no professor primeiro.
+ *
+ * A DÉCIMA SEGUNDA É A EXCEÇÃO, e ela é nomeada de propósito: `exportarCsv`
+ * não é leitura pura — ela GRAVA a linha `EXPORTACAO` na trilha (10_Painel.gs).
+ * Ela fica aberta porque é o "exporta os inscritos" do pedido, e é decisão
+ * tomada e sabida (J10-4): oito pessoas seguem podendo baixar nome, CPF,
+ * e-mail, telefone e nascimento de até 5.000 alunos. Os dois níveis resolvem o
+ * clique errado, não a cópia — e é por ela escrever no log que a trilha
+ * responde "qual professor exportou a base".
+ *
+ * O QUE FICOU DE FORA e parece leitura:
+ *   - `atualizarAlunos`: o botão se chama "Atualizar" e parece recarregar, mas
+ *     ele chama `reconciliarSeValerAPena_` e REESCREVE a coleção `alunos`. Uma
+ *     varredura por `inserir(`/`atualizar(` no corpo dela não acha nada — é por
+ *     isso que o teste do balde é transitivo;
+ *   - `listarAdmins` e `lerConfiguracoes`: são o mapa de quem manda e a lista de
+ *     chaves, `admin_emails` e `coordenadores_gerais` incluídas. "Não mexe na
+ *     lista de acessos" inclui não lê;
+ *   - `revisarLote`: leitura pura, mas é a metade de leitura de uma tela que só
+ *     a coordenação aplica, e uma janela que diz "estes 40 serão cancelados" com
+ *     o Aplicar morto é a tela mais fácil de ler errado;
+ *   - `listarLog`: a trilha nomeia a lista de acesso (`ADMIN_INCLUIDO`,
+ *     `NIVEL_ALTERADO`). Fechar a porta e deixar a janela não é fechar nada;
+ *   - `buscarMatriculado`: leitura, mas é a consulta que alimenta "Incluir
+ *     aluno", e essa tela inteira é de coordenação.
+ */
+function funcoesDoProfessor_() {
+  return {
+    // 10_Painel.gs — a aba Painel e a aba Alunos
+    painelEstatisticas: true,
+    painelProjetos: true,
+    inscritosDoProjeto: true,
+    listarAlunos: true,
+    detalheAluno: true,
+    listarLotes: true,
+    // A exceção nomeada: não é leitura pura, e está aberta assim mesmo.
+    exportarCsv: true,
+
+    // 12_Disciplinas.gs — "vê e exporta as disciplinas"
+    listarDisciplinas: true,
+    inscritosDaDisciplina: true,
+    matriculadosDaDisciplina: true,
+
+    // 13_Auditorio.gs — a tela da noite do evento, só de ler e contar
+    inscricoesRecentes: true,
+    filaDeEspera: true
   };
 }
 

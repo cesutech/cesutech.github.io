@@ -123,6 +123,22 @@ var GOOGLE_TETO_VERIFICACOES_HORA = 60;
 var RECUSA_SESSAO = 'Sessão expirada ou inválida. Faça login novamente.';
 
 /**
+ * Recusa por NÍVEL: a pessoa entrou, e a ação não é dela.
+ *
+ * A frase NÃO PODE casar com `/Sess.o expirada|inv.lida/i`, que é a expressão
+ * pela qual o painel se desloga sozinho (`chamar()`, docs/painel/index.html).
+ * Uma recusa de nível que casasse jogaria o professor na tela de login a cada
+ * clique fora do quintal dele — e ele entraria de novo para receber a mesma
+ * coisa, num laço sem saída e sem nada na tela que o explique. Há teste próprio,
+ * e ele lê a expressão do PRÓPRIO painel, para o dia em que ela mudar.
+ *
+ * Ela também não nomeia ninguém: dizer "peça a fulano@" transformaria a recusa
+ * num diretório de quem manda no sistema, que é a mesma razão de
+ * `pedirLinkDeAcesso` responder igual para endereço autorizado e não autorizado.
+ */
+var RECUSA_NIVEL = 'Esta ação é da coordenação geral. Seu acesso é de professor.';
+
+/**
  * Entrada pela identidade que o PRÓPRIO Apps Script entrega.
  *
  * Hoje esta função nunca dá certo, e continua no arquivo de propósito. Em
@@ -454,6 +470,37 @@ function exigirAdmin(token) {
   return true;
 }
 
+/**
+ * A guarda do NÍVEL, para as ações que são da coordenação geral.
+ *
+ * A ORDEM É A DECISÃO, e ela é dupla:
+ *
+ *   1. `exigirAdmin` PRIMEIRO. Quem não tem sessão leva `RECUSA_SESSAO` e não
+ *      aprende que existe um segundo nível — e, principalmente, a recusa
+ *      continua custando ZERO leitura do banco, que é o que o teste do token
+ *      inventado mede. Invertida, toda tentativa anônima passaria a ler a
+ *      configuração para descobrir um nível de alguém que não existe;
+ *   2. só então o nível, lido fresco (`nivelDaSessao_`). Quem passou pela sessão
+ *      e é recusado aqui existe: a pessoa é conhecida, a ação é que não é dela —
+ *      e por isso ela sai da execução ANOTADA por `exigirAdmin`, e a linha da
+ *      trilha diz qual professor tentou.
+ *
+ * Ela é BOOLEANA de propósito. Uma assinatura `exigirNivel(token, nivel)` pediria
+ * uma ordem entre os níveis ("geral ≥ professor?"), e é essa comparação que erra
+ * no dia do terceiro nível — que o Jonathan recusou justamente para não existir.
+ *
+ * Onde ela é cobrada: no DESPACHO (`rotaDoPainel_`, 08_Api.gs), que é a porta de
+ * todas as funções do painel, e por dentro só nas quatro que CONCEDEM OU REVOGAM
+ * PODER (`incluirAdmin`, `removerAdmin`, `definirNivel`, `salvarConfiguracao`).
+ * As quatro já leem configuração, então ali o custo é literalmente zero, e são
+ * elas a superfície de escalada de privilégio.
+ */
+function exigirCoordenador(token) {
+  exigirAdmin(token);
+  if (nivelDaSessao_(token) !== 'coordenador') throw new Error(RECUSA_NIVEL);
+  return true;
+}
+
 /** Versão que não lança — usada pelo cliente para saber se ainda está logado. */
 function sessaoAtiva(token) {
   return { ok: tokenValido_(token) };
@@ -476,6 +523,240 @@ function adminEmails_() {
     .filter(Boolean);
 }
 
+// ------------------------------------------- Quem é COORDENADOR GERAL, e quem
+//                                              é PROFESSOR
+
+/**
+ * Os e-mails de `coordenadores_gerais`, normalizados e JÁ cruzados com a
+ * allowlist.
+ *
+ * O cruzamento acontece aqui, na LEITURA, e de novo na ESCRITA
+ * (`aplicarAcessos_`), e a repetição é de propósito: o NÍVEL NUNCA É PORTA. Um
+ * e-mail que esteja nesta chave e não esteja em `admin_emails` é inerte — quem
+ * decide quem entra é `emailAutorizado_`, e continua sendo só ele. É o que
+ * dispensa transação entre as duas chaves: a ordem em que são lidas não muda
+ * resposta nenhuma, e uma delas escrita sozinha não abre porta para ninguém.
+ *
+ * Custo: ZERO leituras além da que já ia acontecer. As duas chaves moram no
+ * mesmo documento de configuração, e `lerConfig` o cacheia pela execução inteira
+ * (03_Config.gs). Foi o que permitiu ler o nível fresco a cada requisição, em
+ * vez de guardá-lo na sessão.
+ */
+function coordenadoresGerais_() {
+  var allowlist = adminEmails_();
+  return config('coordenadores_gerais', '').split(',')
+    .map(function (e) { return normalizarEmail(e); })
+    .filter(function (e) { return e && allowlist.indexOf(e) !== -1; });
+}
+
+/**
+ * O nível de um e-mail DENTRO de duas listas dadas: 'coordenador', 'professor'
+ * ou '' (ninguém).
+ *
+ * Recebe as listas em vez de lê-las para poder responder sobre o PASSADO: é
+ * assim que `aplicarAcessos_` descobre quem mudou de nível numa gravação,
+ * comparando a mesma regra aplicada ao antes e ao depois. Uma segunda definição
+ * de "quem é coordenador", escrita à mão para o diff, seria a que um dia
+ * discordaria desta — e o sintoma é a sessão que não cai quando devia.
+ *
+ * `gerais` já vem cruzada com a allowlist (ver `coordenadoresGerais_`).
+ *
+ * O PISO, e ele é a migração inteira: lista de gerais VAZIA quer dizer que
+ * ninguém separou os níveis ainda, e nesse estado todo mundo é coordenador
+ * geral — que é o sistema de hoje, byte a byte. Implantar esta peça sem tocar no
+ * banco não muda nada para ninguém, e essa promessa é o que o teste da migração
+ * nula cobra.
+ *
+ * A ORDEM — piso ANTES da allowlist — é decisão, e o plano a tinha ao contrário.
+ * Com a chave vazia, uma sessão válida vale como coordenadora mesmo que a
+ * allowlist não reconheça o e-mail dela. Esse estado não existe em produção: as
+ * três portas só criam sessão para quem está na allowlist (`liberarAcesso`
+ * repõe o e-mail nela antes), e quem sai da lista perde a sessão na hora. Ele
+ * existe nos TESTES, que fabricam sessão com `criarSessao_` sem semear lista
+ * nenhuma — e perguntar a allowlist primeiro faria a chave nova, com o valor
+ * vazio de fábrica, RECUSAR o que o sistema de hoje aceita. Medido: com a ordem
+ * invertida, 79 testes da suíte de hoje caem — 63 deles em painel-navegador.js,
+ * que é a tela inteira. Preferir o piso é manter a promessa da migração nula
+ * onde ela é conferida. Com a chave preenchida — o estado a partir do primeiro
+ * gesto de nível — a allowlist volta a ser conferida, e o e-mail fantasma não é
+ * nada, que é o que o teste do nível-não-é-porta cobra.
+ */
+function nivelEm_(email, allowlist, gerais) {
+  var alvo = normalizarEmail(email);
+  if (!alvo) return '';
+  if (!gerais.length) return 'coordenador';
+  if (gerais.indexOf(alvo) !== -1) return 'coordenador';
+  return allowlist.indexOf(alvo) === -1 ? '' : 'professor';
+}
+
+/**
+ * O nível de um e-mail AGORA, lido do banco.
+ *
+ * LIDO A CADA REQUISIÇÃO, e nunca guardado na sessão. Guardá-lo criaria um
+ * estado sem resposta — a sessão aberta ANTES de a chave existir não teria
+ * nível, e escolher um padrão para ela é escolher entre o privilégio sobreviver
+ * oito horas à despromoção ou todo mundo virar professor no dia do deploy — e
+ * faria cada mudança de nível levar até oito horas para valer.
+ *
+ * MODO DE FALHA: se a configuração não puder ser lida (Firestore fora do ar), a
+ * resposta é '' e NINGUÉM é coordenador. É o lado certo para uma decisão de
+ * autorização cair, e o mesmo lado que `entrarComGoogle` escolhe para falha de
+ * rede. Não custa disponibilidade nenhuma: com o banco fora, as funções de
+ * coordenação já não tinham o que fazer.
+ */
+function nivelDe_(email) {
+  try {
+    return nivelEm_(email, adminEmails_(), coordenadoresGerais_());
+  } catch (e) {
+    console.error('nivelDe_: ' + e.message);
+    return '';
+  }
+}
+
+/** O nível de quem abriu a sessão. É por aqui que a cobrança pergunta. */
+function nivelDaSessao_(token) {
+  return nivelDe_(emailDaSessao_(token));
+}
+
+/** O rótulo do nível, para a trilha e para a tela. */
+function rotuloDoNivel_(nivel) {
+  return nivel === 'coordenador' ? 'coordenador geral' : (nivel || 'sem acesso');
+}
+
+/** A lista de acesso como a tela precisa dela: um e-mail e o nível de cada um. */
+function pessoasDoAcesso_(allowlist, gerais) {
+  return allowlist.map(function (email) {
+    return { email: email, nivel: nivelEm_(email, allowlist, gerais) };
+  });
+}
+
+/**
+ * CONGELA O ESTADO DE HOJE antes do primeiro gesto que mexe no acesso.
+ *
+ * O furo que ela fecha: "gerais vazia = todos coordenadores" (o piso) e "quem
+ * entra na lista nasce professor" são incompatíveis enquanto a chave estiver
+ * vazia. Com ela vazia — o estado do dia 1 —, incluir alguém e gravar a lista de
+ * gerais ainda vazia criaria um coordenador em silêncio, que é o pedido da
+ * coordenação ao contrário. E rebaixar alguém gravando `[]` faria o piso
+ * devolvê-lo a coordenador: o clique não teria efeito nenhum, e a tela diria
+ * "salvo".
+ *
+ * Então o primeiro gesto que mexe no acesso escreve, por extenso, quem já era
+ * coordenador — que é todo mundo que estava na lista até então.
+ *
+ * São TRÊS os gestos que a disparam, e não um: rebaixar (`definirNivel`),
+ * incluir (`incluirAdmin`) e o campo de texto que acrescenta gente
+ * (`regravarAllowlist_`). Cada um tem teste próprio.
+ */
+function materializar_(allowlistAntes, gerais) {
+  if (gerais && gerais.length) return gerais.slice();
+  return allowlistAntes.slice();
+}
+
+/** Reparte, normaliza e tira vazios e repetidos de uma lista de e-mails. */
+function listaDeEmails_(bruto) {
+  var lista = [];
+  var partes = Object.prototype.toString.call(bruto) === '[object Array]'
+    ? bruto
+    : String(bruto || '').split(',');
+
+  partes.forEach(function (item) {
+    var email = normalizarEmail(item);
+    if (email && lista.indexOf(email) === -1) lista.push(email);
+  });
+  return lista;
+}
+
+/**
+ * O ÚNICO ESCRITOR das duas listas de acesso, e onde mora a invariante do último
+ * coordenador geral.
+ *
+ * A invariante é uma frase: **a lista nunca fica sem nenhum coordenador geral**.
+ * Um painel com oito professores é tão trancado por fora quanto um painel com a
+ * allowlist vazia — ninguém configura, ninguém importa, ninguém devolve acesso a
+ * ninguém —, e a saída é a mesma: o editor do Apps Script, que nem todo
+ * professor tem.
+ *
+ * ELA MORA AQUI DENTRO, e não nas quatro portas que mexem em nível, pela lição
+ * que este repositório já escreveu em `gravarConfig`: uma guarda espalhada por
+ * quatro caminhos é uma guarda que o QUINTO caminho — o que ainda não existe —
+ * vai esquecer. Os quatro de hoje (`definirNivel`, `removerAdmin`, o campo
+ * `admin_emails` e o campo `coordenadores_gerais`) não escrevem por conta
+ * própria; todos passam por aqui.
+ *
+ * O CRUZAMENTO das duas listas fecha o fantasma da volta: remover um professor e
+ * recadastrá-lo meses depois não pode trazê-lo de volta como coordenador por
+ * causa de uma linha que ficou na outra chave e que ninguém lembra.
+ *
+ * `porta` é o detalhe que vai para a trilha, e ele diz POR ONDE — 'pela tela
+ * Quem tem acesso', 'pelo campo admin_emails'. Por QUEM é a coluna `usuario`,
+ * que `exigirAdmin` preenche (04_Log.gs); repetir o e-mail no detalhe seria
+ * escrevê-lo duas vezes na mesma linha. A porta, essa sim, a coluna não tem como
+ * saber — e é ela que separa o mesmo gesto feito em duas telas diferentes.
+ *
+ * A recusa sai com `motivo`, e a frase aqui é genérica: quem sabe dizer a frase
+ * certa é o gesto (rebaixar a si mesmo não é a mesma coisa que esvaziar um campo
+ * de texto), e cada chamador a reescreve. O que NÃO se delega é a decisão.
+ */
+function aplicarAcessos_(emails, gerais, porta) {
+  var antesLista = adminEmails_();
+  var antesGerais = coordenadoresGerais_();
+
+  var lista = listaDeEmails_(emails);
+  // O cruzamento: o nível não é porta nem na escrita, e um nome que ficou na
+  // outra chave não pode voltar a valer no dia em que a pessoa for recadastrada.
+  var chefes = listaDeEmails_(gerais).filter(function (e) { return lista.indexOf(e) !== -1; });
+
+  if (!lista.length) {
+    return {
+      ok: false,
+      motivo: 'SEM_NINGUEM',
+      erro: 'Esvaziar a lista tranca todo mundo do lado de fora: é ela que autoriza tanto o ' +
+            'botão do Google quanto o envio do link por e-mail. Deixe pelo menos um e-mail.'
+    };
+  }
+
+  // A INVARIANTE. `antesGerais` vazia é o piso — ali todo mundo é coordenador, e
+  // continuar sem nenhum nome escrito não deixa o painel sem dono.
+  if (antesGerais.length && !chefes.length) {
+    return {
+      ok: false,
+      motivo: 'SEM_COORDENADOR',
+      erro: 'Esta mudança deixaria o painel sem nenhum coordenador geral: ninguém para ' +
+            'configurar, importar ou devolver o acesso a alguém. Promova outra pessoa antes.'
+    };
+  }
+
+  gravarAcessos_(lista, chefes);
+
+  antesLista.forEach(function (email) {
+    if (lista.indexOf(email) !== -1) return;
+    // Tirar da lista e deixar entrar por mais oito horas é não ter tirado.
+    invalidarSessoesDe_(email);
+    registrar('ADMIN_REMOVIDO', 'config', email, porta);
+  });
+
+  lista.forEach(function (email) {
+    if (antesLista.indexOf(email) === -1) {
+      registrar('ADMIN_INCLUIDO', 'config', email, porta);
+      return;
+    }
+
+    var antes = nivelEm_(email, antesLista, antesGerais);
+    var depois = nivelEm_(email, lista, chefes);
+    if (antes === depois) return;
+
+    // Mudou de nível: a sessão cai, pela mesma razão de quem sai da lista — sem
+    // isso a tela dela fica errada por até oito horas, e cada clique vira uma
+    // recusa que ela não tem como explicar.
+    invalidarSessoesDe_(email);
+    registrar('NIVEL_ALTERADO', 'config', email,
+      rotuloDoNivel_(antes) + ' -> ' + rotuloDoNivel_(depois) + ', ' + porta);
+  });
+
+  return { ok: true, emails: lista, gerais: chefes, pessoas: pessoasDoAcesso_(lista, chefes) };
+}
+
 /**
  * Lista quem tem acesso.
  *
@@ -487,20 +768,54 @@ function adminEmails_() {
 function listarAdmins(payload) {
   try {
     exigirAdmin(payload && payload.token);
-    return {
-      ok: true,
-      emails: adminEmails_(),
-      voce: emailDaSessao_(payload.token)
-    };
+    return respostaDoAcesso_(adminEmails_(), coordenadoresGerais_(), payload.token);
   } catch (err) {
     return { ok: false, erro: err.message };
   }
 }
 
-/** Acrescenta um e-mail à allowlist. Repetido não é erro, é nada a fazer. */
+/**
+ * A resposta que as QUATRO funções do cartão "Quem tem acesso" devolvem.
+ *
+ * Tem de ser a mesma nas quatro (`listarAdmins`, `incluirAdmin`, `removerAdmin`
+ * e `definirNivel`) porque é a mesma `desenharAcesso()` que redesenha a tabela
+ * depois de cada uma. Uma que devolvesse a forma antiga apagaria a coluna Nível
+ * depois de incluir alguém — defeito que passa em teste de unidade e aparece no
+ * dedo de quem usa.
+ *
+ * `emails` continua vindo junto, e não é gordura: ele é o contrato de hoje, e
+ * um teste afirma que as duas formas concordam. `seuNivel` é o que permite à
+ * tela saber com que nível ela está desenhada sem uma segunda chamada.
+ */
+function respostaDoAcesso_(lista, gerais, token, extras) {
+  var voce = emailDaSessao_(token);
+  var resposta = {
+    ok: true,
+    emails: lista,
+    pessoas: pessoasDoAcesso_(lista, gerais),
+    voce: voce,
+    seuNivel: nivelEm_(voce, lista, gerais)
+  };
+
+  Object.keys(extras || {}).forEach(function (chave) { resposta[chave] = extras[chave]; });
+  return resposta;
+}
+
+/**
+ * Acrescenta um e-mail à allowlist. Repetido não é erro, é nada a fazer.
+ *
+ * QUEM ENTRA NASCE PROFESSOR, e é por isso que ela materializa (ver
+ * `materializar_`): com a lista de gerais ainda vazia, gravar só a allowlist
+ * nova deixaria o piso valendo e o recém-chegado nasceria podendo tudo — que é
+ * o pedido da coordenação ao contrário. Promover é um segundo gesto, com
+ * confirmação própria (`definirNivel`): padrão que se escolhe não é padrão.
+ *
+ * Cobra por dentro (`exigirCoordenador`) porque CONCEDE PODER. As quatro da
+ * coroa pagam essa conferência aqui além da do despacho; ver `exigirCoordenador`.
+ */
 function incluirAdmin(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirCoordenador(payload && payload.token);
     payload = payload || {};
 
     var email = normalizarEmail(payload.email);
@@ -509,23 +824,26 @@ function incluirAdmin(payload) {
     }
 
     var lista = adminEmails_();
+    var gerais = coordenadoresGerais_();
     // Comparação sem diferenciar maiúsculas porque `adminEmails_` já normalizou
     // os dois lados. 'Coordenacao@Exemplo.com' e 'coordenacao@exemplo.com' são a
     // MESMA conta no Google, e deixá-las virar duas linhas faria a remoção de
     // uma delas parecer que não funcionou.
     if (lista.indexOf(email) !== -1) {
-      return { ok: true, emails: lista, jaEstava: true };
+      return respostaDoAcesso_(lista, gerais, payload.token, { jaEstava: true });
     }
 
+    // Os que JÁ estavam congelam como coordenadores; o que chega fica de fora da
+    // lista congelada, e é isso que o faz nascer professor.
+    var congelados = materializar_(lista, gerais);
     lista.push(email);
-    gravarConfig('admin_emails', lista.join(', '));
-    // O detalhe diz POR ONDE, e não POR QUEM: quem mexeu é a coluna `usuario`
-    // da própria linha desde que `exigirAdmin` anota o operador (04_Log.gs).
-    // Repetir o e-mail aqui seria escrevê-lo duas vezes na mesma linha; a porta
-    // usada, essa sim, a coluna não tem como saber — e é ela que separa este
-    // gesto do mesmo gesto feito pelo campo de texto (`regravarAllowlist_`).
-    registrar('ADMIN_INCLUIDO', 'config', email, 'pela tela Quem tem acesso');
-    return { ok: true, emails: lista };
+
+    var r = aplicarAcessos_(lista, congelados, 'pela tela Quem tem acesso');
+    if (!r.ok) return { ok: false, erro: r.erro };
+
+    return respostaDoAcesso_(r.emails, r.gerais, payload.token, {
+      nivel: nivelEm_(email, r.emails, r.gerais)
+    });
   } catch (err) {
     return { ok: false, erro: err.message };
   }
@@ -544,6 +862,14 @@ function incluirAdmin(payload) {
  *      tem. Esta guarda não depende mais de configuração: antes ela só valia com
  *      `modo_acesso_painel` = GOOGLE, e essa chave deixou de existir.
  *
+ * A TERCEIRA GUARDA não está escrita aqui de propósito: tirar da lista o último
+ * COORDENADOR GERAL (com sete professores sobrando) passa pelas duas de cima — a
+ * lista não fica vazia, e quem pede não é o último — e produz um painel sem
+ * dono. Quem recusa isso é `aplicarAcessos_`, onde a invariante mora para que
+ * nenhum dos quatro caminhos possa esquecê-la. Aqui só se traduz a frase.
+ *
+ * Cobra por dentro (`exigirCoordenador`) porque REVOGA PODER.
+ *
  * Quem sai perde a sessão junto (`invalidarSessoesDe_`). Sem isso, "remover o
  * acesso" continuaria valendo por até oito horas — que é o tempo em que a pessoa
  * removida ainda poderia exportar o cadastro inteiro. Tirar da lista e deixar
@@ -551,7 +877,7 @@ function incluirAdmin(payload) {
  */
 function removerAdmin(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirCoordenador(payload && payload.token);
     payload = payload || {};
 
     var email = normalizarEmail(payload.email);
@@ -580,12 +906,99 @@ function removerAdmin(payload) {
       };
     }
 
+    var gerais = coordenadoresGerais_();
     lista.splice(posicao, 1);
-    gravarConfig('admin_emails', lista.join(', '));
-    invalidarSessoesDe_(email);
-    // Por onde, não por quem — ver `incluirAdmin`.
-    registrar('ADMIN_REMOVIDO', 'config', email, 'pela tela Quem tem acesso');
-    return { ok: true, emails: lista };
+
+    // A sessão de quem sai, a linha da trilha e a invariante do último
+    // coordenador moram todas em `aplicarAcessos_`, porque o campo de texto da
+    // aba Configurações faz este mesmo gesto por outro caminho.
+    var r = aplicarAcessos_(lista, gerais, 'pela tela Quem tem acesso');
+    if (!r.ok) {
+      if (r.motivo !== 'SEM_COORDENADOR') return { ok: false, erro: r.erro };
+      return {
+        ok: false,
+        erro: 'Este é o último coordenador geral. Removê-lo deixa o painel com ' +
+              lista.length + (lista.length === 1 ? ' professor' : ' professores') +
+              ' e ninguém que possa configurar, importar ou devolver o acesso a alguém. ' +
+              'Promova outra pessoa antes.'
+      };
+    }
+
+    return respostaDoAcesso_(r.emails, r.gerais, payload.token);
+  } catch (err) {
+    return { ok: false, erro: err.message };
+  }
+}
+
+/**
+ * Promove ou rebaixa alguém que JÁ está na lista de acesso.
+ *
+ * O segundo gesto que `incluirAdmin` deixou para trás, e o único que cria
+ * coordenador geral pela tela. Cobra por dentro (`exigirCoordenador`) porque é
+ * literalmente a função de conceder e revogar poder — qualquer coordenador
+ * geral promove e rebaixa qualquer um, inclusive outro coordenador, com a única
+ * trava de a lista nunca ficar sem nenhum.
+ *
+ * Ela materializa (ver `materializar_`) porque rebaixar com a chave vazia e
+ * gravar `[]` faria o piso devolver a pessoa a coordenador: o clique não teria
+ * efeito nenhum, e a tela diria "salvo".
+ *
+ * A sessão de quem mudou de nível cai — quem faz isso é `aplicarAcessos_`,
+ * comparando o nível de antes com o de depois.
+ */
+function definirNivel(payload) {
+  try {
+    exigirCoordenador(payload && payload.token);
+    payload = payload || {};
+
+    var email = normalizarEmail(payload.email);
+    var nivel = String(payload.nivel || '').trim().toLowerCase();
+
+    // O nível vem do cliente e é conferido contra os DOIS valores que existem.
+    // Não há terceiro, e uma palavra desconhecida não pode virar "professor por
+    // omissão" nem "coordenador por omissão": as duas seriam uma decisão de
+    // acesso tomada por um erro de digitação.
+    if (nivel !== 'coordenador' && nivel !== 'professor') {
+      return { ok: false, erro: 'Nível desconhecido. Os níveis são coordenador e professor.' };
+    }
+
+    var lista = adminEmails_();
+    if (lista.indexOf(email) === -1) {
+      return { ok: false, erro: 'Esse e-mail não está na lista de acesso.' };
+    }
+
+    var gerais = materializar_(lista, coordenadoresGerais_());
+    var posicao = gerais.indexOf(email);
+    if (nivel === 'coordenador') {
+      if (posicao === -1) gerais.push(email);
+    } else if (posicao !== -1) {
+      gerais.splice(posicao, 1);
+    }
+
+    var quemPede = emailDaSessao_(payload.token);
+    var r = aplicarAcessos_(lista, gerais, 'pela tela Quem tem acesso');
+    if (!r.ok) {
+      if (r.motivo !== 'SEM_COORDENADOR') return { ok: false, erro: r.erro };
+      if (email === quemPede) {
+        return {
+          ok: false,
+          erro: 'Você é o único coordenador geral. Promova outra pessoa antes de virar ' +
+                'Professor — senão ninguém mais mexe em configuração, na lista de acesso ' +
+                'nem nas importações, e o conserto sai da tela e vai para o editor do ' +
+                'Apps Script.'
+        };
+      }
+      return {
+        ok: false,
+        erro: 'Este é o último coordenador geral. Promova outra pessoa antes de rebaixar ' +
+              'esta — senão ninguém mais mexe em configuração, na lista de acesso nem nas ' +
+              'importações.'
+      };
+    }
+
+    return respostaDoAcesso_(r.emails, r.gerais, payload.token, {
+      nivel: nivelEm_(email, r.emails, r.gerais)
+    });
   } catch (err) {
     return { ok: false, erro: err.message };
   }
@@ -657,22 +1070,95 @@ function regravarAllowlist_(valor, token) {
     };
   }
 
-  gravarConfig('admin_emails', depois.join(', '));
+  // Quem CHEGA pelo campo de texto nasce professor, como quem chega pelo botão
+  // Incluir — e é a materialização que faz isso valer com a chave ainda vazia.
+  // Sem gente nova, nada a congelar: mexer na lista de gerais para só tirar
+  // alguém seria escrever uma decisão que ninguém tomou.
+  var entrando = depois.filter(function (e) { return antes.indexOf(e) === -1; });
+  var gerais = coordenadoresGerais_();
+  var congelados = entrando.length ? materializar_(antes, gerais) : gerais;
 
-  // As duas linhas dizem POR ONDE. Quem mexeu é a coluna `usuario`, que
-  // `exigirAdmin` passou a preencher (04_Log.gs) — e é o campo de texto, e não
-  // a tela de acesso, que distingue esta saída da de `removerAdmin`.
-  saindo.forEach(function (email) {
-    invalidarSessoesDe_(email);
-    registrar('ADMIN_REMOVIDO', 'config', email, 'pelo campo admin_emails');
+  // A sessão de quem saiu, as linhas da trilha e a invariante do último
+  // coordenador são as mesmas de `removerAdmin`, e moram no mesmo lugar. O
+  // detalhe é que muda: é o campo de texto, e não a tela de acesso, que
+  // distingue esta saída daquela.
+  var r = aplicarAcessos_(depois, congelados, 'pelo campo admin_emails');
+  if (!r.ok) {
+    if (r.motivo !== 'SEM_COORDENADOR') return { ok: false, erro: r.erro };
+    return {
+      ok: false,
+      erro: 'A lista ficaria com ' + depois.length +
+            (depois.length === 1 ? ' professor' : ' professores') +
+            ' e nenhum coordenador geral: ninguém para configurar, importar ou devolver o ' +
+            'acesso a alguém. Nada foi alterado — corrija e salve de novo, ou use ' +
+            'Configurações > Quem tem acesso.'
+    };
+  }
+
+  return { ok: true, emails: r.emails, pessoas: r.pessoas };
+}
+
+/**
+ * Regrava a lista de COORDENADORES GERAIS, pelo campo de texto da aba
+ * Configurações.
+ *
+ * Irmã de `regravarAllowlist_`, e existe pela mesma razão: a chave aparece na
+ * tela de Configurações de qualquer jeito — `lerConfiguracoes` lista toda chave
+ * que exista no banco, e `chaveConhecida_` aceita para gravação toda chave que
+ * exista no banco —, então ou ela tem uma porta com guardas, ou ela é a porta
+ * dos fundos de todas as guardas desta peça.
+ *
+ * DUAS RECUSAS, e nenhuma é zelo:
+ *
+ *   1. CAMPO VAZIO. Na leitura, lista vazia é o piso, e o piso devolve poder
+ *      total a todo mundo (ver `nivelEm_`). Apagar o conteúdo deste campo seria,
+ *      então, promover os oito de uma vez — com a tela dizendo "salvo". O piso
+ *      continua existindo, mas como rede para banco editado à mão pelo console
+ *      do Firestore; NENHUM caminho de tela consegue produzi-lo;
+ *   2. E-MAIL FORA DA LISTA DE ACESSO. Ele seria inerte (o nível não é porta),
+ *      e é justamente por ser inerte que precisa recusar: quem digita o e-mail
+ *      de alguém aqui e vê "salvo" acredita ter dado acesso a essa pessoa.
+ *
+ * Como em `regravarAllowlist_`, o campo é recusado INTEIRO — nada de gravar
+ * metade e descartar o resto em silêncio.
+ */
+function regravarGerais_(valor, token) {
+  var lista = adminEmails_();
+  var pedidos = [];
+  var forasteiros = [];
+
+  String(valor || '').split(',').forEach(function (bruto) {
+    var email = normalizarEmail(bruto);
+    if (!email) return;
+    if (lista.indexOf(email) === -1) {
+      if (forasteiros.indexOf(email) === -1) forasteiros.push(email);
+      return;
+    }
+    if (pedidos.indexOf(email) === -1) pedidos.push(email);
   });
 
-  depois.forEach(function (email) {
-    if (antes.indexOf(email) !== -1) return;
-    registrar('ADMIN_INCLUIDO', 'config', email, 'pelo campo admin_emails');
-  });
+  if (forasteiros.length) {
+    return {
+      ok: false,
+      erro: 'Fora da lista de acesso: ' + forasteiros.join(', ') + '. Quem não entra no ' +
+            'painel não pode ser coordenador geral — inclua primeiro em Configurações > ' +
+            'Quem tem acesso. Nada foi alterado.'
+    };
+  }
 
-  return { ok: true, emails: depois };
+  if (!pedidos.length) {
+    return {
+      ok: false,
+      erro: 'Esvaziar este campo devolve poder total a todos os ' + lista.length +
+            ' e-mails da lista de acesso. Se é isso que você quer, promova um por um em ' +
+            'Configurações > Quem tem acesso. Nada foi alterado.'
+    };
+  }
+
+  var r = aplicarAcessos_(lista, pedidos, 'pelo campo coordenadores_gerais');
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  return { ok: true, emails: r.emails, pessoas: r.pessoas };
 }
 
 /**

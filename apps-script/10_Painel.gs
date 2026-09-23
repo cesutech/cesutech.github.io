@@ -2784,6 +2784,14 @@ function avisarMigracao_(destino, avisos) {
  * desenho que evite isso — o arquivo tem uma linha por aluno. O que existe é o
  * teto de PAINEL_TETO_EXPORTACAO, para um clique repetido não conseguir queimar a
  * cota do dia; passando dele, o arquivo sai truncado e o aviso vai para o log.
+ *
+ * ELA É DOS DOIS NÍVEIS, e é a única exceção à regra "professor é leitura"
+ * (`funcoesDoProfessor_`, 08_Api.gs). Decisão do Jonathan, 23/09, tomada e
+ * sabida: o arquivo leva nome, CPF, e-mail, telefone e nascimento de até 5.000
+ * alunos, e os dois níveis não reduzem um grama dessa superfície — eles
+ * resolvem o clique errado, não a cópia. O que muda é que a linha EXPORTACAO
+ * abaixo passou a dizer QUAL pessoa exportou (04_Log.gs), e é por ela que essa
+ * pergunta tem resposta.
  */
 function exportarCsv(payload) {
   try {
@@ -3037,7 +3045,12 @@ function urlDoWebApp_() {
  *      `regravarAllowlist_` (07_Auth.gs), que é quem recusa esvaziar a lista,
  *      derruba a sessão de quem saiu e registra na trilha. Gravar por aqui era a
  *      porta dos fundos das guardas de `removerAdmin`;
- *   3. chave marcada como segredo em CONFIG_SEGREDOS não passa por aqui. O mapa
+ *   3. `coordenadores_gerais` é a lista de QUEM PODE O QUÊ, e tem a mesma
+ *      história: ela aparece nesta tela de qualquer jeito (a lista de chaves
+ *      conhecidas inclui o que já está no banco), então ela vai para
+ *      `regravarGerais_` (07_Auth.gs), que recusa o campo vazio e o e-mail fora
+ *      da lista de acesso;
+ *   4. chave marcada como segredo em CONFIG_SEGREDOS não passa por aqui. O mapa
  *      está vazio hoje — a guarda fica pelo dia em que não estiver.
  *
  * A guarda que existia para `modo_acesso_painel` foi embora com a chave: não há
@@ -3049,7 +3062,10 @@ function urlDoWebApp_() {
  */
 function salvarConfiguracao(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    // Cobra o NÍVEL por dentro, e não só no despacho: por aqui passam as duas
+    // listas de acesso, então esta é uma das quatro funções pelas quais um
+    // professor se promoveria se a cobrança da rota um dia saísse do lugar.
+    exigirCoordenador(payload && payload.token);
     payload = payload || {};
 
     var chave = String(payload.chave || '').trim();
@@ -3066,6 +3082,12 @@ function salvarConfiguracao(payload) {
     }
 
     if (chave === 'admin_emails') return regravarAllowlist_(valor, payload.token);
+    // A linha gêmea, e pela mesma razão: `coordenadores_gerais` decide o que
+    // cada um pode, e o campo de texto não pode ser a porta dos fundos das
+    // guardas de `definirNivel`. `regravarGerais_` recusa o campo vazio (que
+    // promoveria todo mundo pelo piso) e o e-mail que não está na lista de
+    // acesso (que seria inerte, com a tela dizendo "salvo").
+    if (chave === 'coordenadores_gerais') return regravarGerais_(valor, payload.token);
 
     gravarConfig(chave, valor);
     registrar('CONFIG', 'config', chave, 'alterado');

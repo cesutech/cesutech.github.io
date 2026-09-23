@@ -647,13 +647,32 @@ function liberarAcesso(email) {
   }
 
   var lista = adminEmails_();
-  if (lista.indexOf(alvo) === -1) {
-    lista.push(alvo);
-    // `', '` e não `','`: é o formato que `incluirAdmin`, `removerAdmin` e
-    // `regravarAllowlist_` gravam. `adminEmails_` apara os espaços e as duas
-    // formas funcionam — mas o cabeçalho de `adminEmails_` conta o que uma
-    // divergência de formato já custou aqui uma vez.
-    gravarConfig('admin_emails', lista.join(', '));
+  var gerais = coordenadoresGerais_();
+  var faltaNaLista = lista.indexOf(alvo) === -1;
+  // Só quando a lista de gerais EXISTE: vazia, o piso já faz dele coordenador,
+  // e escrevê-la aqui congelaria níveis que ninguém pediu para congelar.
+  var faltaNoNivel = gerais.length > 0 && gerais.indexOf(alvo) === -1;
+
+  if (faltaNaLista || faltaNoNivel) {
+    if (faltaNaLista) lista.push(alvo);
+    if (faltaNoNivel) gerais.push(alvo);
+
+    // ELA LIBERA COMO COORDENADOR GERAL, e não como professor. Uma porta de
+    // emergência que desemboca num painel de professor não conserta nada: o
+    // professor não abre Configurações, que é exatamente o que se veio
+    // consertar. E não concede privilégio novo — quem roda isto está com o
+    // editor do Apps Script aberto e poderia reescrever `exigirCoordenador`
+    // inteiro.
+    //
+    // A escrita passa pelo escritor único (`aplicarAcessos_`, 07_Auth.gs) pela
+    // mesma razão que as outras quatro: era daqui que sairia o quinto caminho
+    // capaz de esquecer a invariante e o cache do link.
+    var reposto = aplicarAcessos_(lista, gerais, 'pelo editor do Apps Script');
+    // Hoje ela não tem como falhar (a lista sai daqui com pelo menos um nome, e
+    // com um coordenador). Se um dia tiver, é melhor estourar no editor — onde
+    // há alguém lendo — do que devolver uma sessão de oito horas e o mesmo beco
+    // amanhã.
+    if (!reposto.ok) throw new Error('Não consegui repor o acesso: ' + reposto.erro);
   }
 
   var token = criarSessao_(alvo);

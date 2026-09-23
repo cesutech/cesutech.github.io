@@ -61,6 +61,27 @@ nome passa a sair: quem exportou o cadastro, quem anulou, quem revisou uma
 importação. Os caminhos sem sessão — o formulário do aluno, o backup diário —
 continuam anônimos, porque ali não há ninguém a nomear.
 
+**Dois níveis, e o servidor é quem cobra.** Quem tem acesso ao painel é uma
+lista (`admin_emails`); quem é **coordenador geral** é outra
+(`coordenadores_gerais`), e todo e-mail da primeira que não esteja na segunda é
+**professor**: vê e exporta as listas de inscritos e disciplinas, e não remove
+projeto, não anula, não promove, não importa lista oficial nem abre
+Configurações. A segunda lista **vazia** quer dizer "ninguém separou os níveis
+ainda", e nesse estado todo mundo é coordenador geral — é por isso que a mudança
+não pediu migração nenhuma. O nível é lido a cada requisição, nunca guardado na
+sessão, e é cobrado no **despacho**: o que não estiver na lista do professor é da
+coordenação geral, então função nova nasce fechada para ele. A tela esconde e
+desabilita o que não é dele, mas a tela nunca é a permissão — há teste de invasão
+para cada uma das trinta, chamadas pelo POST direto. O nível **não é porta**:
+quem não está em `admin_emails` não entra, esteja onde estiver. E a lista nunca
+fica sem nenhum coordenador geral: um painel de oito professores é tão trancado
+por fora quanto uma lista de acesso vazia.
+
+**Exportar o CSV continua sendo dos dois níveis.** É decisão tomada e sabida: o
+professor exporta a lista inteira de alunos, com nome, CPF, e-mail, telefone e
+nascimento. Os dois níveis resolvem o clique errado, não a cópia — e a linha
+`EXPORTACAO` na trilha agora diz qual professor exportou.
+
 **Nada de dado pessoal no repositório.** As amostras usadas nos testes são
 sintéticas. O formato reproduz o do relatório da secretaria; os nomes, as
 matrículas e os telefones são inventados.

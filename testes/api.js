@@ -1888,21 +1888,34 @@ teste('toda função da lista branca começa por exigirAdmin', () => {
   // token". Uma função despachável sem a guarda seria um endereço anônimo com
   // acesso ao cadastro — e o teste anterior, que só confere que a rota exige
   // token, continuaria verde, porque a rota exige.
+  //
+  // `exigirCoordenador` conta como guarda, e não é afrouxamento: a primeira
+  // linha dela é `exigirAdmin` (conferida logo abaixo, neste mesmo teste, e por
+  // um teste de ataque em invasao.js que mede que a recusa de sessão não custa
+  // leitura). Ela é a guarda das quatro que concedem ou revogam poder —
+  // `incluirAdmin`, `removerAdmin`, `definirNivel` e `salvarConfiguracao`.
   const a = montar();
   const textos = textoDosGs();
   const semGuarda = [];
 
+  const guarda = /exigir(Admin|Coordenador)\s*\(/;
   Object.keys(a.api.funcoesDoPainel_()).forEach((nome) => {
     let achou = false;
     Object.keys(textos).forEach((arquivo) => {
       const corpo = corpoDaFuncao(textos[arquivo], nome);
       if (corpo === null) return;
-      if (/exigirAdmin\s*\(/.test(corpo)) achou = true;
+      if (guarda.test(corpo)) achou = true;
     });
     if (!achou) semGuarda.push(nome);
   });
 
   igual(semGuarda, [], 'sem exigirAdmin: ' + semGuarda.join(', '));
+
+  // E a guarda de nível não pode virar a porta que dispensa a de sessão.
+  const daCoroa = corpoDaFuncao(textos['07_Auth.gs'], 'exigirCoordenador');
+  verdadeiro(daCoroa !== null, 'exigirCoordenador sumiu de 07_Auth.gs');
+  verdadeiro(/exigirAdmin\s*\(/.test(daCoroa),
+    'exigirCoordenador deixou de exigir a sessão antes do nível');
 });
 
 /** O corpo textual de `function nome(...)`, ou null se ela não está no arquivo. */
