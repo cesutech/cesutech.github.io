@@ -208,7 +208,13 @@ function registrosDoLog(falso, acao) {
   falso.documentos.forEach((campos, chave) => {
     if (chave.indexOf('log/') !== 0) return;
     if (!acao || campos.acao.stringValue === acao) {
-      saida.push({ acao: campos.acao.stringValue, detalhe: campos.detalhe.stringValue });
+      // `usuario` entra aqui desde que a trilha passou a dizer QUEM operou
+      // (04_Log.gs): é a coluna que respondia 'anonimo' no painel publicado.
+      saida.push({
+        acao: campos.acao.stringValue,
+        usuario: campos.usuario.stringValue,
+        detalhe: campos.detalhe.stringValue
+      });
     }
   });
   return saida;
@@ -1221,7 +1227,13 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   const parcial = registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL');
   igual(parcial.length, 1);
   verdadeiro(parcial[0].detalhe.indexOf('ADS41: 0 cancelado(s) [], 0 excluído(s) [], 2 inscrição(ões) anulada(s) [9110002,9110002], 1 pulado(s), 0 já cancelado(s); INTERROMPIDO: A lista da tela é de antes') === 0, parcial[0].detalhe);
-  verdadeiro(/; por prof@exemplo\.com$/.test(parcial[0].detalhe), parcial[0].detalhe);
+  // Quem revisou saiu do fim da frase e virou a coluna `usuario` da linha.
+  // Aqui ela prova mais do que provava: o ambiente roda com
+  // `Session.getActiveUser()` = coordenacao@exemplo.com e a SESSÃO em prof@ —
+  // então a mutação "voltar a `usuarioAtual()`" troca o nome, em vez de acertar
+  // por coincidência.
+  igual(parcial[0].usuario, PROF, 'a trilha parcial não diz quem revisou');
+  igual(parcial[0].detalhe.indexOf(PROF), -1, parcial[0].detalhe);
   igual(parcial[0].detalhe.toUpperCase().indexOf('BEATRIZ'), -1);
   igual(parcial[0].detalhe.indexOf('projects/'), -1);
 
@@ -1442,7 +1454,14 @@ teste('o lote é marcado com revisado_* e o resumo; o log leva matrículas por a
   igual(linhas.length, 1);
   const detalhe = linhas[0].detalhe;
   verdadeiro(detalhe.indexOf('ADS41: 1 cancelado(s) [9110002]') === 0, detalhe);
-  verdadeiro(/1 inscrição\(ões\) anulada\(s\), 1 pulado\(s\), 0 já cancelado\(s\); por prof@exemplo\.com$/.test(detalhe), detalhe);
+  verdadeiro(/1 inscrição\(ões\) anulada\(s\), 1 pulado\(s\), 0 já cancelado\(s\)$/.test(detalhe), detalhe);
+  // O nome de quem revisou está na COLUNA, e em duas cópias que o log não
+  // guarda: `revisado_por` no lote (acima) e `cancelado_por` no matriculado.
+  // Mutação que derruba: `registrar` cair em `usuarioAtual()` — este ambiente
+  // tem a identidade da implantação em coordenacao@ e a sessão em prof@, e a
+  // linha passaria a assinar a pessoa errada.
+  igual(linhas[0].usuario, PROF, 'a trilha não diz quem revisou');
+  igual(detalhe.indexOf(PROF), -1, 'o e-mail do operador está duas vezes na linha: ' + detalhe);
   igual(detalhe.toUpperCase().indexOf('BEATRIZ'), -1, 'o nome foi para o log: ' + detalhe);
   igual(detalhe.indexOf('9110004'), -1, 'quem foi pulado não é listado como cancelado');
 });

@@ -1000,6 +1000,12 @@ function marcarLoteRevisado_(passo, feito, carimbo, situacao) {
  * A linha da trilha: turma, contagens e as MATRÍCULAS por ação (números, sem
  * nome — decisão de 21/09; o precedente é `registrarEdicao_`, 10_Painel.gs).
  *
+ * QUEM revisou não vem mais no fim da frase: é a coluna `usuario` da linha,
+ * preenchida pelo operador que `exigirAdmin` anota (04_Log.gs). `passo.quem`
+ * continua sendo lido porque ele vira `cancelado_por`, `excluido_por` e a marca
+ * do lote NOS DOCUMENTOS — que a tela de Importações mostra e que sobrevivem ao
+ * ano de retenção do log.
+ *
  * As matrículas de cancelados e excluídos só entram quando o passo deles
  * ENTROU (o patch e o delete são um `:commit` cada, tudo ou nada). As das
  * anuladas só entram na linha PARCIAL: na inteira elas são as mesmas dos
@@ -1017,8 +1023,7 @@ function detalheDaTrilha_(passo, feito, interrompido) {
     anuladas + ', ' +
     passo.pulados.length + ' pulado(s), ' + passo.jaCancelados.length + ' já cancelado(s)' +
     (feito.fichasApagadas ? ', ' + feito.fichasApagadas + ' ficha(s) apagada(s)' : '') +
-    (interrompido ? '; INTERROMPIDO: ' + interrompido : '') +
-    '; por ' + passo.quem;
+    (interrompido ? '; INTERROMPIDO: ' + interrompido : '');
 }
 
 /** O que JÁ foi feito, nominalmente: quem perdeu a inscrição (e em qual projeto), quem saiu, quem ganhou a marca. */

@@ -44,7 +44,7 @@
 
 const crypto = require('crypto');
 
-const { teste, grupo, igual, verdadeiro, resultado, criarAmbiente, criarRelogio } = require('./apoio');
+const { teste, grupo, igual, verdadeiro, lancou, resultado, criarAmbiente, criarRelogio } = require('./apoio');
 
 // Todos os `.gs`, na ordem alfabética em que o editor os carrega: os testes de
 // integração deste arquivo entram pelo `doPost`, e o despacho do painel
@@ -408,7 +408,7 @@ teste('o token emitido é uma sessão de verdade, e exigirAdmin o aceita', () =>
 
   const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
   igual(amb.api.exigirAdmin(r.token), true);
-  igual(amb.api.sessaoAtiva(r.token), { ok: true });
+  igual(amb.api.sessaoAtiva(r.token).ok, true);
 });
 
 teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => {
@@ -429,6 +429,42 @@ teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => 
   igual(trilha.map((l) => l.entidade_id), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
   igual(trilha.map((l) => l.detalhe),
     ['via conta Google (ID token)', 'via link por e-mail']);
+
+  // E a COLUNA "Quem" também: a entrada é a única ação em que a pessoa se
+  // identifica antes de existir sessão, então `exigirAdmin` não passa por ela e
+  // as duas portas anotam o operador por conta própria.
+  //
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComGoogle` — este
+  // ambiente é o publicado (`usuario: ''`), e a coluna volta a 'anonimo' na
+  // linha que diz que alguém entrou. SÓ A DO GOOGLE: as duas portas rodam na
+  // MESMA execução simulada aqui, e `OPERADOR_DA_EXECUCAO` é global ao script
+  // (04_Log.gs), então a linha do link herda o nome que a do Google anotou. Quem
+  // segura a porta do link é o teste seguinte, com ambiente próprio.
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(trilha.map((l) => l.usuario), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
+});
+
+teste('e a porta do LINK sabe sozinha — sem nenhum login antes na mesma execução', () => {
+  // Em produção não se herda nada: entrar por link é uma execução do Apps
+  // Script inteiramente separada, sem `entrarComGoogle` nenhum antes. Sem a
+  // anotação, a ÚNICA linha que diz que alguém entrou pela porta dos fundos
+  // sairia assinada por 'anonimo' — e é justamente a porta que se usa quando
+  // alguma coisa já deu errado.
+  //
+  // A regra geral que esta cena escreve: qualquer teste que confira `usuario`
+  // depois de DUAS chamadas na mesma execução está medindo a variável herdada,
+  // e não a anotação daquela chamada.
+  //
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComLink`.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  igual(amb.api.entrarComLink(tokenDoEmail(amb)).ok, true, 'o link não abriu a porta');
+
+  const trilha = linhasDoLog(amb).filter((l) => l.acao === 'LOGIN');
+  igual(trilha.length, 1, 'a cena devia ter UMA entrada só, a do link');
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(trilha[0].usuario, 'coordenacao@exemplo.com',
+    'a linha do link saiu assinada por ' + trilha[0].usuario);
 });
 
 teste('conta fora da allowlist não entra, e a recusa nomeia a própria conta', () => {
@@ -856,7 +892,7 @@ teste('com a allowlist VAZIA, cria a sessão E repõe o e-mail na lista', () => 
   const url = amb.api.liberarAcesso('  Professor@Unicesusc.edu.BR ');
 
   const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
-  igual(amb.api.sessaoAtiva(token), { ok: true });
+  igual(amb.api.sessaoAtiva(token).ok, true);
   igual(amb.api.emailDaSessao_(token), 'professor@unicesusc.edu.br');
 
   amb.api.limparCacheConfig();
@@ -935,6 +971,49 @@ teste('o endereço impresso é o do painel, e leva a sessão pronta', () => {
     'o editor não imprimiu o endereço: quem rodou não tem para onde ir');
 });
 
+// ================================================== Quem operou
+
+grupo('a trilha diz QUEM fez — o operador sai da sessão, não da implantação');
+
+teste('exigirAdmin anota quem passou, e a linha seguinte é assinada por ele', () => {
+  // A pergunta que a coluna "Quem" existe para responder é "qual pessoa
+  // exportou a base?", e no painel publicado ela respondia 'anonimo': o web app
+  // roda como a conta que implantou e `Session.getActiveUser()` volta vazio. A
+  // sessão sabe o e-mail, e `exigirAdmin` é a única linha por onde toda função
+  // do painel passa com o token na mão.
+  //
+  // Mutação que derruba: tirar `anotarOperador_(emailDaSessao_(token))` da
+  // guarda — a linha volta a 'anonimo', e o Histórico deixa de distinguir as
+  // oito pessoas que entram no painel.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+  const token = amb.api.criarSessao_('coordenacao@exemplo.com');
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
+  igual(amb.api.exigirAdmin(token), true);
+  amb.api.registrar('EXPORTACAO', 'alunos', '', '300 linhas');
+
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'EXPORTACAO')[0].usuario,
+    'coordenacao@exemplo.com');
+});
+
+teste('token recusado APAGA o operador — a recusa não herda o nome de quem passou antes', () => {
+  // A variável é global ao script. Numa execução que chame a guarda duas vezes
+  // — e uma requisição do painel pode chamá-la de novo por dentro, como
+  // `aplicarRevisao` faz com `anularInscricoes` —, a segunda, recusada,
+  // sairia assinada pela primeira: a trilha atribuiria a uma pessoa uma ação
+  // que o servidor não deixou acontecer.
+  //
+  // Mutação que derruba: `exigirAdmin` anotar só no caminho feliz, deixando o
+  // nome anterior de pé.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+
+  amb.api.exigirAdmin(amb.api.criarSessao_('coordenacao@exemplo.com'));
+  lancou(() => amb.api.exigirAdmin('inventado'), 'Sess');
+
+  amb.api.registrar('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'BLOQUEIO')[0].usuario, 'anonimo');
+});
+
 // ================================================== Quem tem acesso
 
 grupo('gestão de quem tem acesso ao painel');
@@ -979,12 +1058,18 @@ teste('sessão sem identidade: "você" é ninguém, e não "anonimo"', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const token = amb.api.criarSessao_('');
 
-  igual(amb.api.sessaoAtiva(token), { ok: true });
+  igual(amb.api.sessaoAtiva(token).ok, true);
   igual(amb.api.listarAdmins({ token: token }).voce, '');
 });
 
 teste('incluir normaliza, grava e registra quem mexeu', () => {
+  // Mutação que derruba: `exigirAdmin` deixar de anotar o operador (a coluna
+  // volta a 'anonimo', que é o que `usuarioAtual()` responde no painel
+  // publicado — e este ambiente é o publicado: `usuario: ''`); ou o detalhe
+  // voltar a repetir o e-mail que a coluna já diz.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
   const r = amb.api.incluirAdmin({ token: amb.token, email: '  Nova.Pessoa@Exemplo.COM ' });
 
   igual(r.ok, true);
@@ -995,7 +1080,12 @@ teste('incluir normaliza, grava e registra quem mexeu', () => {
 
   const linha = linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_INCLUIDO')[0];
   igual(linha.entidade_id, 'nova.pessoa@exemplo.com');
-  verdadeiro(linha.detalhe.indexOf('coordenacao@exemplo.com') !== -1, linha.detalhe);
+  igual(linha.usuario, 'coordenacao@exemplo.com', 'a trilha não diz quem incluiu');
+  // O detalhe diz POR ONDE, e não repete o nome: a mesma inclusão feita pelo
+  // campo de texto da aba Configurações grava 'pelo campo admin_emails'.
+  igual(linha.detalhe, 'pela tela Quem tem acesso');
+  igual(linha.detalhe.indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail do operador está escrito duas vezes na mesma linha: ' + linha.detalhe);
 });
 
 teste('incluir a mesma conta com outra caixa não cria uma segunda linha', () => {
@@ -1091,12 +1181,12 @@ teste('quem sai da lista perde a sessão na hora', () => {
   // nelas a pessoa removida ainda exportaria o cadastro inteiro.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
   const dela = amb.api.criarSessao_('Saindo@Exemplo.com');
-  igual(amb.api.sessaoAtiva(dela), { ok: true });
+  igual(amb.api.sessaoAtiva(dela).ok, true);
 
   igual(amb.api.removerAdmin({ token: amb.token, email: 'saindo@exemplo.com' }).ok, true);
 
-  igual(amb.api.sessaoAtiva(dela), { ok: false });
-  igual(amb.api.sessaoAtiva(amb.token), { ok: true }, 'a sessão de quem removeu continua valendo');
+  igual(amb.api.sessaoAtiva(dela).ok, false);
+  igual(amb.api.sessaoAtiva(amb.token).ok, true, 'a sessão de quem removeu continua valendo');
 });
 
 teste('a conta removida não entra mais pelo Google', () => {
@@ -1107,6 +1197,180 @@ teste('a conta removida não entra mais pelo Google', () => {
   amb.api.removerAdmin({ token: amb.token, email: 'saindo@exemplo.com' });
   amb.api.limparCacheConfig();
   igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+});
+
+// ================================================== Os dois níveis
+
+/**
+ * O QUE ESTE GRUPO PROVA: a gestão dos níveis pela tela de sempre — o cartão
+ * "Quem tem acesso ao painel". Os ATAQUES (o professor chamando as 30 da
+ * coordenação pelo POST, a autopromoção pelas quatro portas, a invariante do
+ * último coordenador pelos quatro caminhos) moram em `invasao.js`, que é onde
+ * ficam os testes escritos como ataque. Aqui é o lado de quem usa: o que a
+ * função devolve para a tela desenhar, e o que a trilha registra.
+ */
+grupo('os dois níveis — promover, rebaixar, e o que a trilha diz');
+
+const PROFESSORA = 'professora@exemplo.com';
+
+/** Dois e-mails na lista, com os níveis JÁ separados, e a sessão de quem coordena. */
+function comNiveis(opcoes) {
+  const o = opcoes || {};
+  const amb = ambiente({ allowlist: o.allowlist === undefined ? 'coordenacao@exemplo.com, ' + PROFESSORA : o.allowlist });
+  if (o.gerais !== undefined) amb.api.gravarConfig('coordenadores_gerais', o.gerais);
+  else amb.api.gravarConfig('coordenadores_gerais', 'coordenacao@exemplo.com');
+  amb.token = amb.api.criarSessao_(o.eu || 'coordenacao@exemplo.com');
+  return amb;
+}
+
+teste('promover e rebaixar mudam o nível, e só dele', () => {
+  const amb = comNiveis();
+
+  const promovida = amb.api.definirNivel({
+    token: amb.token, email: PROFESSORA, nivel: 'coordenador'
+  });
+  igual(promovida.ok, true, 'erro foi: ' + promovida.erro);
+  igual(promovida.pessoas, [
+    { email: 'coordenacao@exemplo.com', nivel: 'coordenador' },
+    { email: PROFESSORA, nivel: 'coordenador' }
+  ]);
+
+  const rebaixada = amb.api.definirNivel({
+    token: amb.token, email: PROFESSORA, nivel: 'professor'
+  });
+  igual(rebaixada.ok, true, 'erro foi: ' + rebaixada.erro);
+  igual(rebaixada.pessoas, [
+    { email: 'coordenacao@exemplo.com', nivel: 'coordenador' },
+    { email: PROFESSORA, nivel: 'professor' }
+  ]);
+  igual(rebaixada.emails, ['coordenacao@exemplo.com', PROFESSORA],
+    'a lista de acesso mudou junto — o nível não é porta');
+});
+
+teste('as QUATRO devolvem a mesma forma, e as duas listas concordam', () => {
+  // `desenharAcesso()` é chamada pelas quatro, e redesenha a tabela inteira com
+  // o que veio. Uma que devolvesse a forma antiga apagaria a coluna Nível
+  // depois de incluir alguém — defeito que passa em teste de unidade e aparece
+  // no dedo de quem usa.
+  //
+  // Mutação que derruba: qualquer uma das quatro voltar a devolver só `emails`.
+  const amb = comNiveis();
+
+  const respostas = [
+    amb.api.listarAdmins({ token: amb.token }),
+    amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }),
+    amb.api.incluirAdmin({ token: amb.token, email: 'nova@exemplo.com' }),
+    amb.api.removerAdmin({ token: amb.token, email: 'nova@exemplo.com' })
+  ];
+
+  respostas.forEach((r, i) => {
+    igual(r.ok, true, 'a ' + i + 'ª falhou: ' + r.erro);
+    verdadeiro(r.pessoas !== undefined, 'a ' + i + 'ª não devolveu `pessoas`');
+    igual(r.pessoas.map((p) => p.email), r.emails,
+      'a ' + i + 'ª tem duas listas que discordam');
+    r.pessoas.forEach((p) => {
+      verdadeiro(p.nivel === 'coordenador' || p.nivel === 'professor',
+        'nível estranho na ' + i + 'ª: ' + JSON.stringify(p));
+    });
+    igual(r.voce, 'coordenacao@exemplo.com');
+    igual(r.seuNivel, 'coordenador', 'a ' + i + 'ª não diz com que nível a tela está desenhada');
+  });
+});
+
+teste('a trilha do NIVEL_ALTERADO: a COLUNA diz quem mexeu, o detalhe diz o quê e por onde', () => {
+  // A coluna "Quem" passou a dizer o operador (04_Log.gs), então repetir o
+  // e-mail no detalhe seria escrevê-lo duas vezes na mesma linha. O que a coluna
+  // NÃO sabe é a mudança e a porta — e é isso que sobra para o detalhe.
+  //
+  // Mutação que derruba: gravar a mudança sem a linha (a trilha não responde
+  // "quem promoveu quem"); ou pôr o e-mail do operador de volta no detalhe.
+  const amb = comNiveis();
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
+  amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' });
+
+  const linha = linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_ALTERADO')[0];
+  verdadeiro(linha !== undefined, 'nenhum rastro: ' + JSON.stringify(acoesDoLog(amb)));
+  igual(linha.usuario, 'coordenacao@exemplo.com', 'a trilha não diz quem promoveu');
+  igual(linha.entidade_id, PROFESSORA, 'a trilha não diz quem foi promovido');
+  igual(linha.detalhe, 'professor -> coordenador geral, pela tela Quem tem acesso');
+  igual(linha.detalhe.indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail do operador está escrito duas vezes na mesma linha: ' + linha.detalhe);
+});
+
+teste('mudar de nível é UMA escrita no documento de configuração, e derruba o cache do link', () => {
+  // As duas chaves são campos do MESMO documento. Com dois `gravarConfig` em
+  // sequência existiria um instante — e, numa execução que morresse no meio, um
+  // estado gravado — com a lista de acesso nova e os coordenadores velhos.
+  //
+  // Mutação que derruba: gravar as duas chaves em duas chamadas; ou
+  // `gravarAcessos_` esquecer o `esquecerAllowlistDoLink_`, e aí quem mudou de
+  // nível continuaria valendo o nível velho no caminho do link por até cinco
+  // minutos.
+  const amb = comNiveis();
+  amb.api.allowlistParaLink_();
+  verdadeiro(amb.api.CacheService.getScriptCache().get(amb.api.LINK_CACHE_ALLOWLIST) !== null,
+    'o cache do link não esquentou: o teste não provaria nada');
+
+  amb.falso.requisicoes.length = 0;
+  igual(amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }).ok, true);
+
+  const escritas = amb.falso.requisicoes.filter(
+    (r) => r.metodo === 'PATCH' && String(r.url).indexOf('/config/geral') !== -1);
+  igual(escritas.length, 1, 'a mudança de nível custou ' + escritas.length + ' escritas');
+
+  const campos = Object.keys(escritas[0].corpo.fields).sort();
+  igual(campos, ['admin_emails', 'coordenadores_gerais'], 'a escrita não levou as duas chaves');
+
+  igual(amb.api.CacheService.getScriptCache().get(amb.api.LINK_CACHE_ALLOWLIST), null,
+    'a lista guardada do link sobreviveu à mudança de acesso');
+});
+
+teste('definirNivel recusa nível inventado e e-mail fora da lista, sem gravar nada', () => {
+  // Uma palavra desconhecida não pode virar "professor por omissão" nem
+  // "coordenador por omissão": as duas seriam uma decisão de acesso tomada por
+  // um erro de digitação.
+  const amb = comNiveis();
+
+  [
+    { email: PROFESSORA, nivel: 'COORDENADOR GERAL' },
+    { email: PROFESSORA, nivel: 'admin' },
+    { email: PROFESSORA, nivel: '' },
+    { email: PROFESSORA },
+    { email: 'ninguem@exemplo.com', nivel: 'coordenador' },
+    { nivel: 'professor' }
+  ].forEach((dados) => {
+    const r = amb.api.definirNivel(Object.assign({ token: amb.token }, dados));
+    igual(r.ok, false, JSON.stringify(dados) + ' passou');
+  });
+
+  amb.api.limparCacheConfig();
+  igual(amb.api.config('coordenadores_gerais'), 'coordenacao@exemplo.com');
+  igual(acoesDoLog(amb).indexOf('NIVEL_ALTERADO'), -1, 'gravou uma linha para uma recusa');
+});
+
+teste('as duas portas continuam distinguíveis na trilha depois da refatoração', () => {
+  // O e-mail de quem mexeu saiu do detalhe e virou coluna; o que sobrou no
+  // detalhe é a PORTA, e é só ela que separa o mesmo gesto feito na tela de
+  // acesso do mesmo gesto feito no campo de texto da aba Configurações. As duas
+  // frases passaram a ser escritas por `aplicarAcessos_`, e é por isso que este
+  // teste existe: elas não podem ter se perdido no caminho.
+  const amb = comNiveis();
+
+  amb.api.salvarConfiguracao({
+    token: amb.token, chave: 'admin_emails',
+    valor: 'coordenacao@exemplo.com, nova@exemplo.com'
+  });
+
+  const linhas = linhasDoLog(amb);
+  const incluida = linhas.filter((l) => l.acao === 'ADMIN_INCLUIDO')[0];
+  const removida = linhas.filter((l) => l.acao === 'ADMIN_REMOVIDO')[0];
+
+  igual(incluida.detalhe, 'pelo campo admin_emails');
+  igual(incluida.entidade_id, 'nova@exemplo.com');
+  igual(removida.detalhe, 'pelo campo admin_emails');
+  igual(removida.entidade_id, PROFESSORA);
+  igual(removida.usuario, 'coordenacao@exemplo.com', 'a coluna deixou de dizer quem mexeu');
 });
 
 // ================================================== Pela rota, ponta a ponta

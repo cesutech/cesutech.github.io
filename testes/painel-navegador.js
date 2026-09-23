@@ -6975,4 +6975,668 @@ teste('pela lista do projeto nada mudou: sem select, o projeto no título, a ocu
   igual(cena.js.INCLUSAO.projetoId, 'p2');
 });
 
+// ==================================================== Os dois níveis, na tela
+
+/**
+ * A ETAPA DA TELA do item 10 — e o que ela NÃO é.
+ *
+ * Nada aqui é permissão. O servidor recusa por nível em toda requisição
+ * (`rotaDoPainel_`, 08_Api.gs), e quem prova isso é o grupo 9 de
+ * `testes/invasao.js`, que entra pelo POST direto e não clica em nada. Estes
+ * testes provam a outra metade: que a tela do professor é uma tela HONESTA —
+ * que ela não oferece o clique que vai ser recusado, que ela diz de quem é a
+ * ação que ele não pode, e que uma recusa por nível não o joga na tela de
+ * login.
+ *
+ * A regra que eles cobram, em uma frase: a tela ESCONDE DESTINO (aba inteira) e
+ * DESABILITA AÇÃO (botão), sempre com a frase que explica.
+ */
+grupo('os dois níveis na tela — o que o professor vê, e o que ele não clica');
+
+const PROFESSORA = 'professora@exemplo.com';
+const COORDENACAO = 'coord@exemplo.com';
+
+/** O sistema com os dois níveis JÁ separados: a coordenação manda, ela lê. */
+function semearNiveis(api) {
+  cadastroBase(api);
+  api.gravarConfig('admin_emails', COORDENACAO + ', ' + PROFESSORA);
+  api.gravarConfig('coordenadores_gerais', COORDENACAO);
+}
+
+function comoProfessora(extra) {
+  return abrirPainel({
+    usuario: PROFESSORA,
+    semear: (api) => { semearNiveis(api); if (extra) extra(api); }
+  });
+}
+
+function comoCoordenacao(extra) {
+  return abrirPainel({
+    usuario: COORDENACAO,
+    semear: (api) => { semearNiveis(api); if (extra) extra(api); }
+  });
+}
+
+/** As abas que a fita está mostrando, na ordem em que estão lá. */
+function abasVisiveis(cena) {
+  return cena.documento.querySelectorAll('.aba')
+    .filter((b) => !b.classList.contains('oculto'))
+    .map((b) => b.getAttribute('data-aba'));
+}
+
+/** Tudo o que a tela DESENHOU — é sobre isto que as varreduras perguntam. */
+function telaInteira(cena) {
+  return Object.keys(cena.porId)
+    .map((k) => String(cena.porId[k].innerHTML || ''))
+    .join('\n');
+}
+
+/** Cada `<button ...>` que a tela desenhou, tag por tag. */
+function botoesDesenhados(cena) {
+  return telaInteira(cena).match(/<button[^>]*>/g) || [];
+}
+
+/**
+ * A tela do professor com o máximo de conteúdo à vista: as cinco abas dele, uma
+ * linha marcada no Geral (é o que desenha a barra de Anular) e a janela de
+ * inscritos de um projeto aberta (é onde vivem as exportações e o "Incluir
+ * aluno" da janela).
+ */
+function telaCheiaDaProfessora(cena) {
+  ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos'].forEach((a) => cena.js.trocarAba(a));
+  cena.js.trocarAba('auditorio');
+  const ids = idsDaLista(cena, 'recentes');
+  if (ids.length) cena.js.tocarLinha('recentes', ids[0]);
+  cena.js.trocarAba('projetos');
+  cena.js.verInscritosProjeto('p1');
+  return cena;
+}
+
+teste('o professor vê cinco abas: as quatro da coordenação somem da fita', () => {
+  // Mutação que derruba: esconder só três das quatro; esconder por uma classe
+  // que `trocarAba` devolva ao mostrar a seção; ou esconder a aba Alunos, que é
+  // justamente a dele.
+  const cena = comoProfessora();
+
+  igual(abasVisiveis(cena), ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos']);
+  igual(cena.js.NIVEL, 'professor');
+});
+
+teste('a mesma tela, com a coordenação, continua com as nove', () => {
+  // Mutação que derruba: esconder sempre, ou ler o nível de um lugar que não é a
+  // resposta do servidor — o dia em que a fita nascer curta para quem manda, o
+  // painel inteiro parece quebrado.
+  const cena = comoCoordenacao();
+
+  igual(abasVisiveis(cena).length, 9, abasVisiveis(cena).join(', '));
+  igual(cena.js.NIVEL, 'coordenador');
+});
+
+teste('a faixa do topo diz o nível — para os DOIS', () => {
+  // Mutação que derruba: desenhar a faixa só no nível fraco. Um rótulo que só
+  // nasce para quem tem menos é um crachá de rebaixamento; e quem coordena
+  // precisa saber com que nível está olhando quando for conferir a reclamação de
+  // um professor.
+  const professora = comoProfessora();
+  verdadeiro(professora.texto('faixa-nivel').indexOf('Professor') !== -1,
+    professora.texto('faixa-nivel'));
+  verdadeiro(!professora.elemento('faixa-nivel').classList.contains('oculto'),
+    'a faixa ficou escondida para quem mais precisa dela');
+
+  const coordenacao = comoCoordenacao();
+  igual(coordenacao.texto('faixa-nivel'), 'Coordenador geral');
+
+  // E a linha que explica o nível é só do professor: para a coordenação ela
+  // seria um aviso sobre nada, no topo de toda tela.
+  verdadeiro(professora.texto('aviso-nivel').indexOf('vê e exporta') !== -1,
+    professora.texto('aviso-nivel'));
+  igual(coordenacao.texto('aviso-nivel'), '');
+});
+
+teste('trocarAba("config") na mão não abre a aba nem fala com o servidor', () => {
+  // É o caminho de quem tem o `onclick` de uma tela que não recarregou, ou
+  // digita no console. Mutação que derruba: esconder o botão da aba e deixar
+  // `trocarAba` aceitar o nome — a seção apareceria, e `carregarConfig` sairia
+  // pedindo `lerConfiguracoes` e `listarAdmins`, as duas fechadas ao professor.
+  const cena = comoProfessora();
+  const antes = cena.chamadas.length;
+
+  ['importar', 'lotes', 'log', 'config'].forEach((aba) => {
+    cena.js.trocarAba(aba);
+    verdadeiro(cena.elemento('secao-' + aba).classList.contains('oculto'),
+      'a seção ' + aba + ' apareceu para o professor');
+  });
+
+  igual(cena.chamadas.length, antes, 'a aba fechada foi ao servidor assim mesmo');
+  // E a aba que estava na frente continua na frente: `trocarAba` sai ANTES de
+  // esconder as seções, senão o professor ficaria com a tela em branco.
+  verdadeiro(!cena.elemento('secao-painel').classList.contains('oculto'),
+    'a tentativa apagou a aba que estava aberta');
+});
+
+teste('"Anular" nasce desabilitado, continua NA TELA, e o clique não sai para a rede', () => {
+  // As duas metades importam. Mutação que derruba: habilitar o botão (o clique
+  // sairia e o servidor recusaria, o que é uma tela que ensina a não ler); ou
+  // ESCONDER o botão — este teste exige que ele exista, porque a barra é o que
+  // conta "38 marcadas" para o professor pedir a anulação por telefone.
+  const cena = comoProfessora();
+  cena.js.trocarAba('auditorio');
+  const ids = idsDaLista(cena, 'recentes');
+  verdadeiro(ids.length > 0, 'o cenário não tem inscrição recente para marcar');
+  cena.js.tocarLinha('recentes', ids[0]);
+
+  const barra = cena.html('auditorio-acoes-recentes');
+  verdadeiro(/marcada\(s\)/.test(barra), 'a barra parou de contar as marcadas: ' + barra);
+
+  const botao = cena.botaoQueChama(/anularMarcadas/);
+  verdadeiro(botao.disabled, 'o Anular nasceu clicável para o professor');
+  verdadeiro(String(botao.getAttribute('title')).indexOf('coordenação geral') !== -1,
+    botao.getAttribute('title'));
+
+  const antes = cena.requisicoesHttp.length;
+  botao.click();
+  igual(cena.requisicoesHttp.length, antes, 'o clique em botão desabilitado saiu para a rede');
+});
+
+teste('todo botão travado por nível diz de quem é a ação', () => {
+  // É o teste que impede a crueldade de nascer: botão apagado e mudo faz a
+  // pessoa concluir que o sistema quebrou, e o desfecho é um telefonema.
+  //
+  // Mutação que derruba: qualquer `travaDeNivel()` chamada sem motivo, ou um
+  // `disabled` escrito à mão no lugar dela.
+  const cena = telaCheiaDaProfessora(comoProfessora());
+
+  const mudos = botoesDesenhados(cena)
+    .filter((tag) => / disabled/.test(tag) && /aria-disabled/.test(tag))
+    .filter((tag) => tag.indexOf('coordenação geral') === -1);
+
+  igual(mudos, [], 'botão travado sem dizer por quê');
+});
+
+teste('varredura: na tela do professor, todo botão que GRAVA está desabilitado', () => {
+  // DERIVADA da própria tela, e não uma lista escrita à mão: um botão de escrita
+  // novo, desenhado sem `travaDeNivel`, cai aqui sem ninguém lembrar deste
+  // arquivo. As exceções são NOMEADAS, e cada uma tem motivo:
+  //
+  //   exportar    Excel e PDF montam o arquivo com o que já está na tela e não
+  //               falam com o servidor — travá-los seria teatro (ver o teste
+  //               logo abaixo);
+  //   baixarCsv   o CSV completo é do professor por decisão tomada e sabida
+  //               (J10-4), e é a única função dele que escreve — a linha
+  //               EXPORTACAO da trilha;
+  //   sairDoPainel ninguém precisa de nível para ir embora.
+  const cena = telaCheiaDaProfessora(comoProfessora());
+  const liberadas = ['exportar', 'baixarCsv', 'sairDoPainel'];
+
+  const soltos = botoesDesenhados(cena)
+    .filter((tag) => /onclick="aoGravar\(this, (\w+)/.test(tag))
+    .filter((tag) => liberadas.indexOf(/onclick="aoGravar\(this, (\w+)/.exec(tag)[1]) === -1)
+    .filter((tag) => !/ disabled/.test(tag));
+
+  igual(soltos, [], 'botão que grava ficou clicável para o professor');
+});
+
+teste('os quatro que ABREM JANELA estão travados — e o Salvar de dentro também', () => {
+  // O furo que este teste fecha: "Novo projeto", "Incluir disciplinas", "Incluir
+  // aluno" e "Editar" NÃO passam por `aoGravar` — eles abrem um formulário, e
+  // quem grava é o Salvar de dentro. Uma trava aplicada só a quem grava deixaria
+  // o professor preencher o formulário inteiro para ser recusado no fim.
+  //
+  // Mutação que derruba: travar só os `aoGravar`; ou travar só as portas e
+  // deixar o Salvar solto, e aí bastaria o `onclick` de uma tela velha para
+  // chegar nele.
+  const cena = comoProfessora();
+
+  ['botao-novo-projeto', 'botao-incluir-disciplinas', 'botao-coringa', 'botao-incluir-aluno']
+    .forEach((id) => {
+      const el = cena.elemento(id);
+      verdadeiro(el.disabled, 'o botão ' + id + ' abriria a janela para o professor');
+      verdadeiro(String(el.getAttribute('title')).indexOf('coordenação geral') !== -1, id);
+    });
+
+  cena.js.trocarAba('projetos');
+  verdadeiro(cena.botaoQueChama(/abrirFormProjeto\('p1'\)/).disabled, 'o Editar do projeto');
+  cena.js.trocarAba('alunos');
+  verdadeiro(cena.botaoQueChama(/abrirEdicaoAluno/).disabled, 'o Editar da ficha do aluno');
+
+  // A SEGUNDA PORTA do "Incluir aluno" — a da janela de inscritos de um projeto,
+  // que é onde a coordenação percebe quem falta. As duas abrem o MESMO
+  // formulário, e uma delas solta bastaria.
+  cena.js.trocarAba('projetos');
+  cena.js.verInscritosProjeto('p1');
+  verdadeiro(cena.elemento('insc-proj-incluir').disabled,
+    'a porta do "Incluir aluno" pela janela de inscritos ficou aberta');
+  cena.js.fecharModal();
+
+  // E o Salvar de dentro, alcançado pelo caminho que o botão travado não
+  // oferece: a janela aberta por dentro, como faria um `onclick` velho.
+  cena.js.abrirFormProjeto('p1');
+  verdadeiro(botaoSalvar(cena).disabled, 'o Salvar do formulário de projeto ficou solto');
+  verdadeiro(String(botaoSalvar(cena).getAttribute('title')).indexOf('coordenação geral') !== -1);
+
+  // E o Incluir do formulário de inclusão, pelo mesmo caminho.
+  cena.js.fecharModal();
+  cena.js.abrirInclusaoDeAluno();
+  verdadeiro(botaoSalvar(cena).disabled, 'o Incluir do formulário de inclusão ficou solto');
+});
+
+teste('os SEIS botões da MARCAÇÃO nascem travados — a lista é quem dita', () => {
+  // A varredura de botões não alcança estes: ela monta a amostra do HTML que a
+  // tela desenhou em execução, e os seis de `BOTOES_FIXOS` são marcação
+  // estática da página. Quatro deles tinham teste nominal (os que abrem
+  // janela); os DOIS da aba Painel — "Reconciliar agora" e "Sincronizar
+  // respostas do Forms", as duas operações mais caras do sistema, na primeira
+  // tela que o professor vê — não eram citados por teste nenhum: tirá-los da
+  // lista deixava a suíte inteira verde.
+  //
+  // DERIVADO da própria lista, e não de ids copiados: um id novo em
+  // `BOTOES_FIXOS` nasce exercitado sem ninguém lembrar deste arquivo.
+  //
+  // Mutação que derruba: tirar qualquer entrada de `BOTOES_FIXOS`.
+  const professora = comoProfessora();
+  const coordenacao = comoCoordenacao();
+  const ids = professora.js.BOTOES_FIXOS.map((b) => b.id);
+
+  verdadeiro(ids.indexOf('botao-reconciliar') !== -1 && ids.indexOf('botao-sincronizar') !== -1,
+    'os dois botões da aba Painel saíram da lista: ' + ids.join(', '));
+
+  ids.forEach((id) => {
+    const dela = professora.elemento(id);
+    verdadeiro(dela !== null && dela !== undefined, 'o botão ' + id + ' não existe na página');
+    verdadeiro(dela.disabled, 'o botão ' + id + ' nasceu clicável para o professor');
+    verdadeiro(String(dela.getAttribute('title')).indexOf('coordenação geral') !== -1,
+      id + ' travado e mudo: ' + dela.getAttribute('title'));
+    verdadeiro(!coordenacao.elemento(id).disabled,
+      'o botão ' + id + ' ficou travado para quem coordena');
+  });
+});
+
+teste('a QUEDA de nível redesenha a aba da frente: o Remover que estava vivo morre', () => {
+  // O caso que o próprio desenho chama de perigoso, e que não tinha teste: a
+  // aba carregada enquanto a pessoa era coordenadora continua no DOM depois da
+  // queda, com Remover, Editar e Inativar HABILITADOS. Esquecer a marca sozinha
+  // arrumaria a próxima visita e deixaria errada a tela que ela está olhando.
+  //
+  // Mutação que derruba: tirar o `esquecerAbas` da mudança de nível, ou o
+  // redesenho da aba da frente.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('projetos');
+  verdadeiro(!cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a cena não chegou a desenhar a aba com o botão vivo');
+
+  cena.js.aplicarNivel('professor');
+
+  const botao = cena.botaoQueChama(/removerProjetoUI/);
+  verdadeiro(botao.disabled, 'o Remover sobreviveu à queda de nível, na tela que ela está vendo');
+  verdadeiro(String(botao.getAttribute('title')).indexOf('coordenação geral') !== -1,
+    botao.getAttribute('title'));
+});
+
+teste('servidor VELHO (sem `nivel` na resposta) não rebaixa a equipe inteira — é a janela do deploy', () => {
+  // O painel sobe pelo Pages a cada push; o Apps Script é implantado À MÃO,
+  // depois. Nessa janela a tela NOVA fala com o servidor VELHO, que responde
+  // `{ok:true}` SEM `nivel` — porque ele não sabe o que é nível, não porque
+  // alguém seja professor. Tratar a ausência como o mais baixo tirava as quatro
+  // abas de todo mundo, INCLUSIVE Configurações, que é onde se arrumaria isso.
+  //
+  // Mutação que derruba: `NIVEL = nivel === 'coordenador' ? ... : 'professor'`
+  // (a versão anterior, que não distinguia ausente de desconhecido).
+  const cena = comoCoordenacao();
+
+  cena.js.aplicarNivel(undefined);
+  igual(cena.js.NIVEL, 'coordenador', 'o servidor velho rebaixou a coordenação');
+  cena.js.trocarAba('projetos');
+  verdadeiro(!cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a janela do deploy matou o Remover de quem coordena');
+
+  // E a palavra DESCONHECIDA continua caindo no mais baixo, que é o outro lado
+  // da moeda: servidor novo, palavra que esta tela não conhece.
+  cena.js.aplicarNivel('titular');
+  igual(cena.js.NIVEL, 'professor', 'uma palavra nova virou coordenação');
+});
+
+teste('a SUBIDA também: quem clica cedo não fica com os botões mortos até um F5', () => {
+  // A janela do boot, que é a de todo F5: `entrarComSessao` abre o painel SEM
+  // nível e só então pergunta (`sessaoAtiva`), e a fita de abas é marcação
+  // estática, clicável desde o primeiro instante. A coordenação que clicar em
+  // Projetos nessa janela e receber a resposta da aba antes da do nível ficava
+  // com Editar, Inativar e Remover mortos — com o `title` dizendo que são da
+  // coordenação geral, para quem É a coordenação geral.
+  //
+  // Mutação que derruba: voltar a condição para `NIVEL_APLICADO ===
+  // 'coordenador' && NIVEL !== 'coordenador'` — só a queda esqueceria.
+  const cena = comoCoordenacao();
+  cena.js.NIVEL = 'professor';
+  cena.js.NIVEL_APLICADO = 'professor';
+  cena.js.esquecerAbas();
+
+  cena.js.trocarAba('projetos');
+  verdadeiro(cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a cena não chegou a desenhar a aba no nível provisório');
+
+  cena.js.aplicarNivel('coordenador');
+
+  const botao = cena.botaoQueChama(/removerProjetoUI/);
+  verdadeiro(!botao.disabled, 'o Remover continuou morto para quem coordena');
+  igual(botao.getAttribute('title'), null, 'sobrou a frase de recusa num botão liberado');
+});
+
+teste('a aba Painel não desenha botão travado — é o que permite manter a marca dela', () => {
+  // A afirmação que sustenta a exceção: `aplicarNivel` esquece todas as abas
+  // menos a Painel, porque ela é a ÚNICA que a abertura desenha antes de o
+  // servidor dizer o nível, e o que ela desenha são os dez números. Os dois
+  // botões de coordenação da aba são FIXOS, e ficam fora do conteúdo dela.
+  //
+  // Mutação que derruba: desenhar em `carregarPainel` um botão com
+  // `travaDeNivel` — a partir daí manter a marca deixaria a aba errada depois
+  // de uma mudança de nível, e esta exceção precisaria ser revista.
+  const cena = comoProfessora();
+  verdadeiro(cena.js.ABAS_PRONTAS.painel, 'a aba Painel não chegou a carregar');
+  igual(String(cena.html('conteudo-painel')).indexOf('coordenação geral'), -1,
+    'a aba Painel passou a desenhar botão travado por nível');
+
+  cena.js.aplicarNivel('coordenador');
+  igual(cena.js.ABAS_PRONTAS.painel, true, 'a marca da aba Painel foi esquecida junto');
+  igual(cena.js.ABAS_PRONTAS.projetos, undefined, 'as outras abas não foram esquecidas');
+});
+
+teste('Exportar CSV continua inteiro para o professor — e a trilha diz qual professor exportou', () => {
+  // A DECISÃO TOMADA E SABIDA (J10-4): os dois níveis resolvem o clique errado,
+  // não a cópia. Oito pessoas seguem podendo baixar nome, CPF, e-mail, telefone
+  // e nascimento da base inteira — e é por `exportarCsv` escrever no log que a
+  // trilha responde "qual professor exportou".
+  //
+  // Mutação que derruba: gatear `exportarCsv` por nível (o professor perde o
+  // "exporta" do pedido); ou tirá-la do balde do professor no servidor.
+  const cena = comoProfessora();
+  cena.js.trocarAba('alunos');
+
+  const botao = cena.elemento('botao-exportar');
+  verdadeiro(!botao.disabled, 'o CSV do professor foi travado');
+  botao.click();
+
+  igual(chamadasDe(cena, 'exportarCsv').length, 1, 'o clique não chegou ao servidor');
+  verdadeiro(/linha\(s\) exportada\(s\)/.test(cena.texto('mensagem-global')),
+    cena.texto('mensagem-global'));
+  const linhas = Object.keys(cena.documentos('log'))
+    .map((k) => cena.documentos('log')[k])
+    .filter((l) => l.acao === 'EXPORTACAO');
+  igual(linhas.length, 1, 'a exportação não deixou linha na trilha');
+  igual(linhas[0].usuario, PROFESSORA, 'a trilha não diz qual professor exportou');
+});
+
+teste('Excel e PDF da janela não falam com o servidor, e o professor os tem', () => {
+  // Mutação que derruba: pôr `travaDeNivel` em `botoesDeExportacao`. Seria
+  // teatro — o dado já está na tela, montado pela leitura que o professor tem
+  // direito de fazer — e tiraria dele o relatório da turma que ele vai imprimir.
+  const cena = comoProfessora();
+  const planilha = espionarPlanilha(cena);
+  cena.js.trocarAba('projetos');
+  cena.js.verInscritosProjeto('p1');
+
+  const excel = cena.botaoQueChama(/exportar\('projeto', 'excel'\)/);
+  const pdf = cena.botaoQueChama(/exportar, 'projeto', 'pdf'/);
+  verdadeiro(!excel.disabled, 'o Excel da janela foi travado');
+  verdadeiro(!pdf.disabled, 'o PDF da janela foi travado');
+
+  const antes = cena.requisicoesHttp.length;
+  excel.click();
+  igual(cena.requisicoesHttp.length, antes, 'a exportação passou a falar com o servidor');
+  igual(planilha.baixados.length, 1, 'o arquivo não foi gerado');
+});
+
+teste('o "Atualizar" da aba Alunos, como professor, chama listarAlunos e não atualizarAlunos', () => {
+  // O botão parece recarregar e, no coordenador, RECONCILIA — a execução mais
+  // cara do sistema, que reescreve a coleção `alunos`. Mutação que derruba:
+  // deixar `cruzar` fixo, e aí o professor recebe uma recusa num botão que
+  // ninguém associa a escrita; ou travar o botão, e aí a aba dele fica sem
+  // recarregar.
+  const cena = comoProfessora();
+  cena.js.trocarAba('alunos');
+  const antes = chamadasDe(cena, 'atualizarAlunos').length;
+  const listagens = chamadasDe(cena, 'listarAlunos').length;
+
+  cena.elemento('botao-exportar').getAttribute('id');   // a barra está desenhada
+  cena.js.atualizarAlunosUI();
+
+  igual(chamadasDe(cena, 'atualizarAlunos').length, antes, 'o professor disparou a reconciliação');
+  igual(chamadasDe(cena, 'listarAlunos').length, listagens + 1, 'a lista não recarregou');
+  verdadeiro(cena.texto('mensagem-global').indexOf('Cruzando') === -1,
+    'a faixa prometeu um cruzamento que não aconteceu: ' + cena.texto('mensagem-global'));
+});
+
+teste('o rótulo da espera do Atualizar diz o que cada nível vai esperar', () => {
+  // A espera do cruzamento é de segundos, e a da relistagem não. Mutação que
+  // derruba: escolher o rótulo por `cruzar` (o que o clique PEDIU) em vez de por
+  // `cruza` (o que vai acontecer de verdade) — e, como `var` sobe sozinho para o
+  // topo da função, lê-lo antes da linha que o define traz `undefined`: a
+  // coordenação veria "Carregando..." no clique mais caro do sistema.
+  const coordenacao = comoCoordenacao();
+  coordenacao.js.trocarAba('alunos');
+  coordenacao.respostas.atualizarAlunos = semResposta();
+  coordenacao.js.atualizarAlunosUI();
+  igual(coordenacao.texto('conteudo-alunos'), 'Cruzando os dados e recarregando...');
+
+  const professora = comoProfessora();
+  professora.js.trocarAba('alunos');
+  professora.respostas.listarAlunos = semResposta();
+  professora.js.atualizarAlunosUI();
+  igual(professora.texto('conteudo-alunos'), 'Carregando...');
+});
+
+teste('a ficha do aluno abre inteira para ler, e o bloco da decisão não é desenhado', () => {
+  // "Ver" é leitura, e é a aba do professor. O que sai é o `select` de status e o
+  // "Salvar decisão" — e no lugar deles fica a frase que diz de quem é a decisão.
+  //
+  // Mutação que derruba: desenhar o select desabilitado (é o controle que mais
+  // parece defeito de tela); ou desenhar o Salvar e deixar o servidor recusar.
+  const cena = comoProfessora();
+  cena.js.trocarAba('alunos');
+  cena.js.abrirDetalhe(alunoOnde(cena, 'matricula', '9220002'));
+
+  verdadeiro(/comparativo__coluna/.test(cena.html('modal-corpo')), 'a ficha não abriu');
+  igual(cena.documento.getElementById('novo-status'), null, 'o select de status continuou na janela');
+  igual(cena.documento.getElementById('modal-salvar'), null, 'o "Salvar decisão" continuou na janela');
+  verdadeiro(cena.texto('modal-corpo').indexOf('coordenação geral') !== -1,
+    'a janela não diz de quem é a decisão');
+});
+
+teste('a recusa por nível NÃO desloga, e corrige a tela que estava errada', () => {
+  // O estado que esta metade existe para tratar: a tela desenhada com um nível
+  // que não é mais o da pessoa — alguém editou `coordenadores_gerais` por fora,
+  // pelo console do Firestore, onde não há sessão para derrubar.
+  //
+  // Mutação que derruba: usar a frase de sessão na recusa por nível (o professor
+  // entra num laço de login), ou deixar a recusa cair no `esquecerAbas` das
+  // gravações — nove abas recarregando por um clique que não aconteceu.
+  const cena = comoProfessora();
+  cena.js.aplicarNivel('coordenador');
+  igual(abasVisiveis(cena).length, 9, 'a cena não chegou a ficar com a tela errada');
+
+  cena.js.trocarAba('projetos');
+  cena.botaoQueChama(/removerProjetoUI/).click();
+
+  verdadeiro(cena.texto('mensagem-global').indexOf('coordenação geral') !== -1,
+    cena.texto('mensagem-global'));
+  verdadeiro(cena.elemento('tela-login').classList.contains('oculto'),
+    'a recusa por nível jogou o professor na tela de login');
+  verdadeiro(cena.js.lerToken() !== null, 'a recusa por nível apagou o token de uma sessão válida');
+  verdadeiro(cena.documentos('projetos').p1, 'o projeto foi removido assim mesmo');
+
+  // E o cinto e suspensório: o servidor disse o nível junto com a recusa, e a
+  // tela se corrigiu na hora.
+  igual(cena.js.NIVEL, 'professor');
+  igual(abasVisiveis(cena).length, 5);
+});
+
+teste('a recusa por nível não manda as abas recarregarem', () => {
+  // O caminho de quem monta a requisição no console — a tela já está desenhada
+  // certa, e nada nela mudou. A recusa é a resposta de uma função que NÃO é
+  // leitura, e o `chamar()` esquece todas as abas nessas respostas porque uma
+  // gravação pode ter mexido em qualquer uma. Esta não mexeu em nada.
+  //
+  // Mutação que derruba: tirar o tratamento de `motivo === 'NIVEL'` do
+  // `chamar()` — cada clique curioso do professor passaria a custar uma
+  // execução do Apps Script por aba visitada, sem nada ter acontecido no banco.
+  const cena = comoProfessora();
+  cena.js.trocarAba('alunos');
+  igual(cena.js.ABAS_PRONTAS.alunos, true, 'a aba Alunos não chegou a carregar');
+
+  cena.js.chamar('removerProjeto', { id: 'p1' }, function () {});
+
+  igual(cena.js.ABAS_PRONTAS.alunos, true, 'a recusa fez o painel esquecer as abas carregadas');
+  igual(cena.js.NIVEL, 'professor', 'a tela já estava certa e mudou de nível');
+  verdadeiro(cena.texto('mensagem-global').indexOf('coordenação geral') !== -1,
+    cena.texto('mensagem-global'));
+  verdadeiro(cena.documentos('projetos').p1, 'o projeto foi removido pelo caminho do console');
+});
+
+teste('quem cai de nível com Configurações na frente não fica olhando a lista de acesso', () => {
+  // Esconder o BOTÃO da aba não esconde o conteúdo dela: a seção continua aberta
+  // até alguém clicar em outra coisa, e o que está ali é a lista de quem manda
+  // no sistema. Mutação que derruba: esconder só a fita em `aplicarNivel`.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('config');
+  verdadeiro(cena.texto('conteudo-acesso').indexOf(PROFESSORA) !== -1, 'a cena não abriu a lista');
+
+  cena.js.aplicarNivel('professor');
+
+  verdadeiro(cena.elemento('secao-config').classList.contains('oculto'),
+    'a aba Configurações continuou na tela depois da queda de nível');
+  verdadeiro(!cena.elemento('secao-painel').classList.contains('oculto'),
+    'a tela ficou sem nenhuma aba aberta');
+});
+
+teste('a recusa por nível dentro da janela pousa NA JANELA', () => {
+  // Mutação que derruba: escrever direto em `#mensagem-global`, ignorando
+  // `destinoDoAviso`. O erro nasceria atrás do formulário aberto, a pessoa veria
+  // o botão voltar ao normal e nada mais — que é como nasceram dois projetos
+  // "CONECTANDO GERAÇÕES" em 12/08.
+  const cena = comoProfessora();
+  cena.js.aplicarNivel('coordenador');
+  cena.js.trocarAba('alunos');
+  cena.js.abrirEdicaoAluno(alunoOnde(cena, 'matricula', '9220002'));
+
+  botaoSalvar(cena).click();
+
+  verdadeiro(janelaAberta(cena), 'a janela fechou em cima da recusa');
+  verdadeiro(cena.texto('mensagem-modal').indexOf('coordenação geral') !== -1,
+    cena.texto('mensagem-modal'));
+  igual(cena.texto('mensagem-global'), '', 'o aviso foi para a tela de trás');
+});
+
+// ------------------------------------------------ A gestão dos níveis
+
+/**
+ * Ela mora no cartão que já existe — Configurações > "Quem tem acesso ao
+ * painel" —, e não numa aba nova: é onde o e-mail nasce e morre, e separar "quem
+ * entra" de "o que ele pode" criaria duas telas que respondem à mesma pergunta e
+ * um dia divergem.
+ */
+grupo('a gestão dos níveis, no cartão que já existe');
+
+/** A linha da tabela de acesso de uma pessoa, como a tela a desenhou. */
+function linhaDoAcesso(cena, email) {
+  const linhas = String(cena.html('conteudo-acesso')).split('<tr>');
+  const achada = linhas.filter((l) => l.indexOf(email) !== -1)[0];
+  if (!achada) throw new Error('a tabela de acesso não tem ' + email + ': ' + cena.html('conteudo-acesso'));
+  return achada;
+}
+
+teste('a tabela diz o nível de cada um, e o botão alterna', () => {
+  // Mutação que derruba: devolver a forma velha (`emails`) numa das quatro — a
+  // coluna Nível sumiria depois de incluir alguém; ou desenhar o mesmo rótulo
+  // nas duas linhas.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('config');
+
+  const minha = linhaDoAcesso(cena, COORDENACAO);
+  const dela = linhaDoAcesso(cena, PROFESSORA);
+  verdadeiro(minha.indexOf('Coordenador geral') !== -1, minha);
+  verdadeiro(minha.indexOf('(você)') !== -1, minha);
+  verdadeiro(dela.indexOf('>Professor<') !== -1, dela);
+  verdadeiro(dela.indexOf('Tornar coordenador geral') !== -1, dela);
+  verdadeiro(minha.indexOf('Tornar Professor') !== -1, minha);
+});
+
+teste('promover encerra a sessão da pessoa, e a tabela já mostra o novo nível', () => {
+  // Mutação que derruba: gravar o nível sem `invalidarSessoesDe_` — a tela dela
+  // ficaria errada por até oito horas, e cada clique viraria uma recusa que ela
+  // não teria como explicar; ou redesenhar a tabela com a resposta velha.
+  const cena = comoCoordenacao();
+  const dela = cena.api.criarSessao_(PROFESSORA);
+  igual(cena.api.sessaoAtiva(dela).ok, true);
+
+  cena.js.trocarAba('config');
+  cena.botaoQueChama(new RegExp("definirNivelUI, '" + PROFESSORA + "', 'coordenador'")).click();
+
+  verdadeiro(cena.confirmacoes[0].indexOf('tudo o que você pode') !== -1, cena.confirmacoes[0]);
+  igual(cena.api.sessaoAtiva(dela).ok, false, 'a sessão dela não caiu');
+  verdadeiro(linhaDoAcesso(cena, PROFESSORA).indexOf('Coordenador geral') !== -1,
+    linhaDoAcesso(cena, PROFESSORA));
+  igual(cena.api.config('coordenadores_gerais'), COORDENACAO + ', ' + PROFESSORA);
+});
+
+teste('quem entra nasce Professor, e a tela diz onde fica o segundo gesto', () => {
+  // Mutação que derruba: um padrão escondido que inclua como coordenador — é o
+  // pedido da coordenação ao contrário —, ou a frase de sucesso não dizer o
+  // nível, e aí quem incluiu descobre pelo telefonema de quem entrou.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('config');
+  cena.digitar('acesso-novo', 'Nova.Pessoa@Exemplo.com');
+  cena.botaoQueChama(/incluirAcesso/).click();
+
+  const linha = linhaDoAcesso(cena, 'nova.pessoa@exemplo.com');
+  verdadeiro(linha.indexOf('>Professor<') !== -1, linha);
+  verdadeiro(cena.texto('mensagem-global').indexOf('como Professor') !== -1,
+    cena.texto('mensagem-global'));
+  verdadeiro(cena.texto('mensagem-global').indexOf('Tornar coordenador geral') !== -1,
+    cena.texto('mensagem-global'));
+  igual(cena.api.config('coordenadores_gerais'), COORDENACAO,
+    'incluir mexeu na lista de coordenadores');
+});
+
+teste('o único coordenador geral não vira Professor: o botão nasce travado e o banco não muda', () => {
+  // A invariante do último coordenador, vista da tela. Quem decide continua
+  // sendo o servidor (`aplicarAcessos_`, com teste de invasão por POST direto);
+  // isto aqui é não oferecer um clique cujo desfecho já se sabe.
+  //
+  // Mutação que derruba: tirar a guarda da tela — a cena seguinte é um painel em
+  // que ninguém configura, importa nem devolve acesso a alguém, e o conserto sai
+  // da tela e vai para o editor do Apps Script.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('config');
+
+  const botao = cena.botaoQueChama(new RegExp("definirNivelUI, '" + COORDENACAO + "', 'professor'"));
+  verdadeiro(botao.disabled, 'o último coordenador geral podia se rebaixar pela tela');
+  verdadeiro(String(botao.getAttribute('title')).indexOf('último coordenador geral') !== -1,
+    botao.getAttribute('title'));
+
+  const antes = cena.requisicoesHttp.length;
+  botao.click();
+  igual(cena.requisicoesHttp.length, antes, 'o clique saiu para a rede');
+  igual(cena.api.config('coordenadores_gerais'), COORDENACAO, 'a chave mudou assim mesmo');
+});
+
+teste('rebaixar a si mesmo devolve ao login, com a frase própria', () => {
+  // É o único caso que a tela consegue explicar na hora: o servidor acabou de
+  // encerrar esta sessão. Mutação que derruba: cair na recusa genérica de sessão
+  // ("Sessão expirada"), e aí a pessoa que acabou de se rebaixar não tem como
+  // saber se o painel quebrou ou se ela mesma fez aquilo.
+  const cena = comoCoordenacao((api) => {
+    api.gravarConfig('coordenadores_gerais', COORDENACAO + ', ' + PROFESSORA);
+  });
+  cena.js.trocarAba('config');
+
+  cena.botaoQueChama(new RegExp("definirNivelUI, '" + COORDENACAO + "', 'professor'")).click();
+
+  verdadeiro(cena.confirmacoes[0].indexOf('Virar Professor você mesmo?') !== -1, cena.confirmacoes[0]);
+  verdadeiro(!cena.elemento('tela-login').classList.contains('oculto'),
+    'continuaria num painel em que metade dos cliques é recusada');
+  igual(cena.js.lerToken(), null, 'guardou um token que o servidor já encerrou');
+  verdadeiro(cena.texto('aviso-login').indexOf('entra como Professor') !== -1,
+    cena.texto('aviso-login'));
+  igual(cena.api.config('coordenadores_gerais'), PROFESSORA);
+});
+
 process.exit(resultado());

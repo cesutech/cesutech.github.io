@@ -472,6 +472,50 @@ teste('Session lançando (sem escopo autorizado) também vira \'anonimo\'', () =
   igual(api.usuarioAtual(), 'anonimo');
 });
 
+grupo('o operador da execução — a coluna "Quem" da trilha');
+
+teste('anotado o operador, a linha é dele e não da identidade da implantação', () => {
+  // A ORDEM de `quemOperou_` é o que esta peça inteira compra. Mutação que
+  // derruba: inverter as duas metades (`usuarioAtual() || OPERADOR`) — no
+  // painel publicado `usuarioAtual()` responde 'anonimo', que é um valor
+  // verdadeiro em JavaScript, e a coluna voltaria a não dizer nada; ou anotar e
+  // não ler, gravando 'gestao@exemplo.com', a conta que IMPLANTOU o web app.
+  const { api, falso } = ambiente({ usuario: 'gestao@exemplo.com' });
+
+  api.anotarOperador_('professora@exemplo.com');
+  api.registrar('EXPORTACAO', 'alunos', '', '300 linhas');
+
+  const linha = campos(falso, chavesDaColecao(falso, 'log')[0]);
+  igual(linha.usuario, 'professora@exemplo.com');
+});
+
+teste('sem operador, a trilha continua respondendo o que o Apps Script entrega', () => {
+  // Os caminhos SEM sessão não mudaram: o formulário do aluno, os gatilhos
+  // diários e o editor não passam por guarda nenhuma, e é `usuarioAtual()` que
+  // responde por eles. Mutação que derruba: `quemOperou_` devolver só o
+  // operador — o gatilho de backup e a inscrição do aluno perderiam a única
+  // identidade que ainda tinham.
+  const { api, falso } = ambiente({ usuario: 'gestao@exemplo.com' });
+
+  api.registrar('BACKUP', 'drive', 'arq1', 'diário');
+
+  igual(campos(falso, chavesDaColecao(falso, 'log')[0]).usuario, 'gestao@exemplo.com');
+});
+
+teste('anotar vazio APAGA o operador — recusa não herda o nome de quem passou antes', () => {
+  // É o que `exigirAdmin` faz no caminho da recusa. A variável é global ao
+  // script, e sem a limpeza a segunda chamada de uma mesma execução — recusada
+  // — sairia assinada pela primeira. Mutação que derruba: `anotarOperador_`
+  // ignorar vazio, ou `exigirAdmin` só anotar no caminho feliz.
+  const { api, falso } = ambiente({ usuario: '' });
+
+  api.anotarOperador_('professora@exemplo.com');
+  api.anotarOperador_('');
+  api.registrar('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
+
+  igual(campos(falso, chavesDaColecao(falso, 'log')[0]).usuario, 'anonimo');
+});
+
 grupo('07_Auth.gs e 07b_LinkPorEmail.gs rodam — nenhuma função órfã sobrou');
 
 teste('login por LINK devolve token, e o LOGIN fica na trilha COM NOME', () => {
@@ -492,7 +536,7 @@ teste('login por LINK devolve token, e o LOGIN fica na trilha COM NOME', () => {
   igual(r.usuario, 'gestao@exemplo.com');
   verdadeiro(r.token && r.token.length > 20, 'token foi ' + r.token);
   verdadeiro(amb.propriedades.has('sess_' + r.token), 'a sessão deveria estar guardada');
-  igual(amb.api.sessaoAtiva(r.token), { ok: true });
+  igual(amb.api.sessaoAtiva(r.token).ok, true);
 
   // Sem ordenar: os dois registros podem cair no mesmo milissegundo, e aí quem
   // decide a ordem do id é o sufixo aleatório. Ordem de log tem teste próprio,

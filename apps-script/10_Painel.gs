@@ -931,9 +931,11 @@ function incluirInscricao(payload) {
     exigirAdmin(payload && payload.token);
     payload = payload || {};
 
-    // Quem operou: a sessão sabe (07_Auth.gs), e `usuarioAtual()` é o que
-    // `registrar` gravaria sozinho — no GitHub Pages ele vem vazio, e por isso o
-    // e-mail da sessão entra no DETALHE da linha.
+    // Quem operou, para o campo `incluido_por` DO DOCUMENTO: a sessão sabe
+    // (07_Auth.gs) e `usuarioAtual()` vem vazio no GitHub Pages, então a sessão
+    // vem primeiro — é a mesma ordem de `quemOperou_` (04_Log.gs), pelo mesmo
+    // motivo. A linha da trilha não precisa mais dele: lá o nome é a coluna
+    // `usuario`, que `exigirAdmin` preenche.
     var quem = emailDaSessao_(payload.token) || usuarioAtual();
 
     // Formato antes de qualquer leitura: pedido malformado não custa cota. É a
@@ -1122,10 +1124,12 @@ function incluirInscricao(payload) {
           // viria lá embaixo — quem sai por aqui passaria por fora dele, e a
           // inscrição ganharia vaga sem uma linha dizendo que alguém tentou.
           // `registrar` é à prova de falha (04_Log.gs) e a linha diz o que se
-          // sabe: o que foi tentado, por quem, e que não houve confirmação.
+          // sabe: o que foi tentado, em que projeto, e que não houve
+          // confirmação. Quem tentou está na coluna `usuario` da mesma linha,
+          // que `exigirAdmin` passou a preencher — e por isso saiu daqui.
           registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
             'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
-            'da fila pode ter entrado — por ' + quem + ' no projeto ' + projetoNome);
+            'da fila pode ter entrado — no projeto ' + projetoNome);
 
           return {
             ok: false,
@@ -1153,8 +1157,13 @@ function incluirInscricao(payload) {
     // que a trilha responde é "quem pôs esta pessoa neste projeto", e a resposta
     // é a mesma — a coordenação, por esta porta. O que muda é que o documento já
     // existia, e a linha diz isso.
+    //
+    // O NOME de quem incluiu saiu do detalhe e está na coluna `usuario`, desde
+    // que `exigirAdmin` anota o operador (04_Log.gs). `quem` continua vivo
+    // acima porque ele também vira `incluido_por` NO DOCUMENTO da inscrição,
+    // que é o que o CSV e a ficha leem — e essa cópia não tem coluna nenhuma.
     registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
-      'por ' + quem + ' no projeto ' + projetoNome + ' (' + inscritos +
+      'no projeto ' + projetoNome + ' (' + inscritos +
       (vagas > 0 ? '/' + vagas : ' inscritos, vagas ilimitadas') + ')' +
       (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : '') +
       (promovida ? ' (promovida da fila)' : ''));
@@ -1914,6 +1923,16 @@ function detalheAluno(payload) {
         // Atualizar, é aqui que a ficha já diz a verdade. Vazias quando não há.
         situacao_cadastro: cadastroCancelado_(matriculado) ? 'CANCELADO' : '',
         cancelado_em: String(matriculado.cancelado_em || ''),
+        // `cancelado_por` é o e-mail de quem cancelou, e o PROFESSOR o vê —
+        // sabido e aceito, não esquecimento. Filtrá-lo por nível custaria uma
+        // leitura de configuração aqui dentro (o despacho só resolve o nível
+        // para o que NÃO é do professor), e este é o modal mais aberto do
+        // painel, com teste que conta as três leituras de ponto e recusa a
+        // quarta. A aba Histórico fechada é outra coisa: lá está a lista de
+        // acesso inteira e quem entrou e saiu dela. Aqui é um e-mail da
+        // coordenação, na ficha de um aluno cancelado, para quem já trabalha
+        // com essa coordenação. Se um dia incomodar, a troca é esta linha por
+        // um gate e um teste de custo atualizado.
         cancelado_por: String(matriculado.cancelado_por || ''),
         cancelado_lote_id: String(matriculado.cancelado_lote_id || '')
       } : null
@@ -2739,7 +2758,9 @@ function registrarEdicao_(id, plano, destino, vizinhas) {
 
   // Linha própria, e não um pedaço da anterior: é ela que responde "por que este
   // projeto tem 61 inscritos", e ela precisa carregar de onde saiu, para onde foi
-  // e quanto ficou. Quem fez vem de `registrar`, que grava `usuarioAtual()`.
+  // e quanto ficou. Quem fez vem de `registrar`, que grava o operador anotado
+  // por `exigirAdmin` — o e-mail da sessão, e não mais o 'anonimo' que
+  // `usuarioAtual()` devolve no painel publicado (04_Log.gs).
   registrar('ALUNO_MIGRADO', 'aluno', id,
     'de "' + (plano.projeto.de.nome || plano.projeto.de.id || 'sem projeto') + '" para "' +
     destino.nome + '" (' + destino.id + '); o destino ficou com ' + destino.inscritos +
@@ -2773,6 +2794,14 @@ function avisarMigracao_(destino, avisos) {
  * desenho que evite isso — o arquivo tem uma linha por aluno. O que existe é o
  * teto de PAINEL_TETO_EXPORTACAO, para um clique repetido não conseguir queimar a
  * cota do dia; passando dele, o arquivo sai truncado e o aviso vai para o log.
+ *
+ * ELA É DOS DOIS NÍVEIS, e é a única exceção à regra "professor é leitura"
+ * (`funcoesDoProfessor_`, 08_Api.gs). Decisão do Jonathan, 23/09, tomada e
+ * sabida: o arquivo leva nome, CPF, e-mail, telefone e nascimento de até 5.000
+ * alunos, e os dois níveis não reduzem um grama dessa superfície — eles
+ * resolvem o clique errado, não a cópia. O que muda é que a linha EXPORTACAO
+ * abaixo passou a dizer QUAL pessoa exportou (04_Log.gs), e é por ela que essa
+ * pergunta tem resposta.
  */
 function exportarCsv(payload) {
   try {
@@ -3026,7 +3055,12 @@ function urlDoWebApp_() {
  *      `regravarAllowlist_` (07_Auth.gs), que é quem recusa esvaziar a lista,
  *      derruba a sessão de quem saiu e registra na trilha. Gravar por aqui era a
  *      porta dos fundos das guardas de `removerAdmin`;
- *   3. chave marcada como segredo em CONFIG_SEGREDOS não passa por aqui. O mapa
+ *   3. `coordenadores_gerais` é a lista de QUEM PODE O QUÊ, e tem a mesma
+ *      história: ela aparece nesta tela de qualquer jeito (a lista de chaves
+ *      conhecidas inclui o que já está no banco), então ela vai para
+ *      `regravarGerais_` (07_Auth.gs), que recusa o campo vazio e o e-mail fora
+ *      da lista de acesso;
+ *   4. chave marcada como segredo em CONFIG_SEGREDOS não passa por aqui. O mapa
  *      está vazio hoje — a guarda fica pelo dia em que não estiver.
  *
  * A guarda que existia para `modo_acesso_painel` foi embora com a chave: não há
@@ -3038,7 +3072,10 @@ function urlDoWebApp_() {
  */
 function salvarConfiguracao(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    // Cobra o NÍVEL por dentro, e não só no despacho: por aqui passam as duas
+    // listas de acesso, então esta é uma das quatro funções pelas quais um
+    // professor se promoveria se a cobrança da rota um dia saísse do lugar.
+    exigirCoordenador(payload && payload.token);
     payload = payload || {};
 
     var chave = String(payload.chave || '').trim();
@@ -3055,6 +3092,12 @@ function salvarConfiguracao(payload) {
     }
 
     if (chave === 'admin_emails') return regravarAllowlist_(valor, payload.token);
+    // A linha gêmea, e pela mesma razão: `coordenadores_gerais` decide o que
+    // cada um pode, e o campo de texto não pode ser a porta dos fundos das
+    // guardas de `definirNivel`. `regravarGerais_` recusa o campo vazio (que
+    // promoveria todo mundo pelo piso) e o e-mail que não está na lista de
+    // acesso (que seria inerte, com a tela dizendo "salvo").
+    if (chave === 'coordenadores_gerais') return regravarGerais_(valor, payload.token);
 
     gravarConfig(chave, valor);
     registrar('CONFIG', 'config', chave, 'alterado');

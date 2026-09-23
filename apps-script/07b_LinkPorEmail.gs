@@ -369,8 +369,19 @@ function entrarComLink(token) {
       return recusa;
     }
 
+    // Como na porta do Google (07_Auth.gs): a entrada é a única ação em que a
+    // pessoa se identifica antes de existir sessão, e `exigirAdmin` — que anota
+    // o operador nas demais — não passa por aqui. A posse da caixa já provou o
+    // endereço e a allowlist acabou de ser conferida, então a linha diz quem
+    // entrou. A recusa acima continua sem operador: ninguém entrou.
+    anotarOperador_(email);
     registrar('LOGIN', 'painel', email, 'via link por e-mail');
-    return { ok: true, token: criarSessao_(email), usuario: email, via: 'link' };
+    // O nível vai junto, como nas outras duas portas (07_Auth.gs): quem entra
+    // pela recuperação vê a mesma tela que veria entrando pelo Google.
+    return {
+      ok: true, token: criarSessao_(email), usuario: email, via: 'link',
+      nivel: nivelDe_(email)
+    };
   } catch (err) {
     console.error('entrarComLink: ' + err.message);
     return recusa;
@@ -641,13 +652,35 @@ function liberarAcesso(email) {
   }
 
   var lista = adminEmails_();
-  if (lista.indexOf(alvo) === -1) {
-    lista.push(alvo);
-    // `', '` e não `','`: é o formato que `incluirAdmin`, `removerAdmin` e
-    // `regravarAllowlist_` gravam. `adminEmails_` apara os espaços e as duas
-    // formas funcionam — mas o cabeçalho de `adminEmails_` conta o que uma
-    // divergência de formato já custou aqui uma vez.
-    gravarConfig('admin_emails', lista.join(', '));
+  var gerais = coordenadoresGerais_();
+  var faltaNaLista = lista.indexOf(alvo) === -1;
+  // Só quando a lista de gerais EXISTE: vazia, o piso já faz dele coordenador,
+  // e escrevê-la aqui congelaria níveis que ninguém pediu para congelar.
+  var faltaNoNivel = gerais.length > 0 && gerais.indexOf(alvo) === -1;
+
+  if (faltaNaLista || faltaNoNivel) {
+    if (faltaNaLista) lista.push(alvo);
+    if (faltaNoNivel) gerais.push(alvo);
+
+    // ELA LIBERA COMO COORDENADOR GERAL, e não como professor. Uma porta de
+    // emergência que desemboca num painel de professor não conserta nada: o
+    // professor não abre Configurações, que é exatamente o que se veio
+    // consertar. E não concede privilégio novo — quem roda isto está com o
+    // editor do Apps Script aberto e poderia reescrever `exigirCoordenador`
+    // inteiro.
+    //
+    // A escrita passa pelo escritor único (`aplicarAcessos_`, 07_Auth.gs) pela
+    // mesma razão que as outras quatro: era daqui que sairia o quinto caminho
+    // capaz de esquecer a invariante e o cache do link.
+    // `pisoOk`: no piso a lista de gerais fica vazia de propósito (ver o
+    // `faltaNoNivel` acima), e é ela vazia que faz o e-mail reposto voltar
+    // podendo tudo — que é o ponto inteiro desta porta.
+    var reposto = aplicarAcessos_(lista, gerais, 'pelo editor do Apps Script', true);
+    // Hoje ela não tem como falhar (a lista sai daqui com pelo menos um nome, e
+    // com um coordenador). Se um dia tiver, é melhor estourar no editor — onde
+    // há alguém lendo — do que devolver uma sessão de oito horas e o mesmo beco
+    // amanhã.
+    if (!reposto.ok) throw new Error('Não consegui repor o acesso: ' + reposto.erro);
   }
 
   var token = criarSessao_(alvo);

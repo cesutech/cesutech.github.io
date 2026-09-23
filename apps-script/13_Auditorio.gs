@@ -550,6 +550,8 @@ function anularInscricoes(payload) {
       return { ok: false, erro: erroDeLoteGrandeDemais_(ids.length) };
     }
 
+    // Para `anulado_por` NA CÓPIA da inscrição, e só para isso: na trilha, quem
+    // anulou passou a ser a coluna `usuario` (04_Log.gs).
     var quem = quemMexeu_(payload.token);
     var carimbo = agora();
 
@@ -582,8 +584,12 @@ function anularInscricoes(payload) {
     escreverEmLote(INSCRICOES_ANULADAS_COLECAO, copias);
     excluirEmLote(INSCRICOES_COLECAO, apagar);
 
+    // Quem anulou está na coluna `usuario` da linha, desde que `exigirAdmin`
+    // anota o operador (04_Log.gs). `quem` continua acima porque ele vira
+    // `anulado_por` NA CÓPIA da inscrição — que sobrevive ao ano de retenção do
+    // log e é o que a restauração lê.
     registrar('INSCRICOES_ANULADAS', 'inscricao', apagar[0],
-      apagar.length + ' anulada(s) por ' + quem +
+      apagar.length + ' anulada(s)' +
       (naoEncontradas ? ' (' + naoEncontradas + ' já não existia(m))' : '') +
       ' — ids: ' + apagar.join(','));
 
@@ -672,8 +678,11 @@ function restaurarInscricoes(payload) {
 
     var mexidas = restauradas + emEspera + jaEstavam;
     if (mexidas) {
+      // Sem `quemMexeu_`: quem restaurou é a coluna `usuario` (04_Log.gs), e
+      // aqui o e-mail não vira campo de documento nenhum — a leitura da sessão
+      // que ele custava deixou de ser necessária.
       registrar('INSCRICOES_RESTAURADAS', 'inscricao', ids[0],
-        mexidas + ' de ' + ids.length + ' restaurada(s) por ' + quemMexeu_(payload.token) +
+        mexidas + ' de ' + ids.length + ' restaurada(s)' +
         (emEspera ? ' (' + emEspera + ' em espera)' : '') +
         (recusadas.length ? ' — ' + recusadas.length + ' não coube(ram)' : ''));
     }
@@ -1001,11 +1010,11 @@ function promoverDaEspera(payload) {
       // responder: este, a promoção do Incluir aluno (10_Painel.gs) e a troca de
       // projeto do aluno (`decorarComATroca_`, 04_Inscricoes.gs). `registrar` é
       // à prova de falha (04_Log.gs) e a linha diz o que se sabe: o que foi
-      // tentado, por quem, e que o resultado não foi confirmado.
+      // tentado, quem tentou — na coluna `usuario`, que `exigirAdmin` preenche
+      // — e que o resultado não foi confirmado.
       registrar('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
         'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
-        'pode ter entrado — por ' + quemMexeu_(payload.token) +
-        ' — candidatos: ' + candidatos.map(function (i) { return i._id; }).join(','));
+        'pode ter entrado — candidatos: ' + candidatos.map(function (i) { return i._id; }).join(','));
 
       return {
         ok: false,
@@ -1016,8 +1025,7 @@ function promoverDaEspera(payload) {
 
     if (promovidas.length) {
       registrar('PROMOCAO_ESPERA', 'inscricao', promovidas[0],
-        promovidas.length + ' de ' + ids.length + ' promovida(s) por ' + quemMexeu_(payload.token) +
-        ' — ids: ' + promovidas.join(','));
+        promovidas.length + ' de ' + ids.length + ' promovida(s) — ids: ' + promovidas.join(','));
     }
 
     return {

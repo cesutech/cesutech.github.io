@@ -1532,13 +1532,15 @@ teste('a aba existe nas três listas que a fazem funcionar', () => {
   verdadeiro(ADMIN.indexOf('data-aba="disciplinas"') !== -1, 'falta o botão da aba');
   verdadeiro(ADMIN.indexOf('id="secao-disciplinas"') !== -1, 'falta a seção');
 
-  // A lista de `trocarAba` é lida pelo NOME que interessa, e não pelas três
+  // A lista das abas é lida pelo NOME que interessa, e não pelas três
   // primeiras posições: a ordem das abas muda quando uma nova entra (a do
   // Auditório entrou em segundo lugar em 11/08), e um teste que dependa da ordem
   // falha por causa de uma aba que não é a dele — apontando para o lugar errado.
-  const lista = /function trocarAba\(nome\)[\s\S]*?\[([^\]]*)\]/.exec(ADMIN);
+  // Ela saiu de dentro de `trocarAba` e virou `var ABAS` quando a mudança de
+  // nível passou a precisar saber qual aba está na frente.
+  const lista = /var ABAS = \[([^\]]*)\]/.exec(ADMIN);
   verdadeiro(lista !== null && lista[1].indexOf("'disciplinas'") !== -1,
-    'trocarAba não conhece a aba');
+    'a lista de abas do painel não conhece a aba');
   verdadeiro(ADMIN.indexOf("if (nome === 'disciplinas') carregarDisciplinas();") !== -1,
     'a aba não carrega nada ao ser aberta');
 });

@@ -1493,6 +1493,42 @@ teste('a credencial do Google vira sessão, e o painel abre', () => {
     'o painel abriu mas não carregou');
 });
 
+/** As abas que a fita está mostrando — a fita é o que muda com o nível. */
+function abasVisiveis(cena) {
+  return cena.documento.querySelectorAll('.aba')
+    .filter((b) => !b.classList.contains('oculto'))
+    .map((b) => b.getAttribute('data-aba'));
+}
+
+teste('quem entra pelo Google já entra com a fita do NÍVEL dela', () => {
+  // A porta sabe quem entrou, e devolve o nível junto com a sessão: sem isso, a
+  // coordenação entraria numa tela de professor e ficaria nela a sessão inteira
+  // — `sessaoAtiva`, que é quem corrige o nível na abertura, só roda quando o
+  // painel abre com sessão GUARDADA, e este caminho não passa por ela.
+  //
+  // Mutação que derruba: tirar `nivel` do retorno de `entrarComGoogle`, ou
+  // chamar `abrirPainel()` sem passá-lo adiante.
+  const cena = telaDeLogin({ allowlist: 'coord@exemplo.com, professora@exemplo.com' });
+  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+  tokenBom(cena, 'coord@exemplo.com');
+
+  cena.entrarComGoogle(ID_TOKEN);
+
+  igual(abasVisiveis(cena).length, 9, abasVisiveis(cena).join(', '));
+  igual(cena.texto('faixa-nivel'), 'Coordenador geral');
+});
+
+teste('e a professora entra pela mesma porta, com cinco abas e a linha que explica', () => {
+  const cena = telaDeLogin({ allowlist: 'coord@exemplo.com, professora@exemplo.com' });
+  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+  tokenBom(cena, 'professora@exemplo.com');
+
+  cena.entrarComGoogle(ID_TOKEN);
+
+  igual(abasVisiveis(cena), ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos']);
+  verdadeiro(cena.texto('aviso-nivel').indexOf('vê e exporta') !== -1, cena.texto('aviso-nivel'));
+});
+
 teste('conta fora da lista recebe a frase que resolve o problema dela', () => {
   // "Falha ao entrar" manda o professor ligar para alguém. A recusa do servidor
   // já diz o que fazer, e o painel a mostra INTEIRA em vez de reescrevê-la.
@@ -1950,6 +1986,28 @@ teste('o circuito inteiro, das duas pontas: pedir, receber o e-mail e entrar', (
 
   verdadeiro(!escondido(cena, 'tela-painel'), 'o link não abriu o painel: ' + cena.texto('erro-login'));
   verdadeiro(cena.js.lerToken(), 'entrou sem guardar a sessão');
+});
+
+teste('o link por e-mail também entrega o nível — a fita nasce certa', () => {
+  // A segunda porta, pelo mesmo motivo da primeira: ela é a que funciona no dia
+  // em que a do Google não funciona, e entrar pela porta dos fundos não pode
+  // significar entrar com menos do que se tem.
+  //
+  // Mutação que derruba: tirar `nivel` do retorno de `entrarComLink`.
+  const caixa = [];
+  const cena = telaDeLogin({ emails: caixa, allowlist: 'coord@exemplo.com, professora@exemplo.com' });
+  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+
+  cena.js.abrirPedidoDeLink();
+  cena.digitar('email-link', 'coord@exemplo.com');
+  cena.js.enviarPedidoDeLink();
+
+  const token = /\?entrar=([0-9a-f]+)/.exec(caixa[0].body)[1];
+  cena.js.pedirConfirmacaoDoLink(token);
+  cena.js.confirmarEntradaPorLink();
+
+  igual(abasVisiveis(cena).length, 9, abasVisiveis(cena).join(', '));
+  igual(cena.texto('faixa-nivel'), 'Coordenador geral');
 });
 
 teste('o link só funciona uma vez — a segunda confirmação é recusada na tela', () => {
