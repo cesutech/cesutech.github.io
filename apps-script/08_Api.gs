@@ -552,7 +552,18 @@ function rotaDoPainel_(corpo) {
         // operador é anotado aqui, senão a linha sairia assinada por 'anonimo'
         // e o Histórico não distinguiria as oito pessoas do painel.
         anotarOperador_(quem);
-        registrarRecusa('NIVEL_NEGADO', 'painel', quem, 'tentou ' + fn, 'nivel_' + fn);
+        // A CHAVE DE AGRUPAMENTO LEVA A PESSOA, e não só a função.
+        // `registrarRecusa` grava a primeira de cada chave e engole as iguais
+        // por dez minutos (04_Log.gs). Agrupando só por `fn`, o segundo
+        // professor que batesse na mesma porta dentro da janela não deixaria
+        // linha nenhuma — e a coluna "Quem" voltaria a não responder "quem
+        // tentou remover o projeto?" para todos menos o primeiro. Com o e-mail
+        // na chave o teto de escrita continua existindo (uma linha por pessoa
+        // por função a cada dez minutos), e a trilha distingue as oito pessoas.
+        // É a mesma forma que o freio do link por e-mail usa
+        // (`'link_freio_' + alvo`, 07b_LinkPorEmail.gs).
+        registrarRecusa('NIVEL_NEGADO', 'painel', quem, 'tentou ' + fn,
+          'nivel_' + quem + '_' + fn);
         // 'professor' e não o nível lido: quem cai aqui ou é professor, ou tem
         // sessão que a lista de acesso não reconhece mais — e a tela só sabe
         // desenhar dois níveis. O nível mais baixo é o lado seguro para ela
@@ -693,13 +704,11 @@ function funcoesDoPainel_() {
  * esquecimento abrir uma porta em silêncio, e esquecimento é o modo normal de
  * operação de uma lista que ninguém relê.
  *
- * As onze primeiras estão todas em `SO_LEITURA` no painel: leem, contam,
- * montam tela, e não escrevem nada — nem uma linha de log. `listarLotes` entra
- * porque é metadado de lote, sem dado pessoal, e a pergunta "a lista da
- * secretaria já entrou?" chega no professor primeiro.
+ * AS DEZ OUTRAS estão todas em `SO_LEITURA` no painel: leem, contam, montam
+ * tela, e não escrevem nada — nem uma linha de log.
  *
- * A DÉCIMA SEGUNDA É A EXCEÇÃO, e ela é nomeada de propósito: `exportarCsv`
- * não é leitura pura — ela GRAVA a linha `EXPORTACAO` na trilha (10_Painel.gs).
+ * `exportarCsv` É A EXCEÇÃO, e ela é nomeada de propósito: ela
+ * não é leitura pura — GRAVA a linha `EXPORTACAO` na trilha (10_Painel.gs).
  * Ela fica aberta porque é o "exporta os inscritos" do pedido, e é decisão
  * tomada e sabida (J10-4): oito pessoas seguem podendo baixar nome, CPF,
  * e-mail, telefone e nascimento de até 5.000 alunos. Os dois níveis resolvem o
@@ -714,6 +723,15 @@ function funcoesDoPainel_() {
  *   - `listarAdmins` e `lerConfiguracoes`: são o mapa de quem manda e a lista de
  *     chaves, `admin_emails` e `coordenadores_gerais` incluídas. "Não mexe na
  *     lista de acessos" inclui não lê;
+ *   - `listarLotes`: ela esteve aberta enquanto o desenho previa a aba
+ *     Importações visível ao professor. A decisão de 23/09 mandou a aba SUMIR
+ *     (ver `ABAS_DA_COORDENACAO` no painel), e sem ela não sobrou tela nenhuma
+ *     do professor que a chame — sobrava só a porta. E a porta entrega
+ *     `importado_por` e `revisado_por` (10_Painel.gs), que são o e-mail de quem
+ *     importou e o de quem revisou: a mesma trilha que fechar `listarLog`
+ *     existe para não entregar, e o mesmo diretório de quem manda que
+ *     `RECUSA_NIVEL` não nomeia de propósito (07_Auth.gs). Fechar a porta e
+ *     deixar a janela não é fechar nada;
  *   - `revisarLote`: leitura pura, mas é a metade de leitura de uma tela que só
  *     a coordenação aplica, e uma janela que diz "estes 40 serão cancelados" com
  *     o Aplicar morto é a tela mais fácil de ler errado;
@@ -730,7 +748,6 @@ function funcoesDoProfessor_() {
     inscritosDoProjeto: true,
     listarAlunos: true,
     detalheAluno: true,
-    listarLotes: true,
     // A exceção nomeada: não é leitura pura, e está aberta assim mesmo.
     exportarCsv: true,
 

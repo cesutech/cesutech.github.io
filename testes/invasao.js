@@ -1409,7 +1409,7 @@ teste('e o painel recém-liberado não fica com a lista de acesso vazia', () => 
 });
 
 // ============================ 9. Os dois níveis: o professor tem token VÁLIDO,
-//                                 e as 30 da coordenação continuam fechadas
+//                                 e as 31 da coordenação continuam fechadas
 
 /**
  * A SÉTIMA PERGUNTA deste arquivo, e ela é diferente das seis de cima: aqui o
@@ -1480,7 +1480,7 @@ function payloadDeAtaque() {
   };
 }
 
-teste('ATAQUE: o professor chama as 30 da coordenação uma a uma, pelo POST direto', () => {
+teste('ATAQUE: o professor chama as 31 da coordenação uma a uma, pelo POST direto', () => {
   // O ataque é não usar a tela. O painel esconde aba e desabilita botão, e nada
   // disso vale um POST montado no console do navegador — a tela nunca é a
   // permissão. Aqui ele tem token VÁLIDO: quem recusa é o nível, não a sessão.
@@ -1488,10 +1488,10 @@ teste('ATAQUE: o professor chama as 30 da coordenação uma a uma, pelo POST dir
   // Mutação que derruba: qualquer função nova na lista branca sem decisão de
   // balde (ela cai do lado fechado, e se alguém a abrir sem pensar este teste
   // deixa de exercitá-la e o da cobertura acusa); ou tirar a cobrança do
-  // despacho, e aí as 30 respondem ok.
+  // despacho, e aí as 31 respondem ok.
   const amb = comNiveis();
   const fechadas = daCoordenacao(amb);
-  igual(fechadas.length, 30, 'a divisão mudou de tamanho: ' + fechadas.join(', '));
+  igual(fechadas.length, 31, 'a divisão mudou de tamanho: ' + fechadas.join(', '));
 
   const antes = retratoDoBanco(amb);
 
@@ -1502,20 +1502,60 @@ teste('ATAQUE: o professor chama as 30 da coordenação uma a uma, pelo POST dir
     igual(r.motivo, 'NIVEL', fn + ' não disse à tela que a recusa é de nível');
   });
 
-  igual(retratoDoBanco(amb), antes, 'alguma das 30 mexeu no banco');
+  igual(retratoDoBanco(amb), antes, 'alguma das 31 mexeu no banco');
 });
 
-teste('e as 12 do professor respondem — senão o teste de cima provaria um painel morto', () => {
+teste('e as 11 do professor respondem — senão o teste de cima provaria um painel morto', () => {
   // A ordem importa tanto quanto no grupo 3: "não dá para chamar X" passaria
   // sozinho num sistema que não deixa chamar nada.
   const amb = comNiveis();
   const abertas = Object.keys(amb.api.funcoesDoProfessor_());
-  igual(abertas.length, 12);
+  igual(abertas.length, 11);
 
   abertas.forEach((fn) => {
     const r = painel(amb, fn, amb.professor, { id: 'p1', pagina: 1, tamanho: 10 });
     igual(r.motivo, undefined, fn + ' foi recusada por nível para o professor');
   });
+});
+
+teste('e NENHUMA delas devolve o e-mail de quem importou ou revisou um lote', () => {
+  // A porta que sobra depois que a TELA some. `listarLotes` esteve no balde do
+  // professor enquanto o desenho previa a aba Importações visível; a decisão de
+  // 23/09 mandou a aba sumir, e a função ficou aberta sem nenhuma tela dele que
+  // a chamasse — e ela devolve `importado_por` e `revisado_por`, que são o
+  // e-mail de quem operou. Fechar `listarAdmins` e `listarLog` e deixar esta
+  // aberta é fechar a porta e deixar a janela.
+  //
+  // A varredura é DERIVADA do balde: não afirma "listarLotes está fora", afirma
+  // que nada do que o professor alcança nomeia um operador — então uma função
+  // futura que passe a devolver esses campos também cai aqui.
+  //
+  // Mutação que derruba: pôr `listarLotes: true` de volta em
+  // `funcoesDoProfessor_`.
+  const amb = comNiveis();
+  const QUEM_IMPORTOU = 'quem.importou@exemplo.com';
+  const QUEM_REVISOU = 'quem.revisou@exemplo.com';
+
+  amb.api.inserir('lotes', {
+    lote_id: 'L1', arquivo: 'turma.csv', linhas: 3, status: 'CONCLUIDO',
+    criado_em: '20260101T000000000Z',
+    importado_por: QUEM_IMPORTOU, revisado_por: QUEM_REVISOU
+  }, 'L1');
+
+  Object.keys(amb.api.funcoesDoProfessor_()).forEach((fn) => {
+    const resposta = JSON.stringify(painel(amb, fn, amb.professor,
+      { id: 'p1', lote_id: 'L1', pagina: 1, tamanho: 10 }));
+    [QUEM_IMPORTOU, QUEM_REVISOU].forEach((email) => {
+      igual(resposta.indexOf(email), -1, fn + ' devolveu ao professor ' + email);
+    });
+  });
+
+  // E a porta continua fechada, com a recusa de nível — não com "ação
+  // desconhecida", que seria a função tendo sumido da lista branca.
+  const r = painel(amb, 'listarLotes', amb.professor, {});
+  igual(r.erro, RECUSA_NIVEL);
+  igual(painel(amb, 'listarLotes', amb.coordenacao, {}).ok, true,
+    'a coordenação perdeu a aba Importações junto');
 });
 
 teste('e a trilha da recusa diz QUAL professor tentou', () => {
@@ -1533,6 +1573,35 @@ teste('e a trilha da recusa diz QUAL professor tentou', () => {
   igual(linha.usuario, PROFESSOR, 'a trilha não diz qual professor tentou');
   igual(linha.entidade_id, PROFESSOR);
   verdadeiro(/tentou removerProjeto/.test(linha.detalhe), linha.detalhe);
+});
+
+teste('e DOIS professores na mesma função deixam DUAS linhas, uma por pessoa', () => {
+  // O freio contra enchente de `registrarRecusa` grava a primeira de cada chave
+  // e engole as iguais por dez minutos (04_Log.gs). Com a chave agrupando só
+  // por `fn`, o segundo professor sumia da trilha — e a pergunta que a coluna
+  // "Quem" existe para responder ("quem tentou remover o projeto?") ficava sem
+  // resposta para todos menos o primeiro, justo no cenário que motiva a peça:
+  // a lista de acesso cheia.
+  //
+  // Mutação que derruba: tirar o e-mail da chave de agrupamento
+  // (`'nivel_' + fn`) — as duas tentativas viram uma linha só.
+  const SEGUNDO = 'professor2@exemplo.com';
+  const amb = comNiveis({ allowlist: ADMIN + ', ' + PROFESSOR + ', ' + SEGUNDO });
+  const dele = amb.api.criarSessao_(SEGUNDO);
+
+  painel(amb, 'anularInscricoes', amb.professor, { ids: ['i1'] });
+  painel(amb, 'anularInscricoes', dele, { ids: ['i1'] });
+
+  const nomes = linhasDoLog(amb)
+    .filter((l) => l.acao === 'NIVEL_NEGADO' && /tentou anularInscricoes/.test(l.detalhe))
+    .map((l) => l.usuario).sort();
+  igual(nomes, [PROFESSOR, SEGUNDO].sort(), 'a trilha juntou duas pessoas numa linha só');
+
+  // E o teto continua de pé: a SEGUNDA tentativa da mesma pessoa, na mesma
+  // função e dentro da janela, não gasta uma escrita nova.
+  painel(amb, 'anularInscricoes', dele, { ids: ['i1'] });
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_NEGADO').length, 2,
+    'o agrupamento por pessoa deixou de frear a repetição');
 });
 
 teste('ATAQUE: o cliente escolhendo o próprio nível, dentro do payload', () => {
@@ -1621,6 +1690,45 @@ teste('ATAQUE: esvaziar os coordenadores pelos QUATRO caminhos — sempre sobra 
   igual(amb.api.adminEmails_(), [ADMIN, PROFESSOR]);
 });
 
+teste('ATAQUE: esvaziar os coordenadores A PARTIR DO PISO, com a chave ainda vazia', () => {
+  // O estado do dia 1, e o mesmo em que `removerAdmin` e o campo de texto
+  // deixam a chave quando se mexe na lista sem nunca separar níveis: gerais
+  // VAZIA, todo mundo coordenador pelo piso. A guarda olhava o ANTES, e ali o
+  // antes não tem nome nenhum escrito — então ela era pulada inteira.
+  //
+  // O que acontecia: `definirNivel` materializava [A], tirava A, gravava [], o
+  // piso devolvia A a coordenador, ninguém mudava de nível, nenhuma sessão
+  // caía, nenhuma linha ia para a trilha — e a resposta saía `ok: true`. A tela
+  // apagava o token e dizia "Você agora entra como Professor" para quem
+  // continuava coordenadora. O painel nunca ficava sem dono; o que ficava
+  // errada era a resposta.
+  //
+  // Mutação que derruba: voltar a condição para `antesGerais.length &&
+  // !chefes.length` — a cena de cima continua verde, esta volta a devolver ok.
+  const amb = montar({ allowlist: ADMIN, gerais: undefined });
+  const eu = { token: amb.api.criarSessao_(ADMIN) };
+  igual(amb.api.coordenadoresGerais_(), [], 'o cenário devia ser o do piso');
+
+  const r = amb.api.definirNivel(Object.assign({ email: ADMIN, nivel: 'professor' }, eu));
+  igual(r.ok, false, 'o único coordenador se rebaixou pelo piso');
+  verdadeiro(/único coordenador geral/.test(r.erro), r.erro);
+
+  amb.api.limparCacheConfig();
+  igual(amb.api.nivelDe_(ADMIN), 'coordenador');
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_ALTERADO').length, 0,
+    'a trilha anotou uma mudança de nível que não houve');
+  igual(amb.api.sessaoAtiva(eu.token).ok, true, 'a sessão caiu por uma mudança que não houve');
+
+  // E o gesto que não é de nível continua passando no piso: remover alguém não
+  // rebaixa ninguém, e é por isso que `removerAdmin` declara `pisoOk`.
+  const dois = montar({ allowlist: ADMIN + ', ' + PROFESSOR, gerais: undefined });
+  const token = dois.api.criarSessao_(ADMIN);
+  igual(dois.api.removerAdmin({ token: token, email: PROFESSOR }).ok, true,
+    'a guarda nova trancou a remoção comum, que não decide nível nenhum');
+  dois.api.limparCacheConfig();
+  igual(dois.api.nivelDe_(ADMIN), 'coordenador');
+});
+
 teste('ATAQUE: o nível não é porta — e-mail de coordenador fora da lista de acesso', () => {
   // O nível diz o que se pode DEPOIS de entrar; quem decide quem entra é
   // `admin_emails`, sozinha. Um e-mail escrito só na chave de níveis é inerte —
@@ -1688,7 +1796,7 @@ teste('a recusa por nível NÃO faz o painel se deslogar — a expressão é lid
     'a recusa de nível casa com a expressão que desloga: ' + RECUSA_NIVEL);
 });
 
-teste('as 12 do professor são leitura — e a varredura é TRANSITIVA', () => {
+teste('as 11 do professor são leitura — e a varredura é TRANSITIVA', () => {
   // A varredura precisa ser transitiva por causa de `atualizarAlunos`: o botão
   // se chama "Atualizar", parece recarregar, e uma varredura do corpo dela por
   // `inserir(`/`atualizar(` não acha NADA. Ela chama
@@ -1975,8 +2083,8 @@ teste('todo nome da lista branca está em exatamente UM balde', () => {
   igual(professor.filter((n) => todas.indexOf(n) === -1), [],
     'nome fantasma no balde do professor: ele abriria uma porta que não existe');
   igual(todas.length, 42, 'a lista branca mudou de tamanho: ' + todas.length);
-  igual(professor.length, 12);
-  igual(todas.length - professor.length, 30);
+  igual(professor.length, 11);
+  igual(todas.length - professor.length, 31);
 });
 
 process.exit(resultado());

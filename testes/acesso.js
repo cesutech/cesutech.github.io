@@ -432,12 +432,39 @@ teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => 
 
   // E a COLUNA "Quem" também: a entrada é a única ação em que a pessoa se
   // identifica antes de existir sessão, então `exigirAdmin` não passa por ela e
-  // as duas portas anotam o operador por conta própria. Mutação que derruba:
-  // tirar `anotarOperador_` de `entrarComGoogle` ou de `entrarComLink` — este
-  // ambiente é o publicado (`usuario: ''`), e a coluna volta a 'anonimo'
-  // justamente nas duas linhas que dizem que alguém entrou.
+  // as duas portas anotam o operador por conta própria.
+  //
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComGoogle` — este
+  // ambiente é o publicado (`usuario: ''`), e a coluna volta a 'anonimo' na
+  // linha que diz que alguém entrou. SÓ A DO GOOGLE: as duas portas rodam na
+  // MESMA execução simulada aqui, e `OPERADOR_DA_EXECUCAO` é global ao script
+  // (04_Log.gs), então a linha do link herda o nome que a do Google anotou. Quem
+  // segura a porta do link é o teste seguinte, com ambiente próprio.
   igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
   igual(trilha.map((l) => l.usuario), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
+});
+
+teste('e a porta do LINK sabe sozinha — sem nenhum login antes na mesma execução', () => {
+  // Em produção não se herda nada: entrar por link é uma execução do Apps
+  // Script inteiramente separada, sem `entrarComGoogle` nenhum antes. Sem a
+  // anotação, a ÚNICA linha que diz que alguém entrou pela porta dos fundos
+  // sairia assinada por 'anonimo' — e é justamente a porta que se usa quando
+  // alguma coisa já deu errado.
+  //
+  // A regra geral que esta cena escreve: qualquer teste que confira `usuario`
+  // depois de DUAS chamadas na mesma execução está medindo a variável herdada,
+  // e não a anotação daquela chamada.
+  //
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComLink`.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  igual(amb.api.entrarComLink(tokenDoEmail(amb)).ok, true, 'o link não abriu a porta');
+
+  const trilha = linhasDoLog(amb).filter((l) => l.acao === 'LOGIN');
+  igual(trilha.length, 1, 'a cena devia ter UMA entrada só, a do link');
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(trilha[0].usuario, 'coordenacao@exemplo.com',
+    'a linha do link saiu assinada por ' + trilha[0].usuario);
 });
 
 teste('conta fora da allowlist não entra, e a recusa nomeia a própria conta', () => {

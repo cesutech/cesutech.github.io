@@ -672,7 +672,10 @@ function liberarAcesso(email) {
     // A escrita passa pelo escritor único (`aplicarAcessos_`, 07_Auth.gs) pela
     // mesma razão que as outras quatro: era daqui que sairia o quinto caminho
     // capaz de esquecer a invariante e o cache do link.
-    var reposto = aplicarAcessos_(lista, gerais, 'pelo editor do Apps Script');
+    // `pisoOk`: no piso a lista de gerais fica vazia de propósito (ver o
+    // `faltaNoNivel` acima), e é ela vazia que faz o e-mail reposto voltar
+    // podendo tudo — que é o ponto inteiro desta porta.
+    var reposto = aplicarAcessos_(lista, gerais, 'pelo editor do Apps Script', true);
     // Hoje ela não tem como falhar (a lista sai daqui com pelo menos um nome, e
     // com um coordenador). Se um dia tiver, é melhor estourar no editor — onde
     // há alguém lendo — do que devolver uma sessão de oito horas e o mesmo beco

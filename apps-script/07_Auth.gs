@@ -726,8 +726,11 @@ function listaDeEmails_(bruto) {
  * A recusa sai com `motivo`, e a frase aqui é genérica: quem sabe dizer a frase
  * certa é o gesto (rebaixar a si mesmo não é a mesma coisa que esvaziar um campo
  * de texto), e cada chamador a reescreve. O que NÃO se delega é a decisão.
+ *
+ * `pisoOk` é a ÚNICA coisa que o gesto declara, e ela é o contrário de uma
+ * permissão: quem não diz nada é recusado. Ver a invariante, mais abaixo.
  */
-function aplicarAcessos_(emails, gerais, porta) {
+function aplicarAcessos_(emails, gerais, porta, pisoOk) {
   var antesLista = adminEmails_();
   var antesGerais = coordenadoresGerais_();
 
@@ -745,9 +748,29 @@ function aplicarAcessos_(emails, gerais, porta) {
     };
   }
 
-  // A INVARIANTE. `antesGerais` vazia é o piso — ali todo mundo é coordenador, e
-  // continuar sem nenhum nome escrito não deixa o painel sem dono.
-  if (antesGerais.length && !chefes.length) {
+  // A INVARIANTE. Gravar `chefes` vazia é gravar O PISO: a leitura devolve
+  // coordenador para todo mundo da lista (`nivelEm_`), e o painel não fica sem
+  // dono. Ficar no piso é legítimo para quem só está mexendo em QUEM ENTRA e
+  // leva a lista de níveis de carona — remover alguém, incluir alguém, regravar
+  // a allowlist, repor o acesso pelo editor. Esses dizem `pisoOk` por escrito.
+  //
+  // NÃO É LEGÍTIMO para quem está decidindo NÍVEL. `definirNivel` e o campo
+  // `coordenadores_gerais` mandam a lista por extenso, e uma lista vazia vinda
+  // deles é o ÚLTIMO coordenador sendo rebaixado. Sem esta conferência o piso
+  // desfazia o gesto em silêncio: a gravação não mudava nada, ninguém mudava de
+  // nível, nenhuma sessão caía, nenhuma linha ia para a trilha — e a resposta
+  // saía `ok: true`, com a tela dizendo à pessoa que ela agora entra como
+  // Professor e deslogando-a para um painel em que ela continua coordenadora.
+  // Uma mudança que não acontece não pode responder que aconteceu.
+  //
+  // O DEFAULT É RECUSAR, e é de propósito: um quinto caminho que esqueça de
+  // declarar o piso leva uma recusa — barulhenta, e do lado seguro. O contrário
+  // devolveria o silêncio de agora a quem esquecesse.
+  //
+  // `antesGerais` vazia é a segunda metade: quem já estava no piso continua
+  // nele; quem tinha coordenadores escritos e ficaria sem nenhum cai aqui
+  // mesmo tendo declarado `pisoOk` — é a remoção do último coordenador.
+  if (!chefes.length && !(pisoOk && !antesGerais.length)) {
     return {
       ok: false,
       motivo: 'SEM_COORDENADOR',
@@ -867,7 +890,11 @@ function incluirAdmin(payload) {
     var congelados = materializar_(lista, gerais);
     lista.push(email);
 
-    var r = aplicarAcessos_(lista, congelados, 'pela tela Quem tem acesso');
+    // `pisoOk`: incluir não decide nível de ninguém — quem chega nasce
+    // professor pela materialização, e os de antes continuam como estavam. Com
+    // a allowlist ainda vazia (o painel sem ninguém, consertado pelo editor)
+    // não há o que congelar, e o piso é o que faz o primeiro nome poder tudo.
+    var r = aplicarAcessos_(lista, congelados, 'pela tela Quem tem acesso', true);
     if (!r.ok) return { ok: false, erro: r.erro };
 
     return respostaDoAcesso_(r.emails, r.gerais, payload.token, {
@@ -941,7 +968,11 @@ function removerAdmin(payload) {
     // A sessão de quem sai, a linha da trilha e a invariante do último
     // coordenador moram todas em `aplicarAcessos_`, porque o campo de texto da
     // aba Configurações faz este mesmo gesto por outro caminho.
-    var r = aplicarAcessos_(lista, gerais, 'pela tela Quem tem acesso');
+    // `pisoOk`: remover mexe em QUEM ENTRA, e leva a lista de níveis de
+    // carona. No piso, os que ficam continuam todos coordenadores — ninguém é
+    // rebaixado por este gesto. Com coordenadores escritos, tirar o último cai
+    // na invariante, que é a frase logo abaixo.
+    var r = aplicarAcessos_(lista, gerais, 'pela tela Quem tem acesso', true);
     if (!r.ok) {
       if (r.motivo !== 'SEM_COORDENADOR') return { ok: false, erro: r.erro };
       return {
@@ -1111,7 +1142,9 @@ function regravarAllowlist_(valor, token) {
   // coordenador são as mesmas de `removerAdmin`, e moram no mesmo lugar. O
   // detalhe é que muda: é o campo de texto, e não a tela de acesso, que
   // distingue esta saída daquela.
-  var r = aplicarAcessos_(depois, congelados, 'pelo campo admin_emails');
+  // `pisoOk` pela mesma razão de `removerAdmin`: o campo é a lista de QUEM
+  // ENTRA, e sem gente nova ele não decide nível nenhum.
+  var r = aplicarAcessos_(depois, congelados, 'pelo campo admin_emails', true);
   if (!r.ok) {
     if (r.motivo !== 'SEM_COORDENADOR') return { ok: false, erro: r.erro };
     return {

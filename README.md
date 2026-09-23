@@ -72,7 +72,7 @@ não pediu migração nenhuma. O nível é lido a cada requisição, nunca guard
 sessão, e é cobrado no **despacho**: o que não estiver na lista do professor é da
 coordenação geral, então função nova nasce fechada para ele. A tela esconde e
 desabilita o que não é dele, mas a tela nunca é a permissão — há teste de invasão
-para cada uma das trinta, chamadas pelo POST direto. O nível **não é porta**:
+para cada uma das trinta e uma, chamadas pelo POST direto. O nível **não é porta**:
 quem não está em `admin_emails` não entra, esteja onde estiver. E a lista nunca
 fica sem nenhum coordenador geral: um painel de oito professores é tão trancado
 por fora quanto uma lista de acesso vazia.

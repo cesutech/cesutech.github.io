@@ -2051,7 +2051,10 @@ teste('SO_LEITURA só tem leitura, e toda função dela existe no servidor', () 
 });
 
 teste('o select de curso é esquecido junto — curso novo não fica fora do filtro', () => {
-  verdadeiro(/function esquecerAbas\(\)[\s\S]{0,400}removeAttribute\('data-carregado'\)/.test(ADMIN),
+  // `esquecerAbas(manter)` ganhou o argumento da mudança de nível; o que este
+  // teste guarda continua sendo o `select`, que precisa ser esquecido em TODAS
+  // as chamadas — inclusive na que mantém a aba Painel.
+  verdadeiro(/function esquecerAbas\(\w*\)[\s\S]{0,400}removeAttribute\('data-carregado'\)/.test(ADMIN),
     'o `select` guardaria a lista de cursos de antes da reconciliação');
   verdadeiro(/f\.cursos =[\s\S]{0,80}getElementById\('filtro-curso'\)\.getAttribute\('data-carregado'\)/.test(ADMIN),
     'o cliente parou de dizer ao servidor se já tem a lista de cursos');

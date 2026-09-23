@@ -1927,18 +1927,42 @@
       'exporta as listas de inscritos e disciplinas. Criar, remover, anular, importar e ' +
       'configurar são da coordenação geral.</div>';
 
-    // O QUE JÁ ESTÁ DESENHADO CONTINUA NA TELA — e por isso a QUEDA de nível
-    // esquece as abas: o conteúdo montado enquanto a tela se achava da
-    // coordenação tem botão habilitado onde agora não deveria, e ele só nasce
-    // certo se a aba for montada de novo.
+    // O QUE JÁ ESTÁ DESENHADO CONTINUA NA TELA, e foi desenhado com as travas do
+    // nível de ANTES. Vale nas duas direções, e a subida não é a inofensiva:
     //
-    // A SUBIDA não esquece nada, e é decisão medida: a única coisa desenhada
-    // antes de o servidor responder o nível é a aba Painel, cujos dois botões de
-    // coordenação são fixos — e acabaram de ser destravados três linhas acima.
-    // Esquecer ali custaria uma execução inteira do Apps Script no instante mais
-    // caro da página, que é a abertura.
-    if (NIVEL_APLICADO === 'coordenador' && NIVEL !== 'coordenador') esquecerAbas();
+    //   NA QUEDA, a tabela montada enquanto a tela se achava da coordenação tem
+    //   Remover, Editar e Inativar habilitados onde agora não deveriam;
+    //   NA SUBIDA, ela tem os mesmos três mortos, com o `title` dizendo que são
+    //   da coordenação geral — para quem É a coordenação geral. É o caminho de
+    //   todo F5: `entrarComSessao` abre o painel SEM nível e só então pergunta
+    //   (`sessaoAtiva`), e a fita de abas é marcação estática, clicável desde o
+    //   primeiro instante. Quem clicar em Projetos nessa janela e receber a
+    //   resposta daquela aba antes da do nível ficava com os botões mortos até
+    //   achar o "Atualizar" da aba — exatamente a tela que só sabe recusar que
+    //   esta peça existe para não criar.
+    //
+    // A ABA PAINEL FICA DE FORA, e é decisão medida: ela é a única que a
+    // ABERTURA desenha antes de o servidor dizer o nível, e o que ela desenha
+    // são os dez números — nenhum botão passa por `travaDeNivel` ali, e os dois
+    // de coordenação dela são FIXOS (`BOTOES_FIXOS`), ajustados algumas linhas
+    // acima. Esquecê-la cobraria uma execução do Apps Script por sessão para
+    // redesenhar o que já está certo. Um teste guarda essa afirmação.
+    //
+    // E A ABA DA FRENTE É REDESENHADA NA HORA: esquecer a marca sozinha
+    // arrumaria a próxima visita e deixaria errada a tela que a pessoa está
+    // olhando, que é a única que ela vê.
+    var mudouDeNivel = NIVEL_APLICADO !== null && NIVEL !== NIVEL_APLICADO;
+    var aberta = mudouDeNivel ? abaAberta_() : '';
+
+    // Antes do redesenho, e não depois: `trocarAba` pode receber uma recusa que
+    // chama `aplicarNivel` de volta, e a chamada de dentro precisa ver o nível
+    // já aplicado para não esquecer e redesenhar tudo outra vez.
     NIVEL_APLICADO = NIVEL;
+
+    if (mudouDeNivel) {
+      esquecerAbas('painel');
+      if (aberta && aberta !== 'painel') trocarAba(aberta);
+    }
   }
 
   // ------------------------------------------------------------ Sessão (tela)
@@ -2726,6 +2750,24 @@
 
   // ------------------------------------------------------------ Navegação
 
+  /**
+   * As nove abas, na ordem da fita. Uma lista só, e não uma cópia por função:
+   * quem acrescentar uma aba e esquecer de uma das cópias criaria a aba que
+   * troca mas não esconde a anterior — defeito que só aparece clicando.
+   */
+  var ABAS = ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos',
+    'importar', 'lotes', 'log', 'config'];
+
+  /** A aba que está na frente — '' antes de a primeira ser aberta. */
+  function abaAberta_() {
+    var achada = '';
+    ABAS.forEach(function (a) {
+      var secao = document.getElementById('secao-' + a);
+      if (secao && !secao.classList.contains('oculto')) achada = a;
+    });
+    return achada;
+  }
+
   function trocarAba(nome) {
     // A ABA DE COORDENAÇÃO NÃO ABRE PARA O PROFESSOR, e a saída é aqui: antes de
     // esconder seção nenhuma e antes de falar com o servidor.
@@ -2740,7 +2782,7 @@
 
     limparErroDaAbaAnterior();
 
-    ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos', 'importar', 'lotes', 'log', 'config'].forEach(function (a) {
+    ABAS.forEach(function (a) {
       document.getElementById('secao-' + a).classList.toggle('oculto', a !== nome);
     });
     Array.prototype.forEach.call(document.querySelectorAll('.aba'), function (b) {
@@ -2798,9 +2840,16 @@
    * servidor. Se a lista de cursos pôde mudar — e ela muda numa reconciliação —,
    * o `select` precisa poder ser preenchido de novo, senão um curso novo ficaria
    * fora do filtro até alguém recarregar a página.
+   *
+   * `manter` é uma aba que continua valendo, e quem a usa é a mudança de nível
+   * (`aplicarNivel`): lá o motivo de esquecer é que o conteúdo desenhado carrega
+   * travas do nível de antes, e a aba Painel não carrega nenhuma. O resto do
+   * sistema chama sem argumento, e esquece tudo.
    */
-  function esquecerAbas() {
+  function esquecerAbas(manter) {
+    var guardada = manter ? ABAS_PRONTAS[manter] : false;
     ABAS_PRONTAS = {};
+    if (guardada) ABAS_PRONTAS[manter] = guardada;
     var sel = document.getElementById('filtro-curso');
     if (sel) sel.removeAttribute('data-carregado');
   }

@@ -7220,6 +7220,103 @@ teste('os quatro que ABREM JANELA estão travados — e o Salvar de dentro tamb�
   verdadeiro(botaoSalvar(cena).disabled, 'o Incluir do formulário de inclusão ficou solto');
 });
 
+teste('os SEIS botões da MARCAÇÃO nascem travados — a lista é quem dita', () => {
+  // A varredura de botões não alcança estes: ela monta a amostra do HTML que a
+  // tela desenhou em execução, e os seis de `BOTOES_FIXOS` são marcação
+  // estática da página. Quatro deles tinham teste nominal (os que abrem
+  // janela); os DOIS da aba Painel — "Reconciliar agora" e "Sincronizar
+  // respostas do Forms", as duas operações mais caras do sistema, na primeira
+  // tela que o professor vê — não eram citados por teste nenhum: tirá-los da
+  // lista deixava a suíte inteira verde.
+  //
+  // DERIVADO da própria lista, e não de ids copiados: um id novo em
+  // `BOTOES_FIXOS` nasce exercitado sem ninguém lembrar deste arquivo.
+  //
+  // Mutação que derruba: tirar qualquer entrada de `BOTOES_FIXOS`.
+  const professora = comoProfessora();
+  const coordenacao = comoCoordenacao();
+  const ids = professora.js.BOTOES_FIXOS.map((b) => b.id);
+
+  verdadeiro(ids.indexOf('botao-reconciliar') !== -1 && ids.indexOf('botao-sincronizar') !== -1,
+    'os dois botões da aba Painel saíram da lista: ' + ids.join(', '));
+
+  ids.forEach((id) => {
+    const dela = professora.elemento(id);
+    verdadeiro(dela !== null && dela !== undefined, 'o botão ' + id + ' não existe na página');
+    verdadeiro(dela.disabled, 'o botão ' + id + ' nasceu clicável para o professor');
+    verdadeiro(String(dela.getAttribute('title')).indexOf('coordenação geral') !== -1,
+      id + ' travado e mudo: ' + dela.getAttribute('title'));
+    verdadeiro(!coordenacao.elemento(id).disabled,
+      'o botão ' + id + ' ficou travado para quem coordena');
+  });
+});
+
+teste('a QUEDA de nível redesenha a aba da frente: o Remover que estava vivo morre', () => {
+  // O caso que o próprio desenho chama de perigoso, e que não tinha teste: a
+  // aba carregada enquanto a pessoa era coordenadora continua no DOM depois da
+  // queda, com Remover, Editar e Inativar HABILITADOS. Esquecer a marca sozinha
+  // arrumaria a próxima visita e deixaria errada a tela que ela está olhando.
+  //
+  // Mutação que derruba: tirar o `esquecerAbas` da mudança de nível, ou o
+  // redesenho da aba da frente.
+  const cena = comoCoordenacao();
+  cena.js.trocarAba('projetos');
+  verdadeiro(!cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a cena não chegou a desenhar a aba com o botão vivo');
+
+  cena.js.aplicarNivel('professor');
+
+  const botao = cena.botaoQueChama(/removerProjetoUI/);
+  verdadeiro(botao.disabled, 'o Remover sobreviveu à queda de nível, na tela que ela está vendo');
+  verdadeiro(String(botao.getAttribute('title')).indexOf('coordenação geral') !== -1,
+    botao.getAttribute('title'));
+});
+
+teste('a SUBIDA também: quem clica cedo não fica com os botões mortos até um F5', () => {
+  // A janela do boot, que é a de todo F5: `entrarComSessao` abre o painel SEM
+  // nível e só então pergunta (`sessaoAtiva`), e a fita de abas é marcação
+  // estática, clicável desde o primeiro instante. A coordenação que clicar em
+  // Projetos nessa janela e receber a resposta da aba antes da do nível ficava
+  // com Editar, Inativar e Remover mortos — com o `title` dizendo que são da
+  // coordenação geral, para quem É a coordenação geral.
+  //
+  // Mutação que derruba: voltar a condição para `NIVEL_APLICADO ===
+  // 'coordenador' && NIVEL !== 'coordenador'` — só a queda esqueceria.
+  const cena = comoCoordenacao();
+  cena.js.NIVEL = 'professor';
+  cena.js.NIVEL_APLICADO = 'professor';
+  cena.js.esquecerAbas();
+
+  cena.js.trocarAba('projetos');
+  verdadeiro(cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a cena não chegou a desenhar a aba no nível provisório');
+
+  cena.js.aplicarNivel('coordenador');
+
+  const botao = cena.botaoQueChama(/removerProjetoUI/);
+  verdadeiro(!botao.disabled, 'o Remover continuou morto para quem coordena');
+  igual(botao.getAttribute('title'), null, 'sobrou a frase de recusa num botão liberado');
+});
+
+teste('a aba Painel não desenha botão travado — é o que permite manter a marca dela', () => {
+  // A afirmação que sustenta a exceção: `aplicarNivel` esquece todas as abas
+  // menos a Painel, porque ela é a ÚNICA que a abertura desenha antes de o
+  // servidor dizer o nível, e o que ela desenha são os dez números. Os dois
+  // botões de coordenação da aba são FIXOS, e ficam fora do conteúdo dela.
+  //
+  // Mutação que derruba: desenhar em `carregarPainel` um botão com
+  // `travaDeNivel` — a partir daí manter a marca deixaria a aba errada depois
+  // de uma mudança de nível, e esta exceção precisaria ser revista.
+  const cena = comoProfessora();
+  verdadeiro(cena.js.ABAS_PRONTAS.painel, 'a aba Painel não chegou a carregar');
+  igual(String(cena.html('conteudo-painel')).indexOf('coordenação geral'), -1,
+    'a aba Painel passou a desenhar botão travado por nível');
+
+  cena.js.aplicarNivel('coordenador');
+  igual(cena.js.ABAS_PRONTAS.painel, true, 'a marca da aba Painel foi esquecida junto');
+  igual(cena.js.ABAS_PRONTAS.projetos, undefined, 'as outras abas não foram esquecidas');
+});
+
 teste('Exportar CSV continua inteiro para o professor — e a trilha diz qual professor exportou', () => {
   // A DECISÃO TOMADA E SABIDA (J10-4): os dois níveis resolvem o clique errado,
   // não a cópia. Oito pessoas seguem podendo baixar nome, CPF, e-mail, telefone
