@@ -912,12 +912,19 @@ function buscarMatriculado(payload) {
  * e-mail, telefone ou matrícula do aluno (a regra de `registrarEdicao_`: dado
  * pessoal já está na ficha, a um clique, e repeti-lo na trilha é espalhá-lo).
  *
- * Custo: 0 leituras quando o formato recusa; senão 1 leitura de ponto (o
- * projeto) + 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto
- * (a lista oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a
- * ocupação de depois) + o log. Duplicada: para na escrita recusada, mais 1
- * leitura de ponto para saber se é fila de espera ou vaga — e, na fila, mais 1
- * escrita (a promoção) e a agregação e o log de sempre.
+ * Custo, MEDIDO no falso e não estimado (testes/painel.js conta as requisições):
+ * 0 leituras quando o formato recusa; senão 1 leitura de ponto (o projeto) +
+ * 1 agregação (o teto, só sem `confirmar_teto`) + 1 leitura de ponto (a lista
+ * oficial) + 1 consulta (outros projetos) + 1 escrita + 1 agregação (a ocupação
+ * de depois) + o log — e, desde que o incremental entrou, mais 2 consultas
+ * (as inscrições da pessoa e a ficha que já reclama a matrícula) + 1 leitura de
+ * ponto + 1 escrita. Onze requisições no caminho que cria, contra as sete de
+ * antes; ~2,2 s a mais no clique, e em troca a ficha em Alunos não espera o
+ * Atualizar. A promoção da fila custa 4 leituras e 4 escritas (eram 3 e 3).
+ *
+ * Duplicada: para na escrita recusada, mais 1 leitura de ponto para saber se é
+ * fila de espera ou vaga — e, na fila, mais 1 escrita (a promoção) e a agregação
+ * e o log de sempre.
  */
 function incluirInscricao(payload) {
   try {
