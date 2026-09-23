@@ -1624,9 +1624,10 @@ teste('sessaoAtiva e sair funcionam pela rota', () => {
   const a = montar();
   const token = sessao(a);
 
-  igual(login(a, 'sessaoAtiva', { token: token }), { ok: true });
+  igual(login(a, 'sessaoAtiva', { token: token }).ok, true);
   igual(login(a, 'sair', { token: token }), { ok: true });
-  igual(login(a, 'sessaoAtiva', { token: token }), { ok: false });
+  igual(login(a, 'sessaoAtiva', { token: token }), { ok: false },
+    'a recusa continua sendo só `ok:false` — quem não tem sessão não aprende que há níveis');
 });
 
 teste('fn desconhecida no login é recusada por nome', () => {

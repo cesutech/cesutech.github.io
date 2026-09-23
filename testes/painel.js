@@ -2113,8 +2113,11 @@ teste('sessão vencida derruba o painel UMA vez, não duas', () => {
   verdadeiro(/if \(TOKEN\) sairDoPainel\(\);/.test(recusa[1]),
     'a recusa que chega em segundo lugar precisa parar em TOKEN, senão desliga a sessão duas vezes');
 
-  // O outro caminho já nascia guardado; os dois têm de continuar assim.
-  verdadeiro(/if \(TOKEN && \(!r \|\| !r\.ok\)\) \{ gravarToken\(null\); sairDoPainel\(\); \}/.test(ADMIN),
+  // O outro caminho já nascia guardado; os dois têm de continuar assim. O
+  // `return` entrou com o nível (23/09): a mesma resposta agora também DESENHA a
+  // tela no nível de quem entrou, e sem ele uma sessão vencida cairia no login e
+  // em seguida aplicaria um nível sobre um painel que acabou de ser escondido.
+  verdadeiro(/if \(TOKEN && \(!r \|\| !r\.ok\)\) \{ gravarToken\(null\); sairDoPainel\(\); return; \}/.test(ADMIN),
     'o retorno de sessaoAtiva perdeu a mesma guarda');
 });
 
@@ -4017,8 +4020,12 @@ teste('a linha do aluno tem Ver e Editar, e a aba tem Atualizar', () => {
     'a paginação passou a mandar o cruzamento junto');
 
   // E o Atualizar pede a lista de cursos de novo: o cruzamento reescreve o
-  // histograma, e um curso novo ficaria fora do filtro sem isso.
-  verdadeiro(/f\.cursos = Boolean\(cruzar\) \|\|/.test(ADMIN),
+  // histograma, e um curso novo ficaria fora do filtro sem isso. Quem responde
+  // "esta chamada vai cruzar?" passou a ser `cruza` (23/09), porque para o
+  // professor o mesmo botão só relista — e aí não há histograma novo a buscar.
+  verdadeiro(/var cruza = Boolean\(cruzar\) && NIVEL === 'coordenador';/.test(ADMIN),
+    'o Atualizar do professor voltou a pedir o cruzamento, que é escrita');
+  verdadeiro(/f\.cursos = cruza \|\|/.test(ADMIN),
     'depois de cruzar, o select de curso continuaria com a lista de antes');
 });
 

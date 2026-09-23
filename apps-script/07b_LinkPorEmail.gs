@@ -376,7 +376,12 @@ function entrarComLink(token) {
     // entrou. A recusa acima continua sem operador: ninguém entrou.
     anotarOperador_(email);
     registrar('LOGIN', 'painel', email, 'via link por e-mail');
-    return { ok: true, token: criarSessao_(email), usuario: email, via: 'link' };
+    // O nível vai junto, como nas outras duas portas (07_Auth.gs): quem entra
+    // pela recuperação vê a mesma tela que veria entrando pelo Google.
+    return {
+      ok: true, token: criarSessao_(email), usuario: email, via: 'link',
+      nivel: nivelDe_(email)
+    };
   } catch (err) {
     console.error('entrarComLink: ' + err.message);
     return recusa;

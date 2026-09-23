@@ -17,8 +17,22 @@
         <h1>CESUTECH — Gestão de Alunos</h1>
         <p>Cadastro, importação da lista oficial e reconciliação</p>
       </div>
-      <button class="btn btn--pequeno oculto" id="botao-sair" data-gravando="Saindo..."
-              onclick="aoGravar(this, sairDoPainel)">Sair</button>
+      <div class="cabecalho__direita">
+        <!--
+          A FAIXA DO NÍVEL, e ela aparece para OS DOIS.
+
+          Um rótulo que só nascesse no nível fraco seria um crachá de
+          rebaixamento; e quem coordena precisa saber com que nível está olhando
+          a tela no dia em que for conferir a reclamação de um professor ("o
+          botão Remover não funciona aqui"). Quem a preenche é `aplicarNivel`,
+          com o que o servidor respondeu — ela nasce vazia e escondida porque
+          antes da resposta a página não sabe, e chutar seria mostrar por um
+          instante um nível que não é o da pessoa.
+        -->
+        <span class="cabecalho__nivel oculto" id="faixa-nivel"></span>
+        <button class="btn btn--pequeno oculto" id="botao-sair" data-gravando="Saindo..."
+                onclick="aoGravar(this, sairDoPainel)">Sair</button>
+      </div>
     </div>
   </div>
 </div>
@@ -141,6 +155,17 @@
     <button class="aba" data-aba="log" onclick="trocarAba('log')">Histórico</button>
     <button class="aba" data-aba="config" onclick="trocarAba('config')">Configurações</button>
   </div>
+
+  <!--
+    A LINHA QUE EXPLICA O NÍVEL, e ela é do professor.
+
+    Fica FORA de `#mensagem-global` de propósito: aquele elemento é o dos avisos
+    que vão e voltam (o erro da aba, a confirmação que some em 6 s), e escrever
+    aqui dentro dele faria a primeira gravação do dia apagar a única frase que
+    explica por que metade da tela está travada. Some sozinha quando o nível é o
+    da coordenação — ver `aplicarNivel`.
+  -->
+  <div id="aviso-nivel"></div>
 
   <div id="mensagem-global"></div>
 
@@ -321,7 +346,11 @@
           <option value="INATIVO">Inativo</option>
         </select>
       </div>
-      <button class="btn btn--primario" onclick="abrirFormProjeto()">Novo projeto</button>
+      <!-- O id não é enfeite: é por ele que `aplicarNivel` trava este botão para
+           o professor. Botão que abre janela não passa por `aoGravar`, então a
+           trava tem de vir de fora — ver `BOTOES_FIXOS`. -->
+      <button class="btn btn--primario" id="botao-novo-projeto"
+              onclick="abrirFormProjeto()">Novo projeto</button>
       <button class="btn" onclick="carregarProjetos()">Atualizar</button>
     </div>
 
@@ -371,8 +400,10 @@
         </select>
       </div>
       <button class="btn" onclick="limparFiltroDisciplinas()">Limpar filtros</button>
-      <button class="btn btn--primario" onclick="abrirFormDisciplinas()">Incluir disciplinas</button>
-      <button class="btn" onclick="abrirFormCoringa()">Incluir disciplina coringa</button>
+      <button class="btn btn--primario" id="botao-incluir-disciplinas"
+              onclick="abrirFormDisciplinas()">Incluir disciplinas</button>
+      <button class="btn" id="botao-coringa"
+              onclick="abrirFormCoringa()">Incluir disciplina coringa</button>
       <button class="btn" onclick="carregarDisciplinas()">Atualizar</button>
     </div>
 
@@ -1081,7 +1112,11 @@
     chamar('sessaoAtiva', { token: token }, function (r) {
       // `TOKEN` já pode ter sido derrubado pelo carregamento que saiu junto —
       // sem esta conferência, os dois caminhos desenhariam o login duas vezes.
-      if (TOKEN && (!r || !r.ok)) { gravarToken(null); sairDoPainel(); }
+      if (TOKEN && (!r || !r.ok)) { gravarToken(null); sairDoPainel(); return; }
+      // É AQUI QUE A FITA GANHA AS QUATRO ABAS DA COORDENAÇÃO, quando é o caso.
+      // O painel foi aberto no nível mais baixo uma linha acima; esta resposta é
+      // a primeira notícia que ele tem de quem está dentro dele.
+      if (r && r.ok) aplicarNivel(r.nivel);
     });
   }
 
@@ -1579,7 +1614,9 @@
         LINK_PENDENTE = '';
         TOKEN = r.token;
         gravarToken(TOKEN);
-        abrirPainel();
+        // O nível vem na resposta da porta: quem entra já vê a tela dele, sem o
+        // meio segundo de fita curta que a sessão guardada paga.
+        abrirPainel(r.nivel);
         return;
       }
 
@@ -1684,7 +1721,7 @@
       if (r && r.ok) {
         TOKEN = r.token;
         gravarToken(TOKEN);
-        abrirPainel();
+        abrirPainel(r.nivel);
         return;
       }
       // A recusa do servidor JÁ diz o que fazer ("a conta X não tem acesso —
@@ -1711,10 +1748,209 @@
     try { t ? sessionStorage.setItem('cesutech_token', t) : sessionStorage.removeItem('cesutech_token'); } catch (e) { /* iframe sem storage */ }
   }
 
-  function abrirPainel() {
+  // ------------------------------------------------------------- O nível
+
+  /**
+   * COM QUE NÍVEL ESTA TELA ESTÁ DESENHADA — 'coordenador' ou 'professor'.
+   *
+   * A regra da tela cabe numa frase: **ela ESCONDE DESTINO e DESABILITA AÇÃO.**
+   * Destino é aba cujo conteúdo o professor não pode nem ler — some da fita,
+   * porque aba que só recusa é porta pintada na parede. Ação é botão dentro de
+   * uma tela que ele usa de verdade — fica NA TELA, desabilitado, com o rótulo
+   * de sempre e um `title` dizendo de quem ela é. Botão que some faz a pessoa
+   * concluir que a lista está incompleta ou que o sistema quebrou, e o desfecho
+   * disso é um telefonema.
+   *
+   * COMEÇA NO MAIS BAIXO, e isso é decisão: o painel abre antes de o servidor
+   * dizer quem é a pessoa, e o único flash aceitável é o de aba que APARECE.
+   * Começando em coordenador, o professor veria por um instante as quatro abas
+   * que não são dele — a tela prometeria e tiraria meio segundo depois.
+   *
+   * NÃO HÁ DICA GUARDADA NO `sessionStorage`. Nível guardado no cliente é nível
+   * editável pelo cliente: quem abrisse o console viraria "coordenador" na
+   * PRÓPRIA tela — sem conseguir nada, porque o servidor cobra em toda
+   * requisição (`rotaDoPainel_`, 08_Api.gs), mas com um painel que parece
+   * aberto e recusa tudo. Meio segundo de fita curta é mais barato.
+   */
+  var NIVEL = 'professor';
+
+  /**
+   * O nível com que a tela foi desenhada da última vez, ou `null` antes da
+   * primeira. É o que distingue "subiu" de "caiu" em `aplicarNivel`.
+   */
+  var NIVEL_APLICADO = null;
+
+  /**
+   * As frases dos botões travados. A forma é sempre a mesma — *<o que a ação
+   * faz> é da coordenação geral* —, porque quem encontra três delas na mesma
+   * tela precisa reconhecer o padrão e parar de ler.
+   *
+   * Moram juntas, e não coladas em cada botão, por dois motivos: o mesmo motivo
+   * serve a vários botões (os cinco de disciplina são um só), e este bloco é o
+   * que responde "o que exatamente o professor não faz" para quem chegar depois
+   * sem ter lido a especificação.
+   *
+   * Nenhuma delas nomeia ninguém. Dizer "peça a fulano@" transformaria a recusa
+   * num diretório de quem manda — é a mesma razão de `RECUSA_NIVEL` (07_Auth.gs)
+   * não trazer nome.
+   */
+  var POR_QUE_TRAVADO = {
+    projeto: 'Criar e editar projeto é da coordenação geral.',
+    projetoInativar: 'Inativar projeto é da coordenação geral.',
+    projetoRemover: 'Remover projeto é da coordenação geral.',
+    anular: 'Anular inscrição é da coordenação geral.',
+    promover: 'Promover da fila é da coordenação geral.',
+    editarAluno: 'Editar a ficha do aluno é da coordenação geral.',
+    incluirAluno: 'Incluir aluno é da coordenação geral.',
+    disciplina: 'Criar, editar e remover disciplina é da coordenação geral.',
+    revisar: 'Revisar e desfazer uma importação são da coordenação geral.',
+    reconciliar: 'Reconciliar é da coordenação geral — são as duas operações mais ' +
+      'caras do sistema.',
+    decisao: 'Registrar a decisão sobre este aluno é da coordenação geral.'
+  };
+
+  /**
+   * Os atributos que travam um botão que não é do professor — e a frase que diz
+   * de quem ele é. Interpolada DENTRO da tag, no HTML que cada lista desenha:
+   *
+   *   '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.projetoRemover) +
+   *   ' onclick="aoGravar(this, removerProjetoUI, ...)">Remover</button>'
+   *
+   * ENCAIXA COM O TRAVA/DESTRAVA DA GRAVAÇÃO sem briga, e não por sorte:
+   * `aoGravar` sai na primeira linha quando o botão está desabilitado, e
+   * `destravarBotao` só devolve ao normal quem tem `data-rotulo` — atributo que
+   * nasce no clique, dentro de `travarBotao`. Botão nascido desabilitado nunca é
+   * ressuscitado pela resposta de outra chamada que chegou.
+   *
+   * `aria-disabled` junto com `disabled` porque leitor de tela pula o que está
+   * só desabilitado: o professor cego precisa ouvir que o botão existe e por que
+   * não é dele, que é a mesma informação que o `title` dá a quem enxerga.
+   */
+  function travaDeNivel(motivo) {
+    if (NIVEL === 'coordenador') return '';
+    return ' disabled aria-disabled="true" title="' + escapar(motivo) + '"';
+  }
+
+  /**
+   * As abas que SOMEM para o professor — as quatro cujo CONTEÚDO não é dele:
+   *
+   *   importar  o passo a passo inteiro é escrita, do upload ao lote gravado;
+   *   lotes     a aba Importações, que existe para revisar e apagar importação;
+   *   log       a trilha nomeia a lista de acesso ("ADMIN_INCLUIDO", "NIVEL_
+   *             ALTERADO"), e fechar a porta deixando a janela não fecha nada;
+   *   config    parâmetros, endereços e o cartão "Quem tem acesso" moram dentro
+   *             dela — e `lerConfiguracoes` devolve TODA chave do banco,
+   *             `admin_emails` e `coordenadores_gerais` incluídas.
+   *
+   * O servidor recusa as funções das quatro de qualquer jeito (balde do
+   * despacho, 08_Api.gs). Esconder é o que evita a tela que só sabe recusar.
+   */
+  var ABAS_DA_COORDENACAO = { importar: true, lotes: true, log: true, config: true };
+
+  /**
+   * Os botões que vivem na MARCAÇÃO — e por isso não passam por `travaDeNivel`,
+   * que só alcança HTML montado em tempo de execução.
+   *
+   * Quatro dos seis ABREM JANELA em vez de gravar (Novo projeto, Incluir
+   * disciplinas, coringa, Incluir aluno): eles não passam por `aoGravar`, então
+   * travar só o que grava deixaria o formulário abrir e morrer no Salvar. A
+   * trava vai na PORTA e no Salvar de dentro — os dois.
+   */
+  var BOTOES_FIXOS = [
+    { id: 'botao-reconciliar', motivo: POR_QUE_TRAVADO.reconciliar },
+    { id: 'botao-sincronizar', motivo: POR_QUE_TRAVADO.reconciliar },
+    { id: 'botao-novo-projeto', motivo: POR_QUE_TRAVADO.projeto },
+    { id: 'botao-incluir-disciplinas', motivo: POR_QUE_TRAVADO.disciplina },
+    { id: 'botao-coringa', motivo: POR_QUE_TRAVADO.disciplina },
+    { id: 'botao-incluir-aluno', motivo: POR_QUE_TRAVADO.incluirAluno }
+  ];
+
+  /**
+   * Desenha a tela no nível que o servidor disse — a fita, os botões fixos, a
+   * faixa do cabeçalho e a linha que explica o nível.
+   *
+   * Chamada de QUATRO lugares, que são os quatro em que o servidor diz o nível:
+   * o retorno de `sessaoAtiva` (a abertura com sessão guardada), o de
+   * `entrarComGoogle` e o de `entrarComLink` (as duas portas de login) e o de
+   * `listarAdmins` (a tela que mexe em nível). Mais o cinto e suspensório de
+   * `chamar()`, quando uma recusa por nível revela que a tela está errada.
+   *
+   * O DESCONHECIDO CAI NO MAIS BAIXO: resposta velha, campo ausente ou palavra
+   * nova viram professor. É o lado seguro para a tela errar, e o servidor
+   * continua sendo quem decide de verdade.
+   */
+  function aplicarNivel(nivel) {
+    NIVEL = nivel === 'coordenador' ? 'coordenador' : 'professor';
+
+    var faixa = document.getElementById('faixa-nivel');
+    faixa.textContent = NIVEL === 'coordenador'
+      ? 'Coordenador geral'
+      : 'Professor — você vê e exporta as listas';
+    faixa.classList.remove('oculto');
+
+    Array.prototype.forEach.call(document.querySelectorAll('.aba'), function (b) {
+      b.classList.toggle('oculto', NIVEL !== 'coordenador' &&
+        temProprio_(ABAS_DA_COORDENACAO, b.getAttribute('data-aba')));
+    });
+
+    // A ABA ABERTA PODE SER UMA QUE ACABOU DE SUMIR DA FITA — é o caso de quem
+    // cai de nível com Configurações na frente. Esconder só o botão deixaria o
+    // conteúdo dela na tela, e ele é justamente o que o professor não pode ver
+    // (a lista de acesso inteira mora ali). Volta para o Painel, que é a aba que
+    // os dois níveis têm. Nenhuma requisição nova sai disso: a aba Painel já
+    // está carregada, ou é `abrirPainel` quem vai carregá-la na linha seguinte.
+    if (NIVEL !== 'coordenador') {
+      Object.keys(ABAS_DA_COORDENACAO).forEach(function (nome) {
+        var secao = document.getElementById('secao-' + nome);
+        if (secao && !secao.classList.contains('oculto')) trocarAba('painel');
+      });
+    }
+
+    BOTOES_FIXOS.forEach(function (b) {
+      var el = document.getElementById(b.id);
+      if (!el) return;
+      el.disabled = NIVEL !== 'coordenador';
+      if (el.disabled) {
+        el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('title', b.motivo);
+      } else {
+        el.removeAttribute('aria-disabled');
+        el.removeAttribute('title');
+      }
+    });
+
+    // A frase do professor é dita UMA VEZ, e fica: ela é o que responde "por que
+    // metade dos botões está apagada" sem ninguém ter de perguntar. Para a
+    // coordenação, nada — a tela dela é a de sempre.
+    document.getElementById('aviso-nivel').innerHTML = NIVEL === 'coordenador' ? '' :
+      '<div class="aviso aviso--info">Você entra como <strong>Professor</strong>: vê e ' +
+      'exporta as listas de inscritos e disciplinas. Criar, remover, anular, importar e ' +
+      'configurar são da coordenação geral.</div>';
+
+    // O QUE JÁ ESTÁ DESENHADO CONTINUA NA TELA — e por isso a QUEDA de nível
+    // esquece as abas: o conteúdo montado enquanto a tela se achava da
+    // coordenação tem botão habilitado onde agora não deveria, e ele só nasce
+    // certo se a aba for montada de novo.
+    //
+    // A SUBIDA não esquece nada, e é decisão medida: a única coisa desenhada
+    // antes de o servidor responder o nível é a aba Painel, cujos dois botões de
+    // coordenação são fixos — e acabaram de ser destravados três linhas acima.
+    // Esquecer ali custaria uma execução inteira do Apps Script no instante mais
+    // caro da página, que é a abertura.
+    if (NIVEL_APLICADO === 'coordenador' && NIVEL !== 'coordenador') esquecerAbas();
+    NIVEL_APLICADO = NIVEL;
+  }
+
+  // ------------------------------------------------------------ Sessão (tela)
+
+  function abrirPainel(nivel) {
     document.getElementById('tela-login').classList.add('oculto');
     document.getElementById('tela-painel').classList.remove('oculto');
     document.getElementById('botao-sair').classList.remove('oculto');
+    // As duas portas de login já sabem quem entrou e passam o nível adiante.
+    // Quem abre com a sessão guardada ainda não sabe: desenha no mais baixo e
+    // sobe quando `sessaoAtiva` responder — a direção segura do flash.
+    aplicarNivel(nivel || NIVEL);
     esquecerAbas();
     carregarPainel();
   }
@@ -1727,6 +1963,15 @@
     TOKEN = null;
     gravarToken(null);
     esquecerAbas();
+
+    // O painel volta ao nível mais baixo, e a faixa some com ele: a próxima
+    // pessoa a entrar nesta aba do navegador não pode herdar a fita de abas da
+    // anterior, e entre uma e outra não há nada desenhado para as travas
+    // atrapalharem. Quem entra chama `aplicarNivel` de novo, com o nível dela.
+    NIVEL = 'professor';
+    NIVEL_APLICADO = null;
+    document.getElementById('faixa-nivel').classList.add('oculto');
+    document.getElementById('aviso-nivel').innerHTML = '';
     document.getElementById('tela-painel').classList.add('oculto');
     document.getElementById('botao-sair').classList.add('oculto');
     document.getElementById('tela-login').classList.remove('oculto');
@@ -2344,6 +2589,35 @@
             return;
           }
 
+          // A RECUSA POR NÍVEL, que NÃO é recusa de sessão.
+          //
+          // A pessoa entrou; a ação é que não é dela. Cair no `if` de cima
+          // jogaria o professor na tela de login a cada clique fora do quintal
+          // dele — e ele entraria de novo para receber a mesma coisa, num laço
+          // sem nada na tela que o explique. É por isso que a frase do servidor
+          // (`RECUSA_NIVEL`, 07_Auth.gs) é escolhida para não casar com aquela
+          // expressão, e há teste lendo as duas pontas.
+          //
+          // NENHUM `esquecerAbas()`: nada mudou no banco. Mandar as nove abas
+          // recarregarem por causa de um clique que não aconteceu seria pagar
+          // uma execução do Apps Script por aba, de graça — e é justamente o que
+          // o `if` logo abaixo faria, porque recusa de gravação é resposta de
+          // função que não é leitura.
+          //
+          // A frase é a DO SERVIDOR, sem reescrita, e pousa onde os olhos estão
+          // (`destinoDoAviso`) — dentro da janela, quando há uma aberta. Ela não
+          // segue para `aoOk`: quem chamou está esperando uma lista para
+          // desenhar, e cada tela reescreveria a recusa à sua maneira.
+          if (r.ok === false && r.motivo === 'NIVEL') {
+            // CINTO E SUSPENSÓRIO: o servidor acabou de dizer com que nível ele
+            // enxerga esta sessão. Se a tela está desenhada com outro — alguém
+            // mudou de nível com o painel aberto —, ela se corrige aqui mesmo, e
+            // é `aplicarNivel` quem esquece as abas desenhadas erradas.
+            if (r.nivel && r.nivel !== NIVEL) aplicarNivel(r.nivel);
+            avisar('erro', r.erro);
+            return;
+          }
+
           // Uma chamada que não é leitura pode ter mudado qualquer aba: reconciliar
           // muda os números do Painel e a lista de Alunos, importar muda os Lotes,
           // salvar configuração muda o Histórico. Em vez de tentar adivinhar quais,
@@ -2453,6 +2727,17 @@
   // ------------------------------------------------------------ Navegação
 
   function trocarAba(nome) {
+    // A ABA DE COORDENAÇÃO NÃO ABRE PARA O PROFESSOR, e a saída é aqui: antes de
+    // esconder seção nenhuma e antes de falar com o servidor.
+    //
+    // O botão dela nem é desenhado (`aplicarNivel`), então quem chega a este
+    // ponto tem o `onclick` de uma tela que não recarregou depois de uma mudança
+    // de nível, ou digitou no console. Nos dois casos a resposta certa é não
+    // fazer nada: o servidor recusaria as funções daquela aba de qualquer jeito,
+    // e abrir uma tela só para mostrar recusa é a porta pintada na parede que
+    // esconder a aba existe para evitar.
+    if (NIVEL !== 'coordenador' && temProprio_(ABAS_DA_COORDENACAO, nome)) return;
+
     limparErroDaAbaAnterior();
 
     ['painel', 'auditorio', 'projetos', 'disciplinas', 'alunos', 'importar', 'lotes', 'log', 'config'].forEach(function (a) {
@@ -3052,8 +3337,9 @@
             '</strong> primeiros QUE CABEM. Os outros ' + (cabem - levam) +
             ' continuam cabendo — atualize e clique de novo.</span>'
           : '') +
-        '<br><button class="btn btn--primario mt" data-gravando="Promovendo..." ' +
-        'onclick="aoGravar(this, promoverQueCabem)">Promover ' + levam + ' da fila</button></div>';
+        '<br><button class="btn btn--primario mt" data-gravando="Promovendo..."' +
+        travaDeNivel(POR_QUE_TRAVADO.promover) +
+        ' onclick="aoGravar(this, promoverQueCabem)">Promover ' + levam + ' da fila</button></div>';
     } else if (naFila) {
       html += '<div class="aviso aviso--info">' + naFila + ' na fila e nenhuma vaga livre. ' +
         'Anular o que for inscrição inventada libera vaga — e aí a fila anda.</div>';
@@ -3774,11 +4060,18 @@
 
     var acao = '';
     if (visiveis && !demais) {
+      // A BARRA CONTINUA CONTANDO para o professor, e o botão continua na tela
+      // desabilitado: o número de marcadas é o que ele usa para pedir a anulação
+      // a quem coordena ("são estas 38, das 21h10 às 21h14"). Marcar linha é
+      // gesto de navegador e não fala com o servidor — gatear a marcação seria
+      // tirar dele a conta, não o poder.
       acao = lista === 'recentes'
-        ? '<button class="btn btn--perigo" data-gravando="Anulando..." ' +
-          'onclick="aoGravar(this, anularMarcadas)">Anular ' + visiveis + '</button>'
-        : '<button class="btn btn--primario" data-gravando="Promovendo..." ' +
-          'onclick="aoGravar(this, promoverMarcadas)">Promover ' + visiveis + '</button>';
+        ? '<button class="btn btn--perigo" data-gravando="Anulando..."' +
+          travaDeNivel(POR_QUE_TRAVADO.anular) +
+          ' onclick="aoGravar(this, anularMarcadas)">Anular ' + visiveis + '</button>'
+        : '<button class="btn btn--primario" data-gravando="Promovendo..."' +
+          travaDeNivel(POR_QUE_TRAVADO.promover) +
+          ' onclick="aoGravar(this, promoverMarcadas)">Promover ' + visiveis + '</button>';
     }
 
     // O teto vai na barra desde a PRIMEIRA marcação, e não só no aviso de
@@ -3987,17 +4280,20 @@
           // muda nada — e porque encostá-la nos dois botões que gravam convida ao
           // clique errado.
           '<button class="btn btn--pequeno" onclick="verInscritosProjeto(\'' + escapar(p.id) + '\')">Inscritos</button> ' +
-          '<button class="btn btn--pequeno" onclick="abrirFormProjeto(\'' + escapar(p.id) + '\')">Editar</button> ' +
+          '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.projeto) +
+          ' onclick="abrirFormProjeto(\'' + escapar(p.id) + '\')">Editar</button> ' +
           // Um clique, sem abrir a edição: inativar é a ação do dia em que um
           // projeto sai do ar (professor desistiu, turma cancelada), e obrigar a
           // passar pelo formulário inteiro para virar uma caixa faz a coordenação
           // deixar o projeto aberto recebendo inscrição que ninguém vai atender.
           '<button class="btn btn--pequeno" data-gravando="' +
-          (p.ativo ? 'Inativando...' : 'Ativando...') + '" ' +
-          'onclick="aoGravar(this, alternarProjetoUI, \'' + escapar(p.id) + '\')">' +
+          (p.ativo ? 'Inativando...' : 'Ativando...') + '"' +
+          travaDeNivel(POR_QUE_TRAVADO.projetoInativar) +
+          ' onclick="aoGravar(this, alternarProjetoUI, \'' + escapar(p.id) + '\')">' +
           (p.ativo ? 'Inativar' : 'Ativar') + '</button> ' +
-          '<button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..." ' +
-          'onclick="aoGravar(this, removerProjetoUI, \'' + escapar(p.id) + '\')">Remover</button>' +
+          '<button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..."' +
+          travaDeNivel(POR_QUE_TRAVADO.projetoRemover) +
+          ' onclick="aoGravar(this, removerProjetoUI, \'' + escapar(p.id) + '\')">Remover</button>' +
           '</td></tr>';
       });
 
@@ -4163,7 +4459,14 @@
     document.getElementById('modal-corpo').innerHTML = html;
     document.getElementById('modal-rodape').innerHTML =
       '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-      '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarProjetoUI, ' +
+      // A trava vai na PORTA e no SALVAR. O botão que abre esta janela já nasce
+      // desabilitado para o professor, mas ele não passa por `aoGravar` — e uma
+      // trava aplicada só a quem grava deixaria a janela abrir por qualquer
+      // outro caminho (o `onclick` de uma tela que não recarregou, o console) e
+      // morrer no fim, depois de a pessoa ter digitado o formulário inteiro.
+      '<button class="btn btn--primario" id="modal-salvar"' +
+      travaDeNivel(POR_QUE_TRAVADO.projeto) +
+      ' onclick="aoGravar(this, salvarProjetoUI, ' +
       (p ? '\'' + escapar(p.id) + '\'' : 'null') + ')">Salvar</button>';
 
     definirBanner((p && p.banner) || '');
@@ -4528,8 +4831,9 @@
           // percebe quem falta; e é daqui que ela volta a olhar depois de incluir.
           // A outra porta do mesmo formulário fica na barra da aba Alunos, para
           // quem ainda não está em projeto nenhum.
-          '<button class="btn btn--pequeno btn--primario" id="insc-proj-incluir" ' +
-          'onclick="abrirInclusaoDeAluno(\'' + escapar(id) + '\')">Incluir aluno</button>') +
+          '<button class="btn btn--pequeno btn--primario" id="insc-proj-incluir"' +
+          travaDeNivel(POR_QUE_TRAVADO.incluirAluno) +
+          ' onclick="abrirInclusaoDeAluno(\'' + escapar(id) + '\')">Incluir aluno</button>') +
         '<div id="insc-proj-tabela"></div>';
 
       corpo.innerHTML = html;
@@ -4766,8 +5070,12 @@
         (p
           ? '<button class="btn" onclick="voltarParaInscritos()">Voltar</button>'
           : '<button class="btn" onclick="fecharModal()">Cancelar</button>') +
-        '<button class="btn btn--primario" id="modal-salvar" data-gravando="Incluindo..." ' +
-        'onclick="aoGravar(this, incluirInscricaoUI)">Incluir</button>';
+        // As DUAS portas desta janela já nascem travadas (a da barra de Alunos e
+        // a da lista de inscritos); o Salvar também, pelo mesmo motivo do
+        // formulário de projeto — ver `abrirFormProjeto`.
+        '<button class="btn btn--primario" id="modal-salvar" data-gravando="Incluindo..."' +
+        travaDeNivel(POR_QUE_TRAVADO.incluirAluno) +
+        ' onclick="aoGravar(this, incluirInscricaoUI)">Incluir</button>';
       if (matricula) buscarMatriculadoUI();
     };
 
@@ -5376,14 +5684,19 @@
         '<td><span class="selo selo--' + (d.ativo ? 'CONFIRMADO' : 'SO_INSCRITO') + '">' +
         (d.ativo ? 'Ativa' : 'Inativa') + '</span></td>' +
         '<td style="white-space:nowrap">' +
-        '<button class="btn btn--pequeno" onclick="abrirEdicaoDisciplina(\'' + id + '\')">Editar</button> ' +
+        '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+        ' onclick="abrirEdicaoDisciplina(\'' + id + '\')">Editar</button> ' +
         '<button class="btn btn--pequeno" data-gravando="' +
-        (d.ativo ? 'Inativando...' : 'Ativando...') + '" ' +
-        'onclick="aoGravar(this, alternarDisciplinaUI, \'' + id + '\',' + (d.ativo ? 'false' : 'true') + ')">' +
+        (d.ativo ? 'Inativando...' : 'Ativando...') + '"' +
+        travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+        ' onclick="aoGravar(this, alternarDisciplinaUI, \'' + id + '\',' + (d.ativo ? 'false' : 'true') + ')">' +
         (d.ativo ? 'Inativar' : 'Ativar') + '</button> ' +
+        // "Inscritos" NÃO leva trava: é leitura, e é o que o professor mais usa
+        // nesta aba.
         '<button class="btn btn--pequeno" onclick="verInscritosDisciplina(\'' + id + '\')">Inscritos</button> ' +
-        '<button class="btn btn--pequeno btn--perigo" data-gravando="Excluindo..." ' +
-        'onclick="aoGravar(this, removerDisciplinaUI, \'' + id + '\')">Excluir</button>' +
+        '<button class="btn btn--pequeno btn--perigo" data-gravando="Excluindo..."' +
+        travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+        ' onclick="aoGravar(this, removerDisciplinaUI, \'' + id + '\')">Excluir</button>' +
         '</td></tr>';
     });
 
@@ -5421,7 +5734,9 @@
       '</div>';
     document.getElementById('modal-rodape').innerHTML =
       '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-      '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarDisciplinasUI)">Salvar</button>';
+      '<button class="btn btn--primario" id="modal-salvar"' +
+      travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+      ' onclick="aoGravar(this, salvarDisciplinasUI)">Salvar</button>';
 
     desenharLinhasDisciplina();
   }
@@ -5549,7 +5864,9 @@
       '<p class="texto-fraco pequeno">Só existe uma coringa ativa por vez.</p>';
     document.getElementById('modal-rodape').innerHTML =
       '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-      '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarCoringaUI)">Salvar</button>';
+      '<button class="btn btn--primario" id="modal-salvar"' +
+      travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+      ' onclick="aoGravar(this, salvarCoringaUI)">Salvar</button>';
   }
 
   function salvarCoringaUI() {
@@ -5622,8 +5939,9 @@
     document.getElementById('modal-corpo').innerHTML = html;
     document.getElementById('modal-rodape').innerHTML =
       '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-      '<button class="btn btn--primario" id="modal-salvar" ' +
-      'onclick="aoGravar(this, salvarEdicaoDisciplinaUI, \'' + escapar(d.id) + '\')">Salvar</button>';
+      '<button class="btn btn--primario" id="modal-salvar"' +
+      travaDeNivel(POR_QUE_TRAVADO.disciplina) +
+      ' onclick="aoGravar(this, salvarEdicaoDisciplinaUI, \'' + escapar(d.id) + '\')">Salvar</button>';
   }
 
   function salvarEdicaoDisciplinaUI(id) {
@@ -6554,9 +6872,23 @@
    */
   /** `relato` só vem com `cruzar`, e vai para `contarReconciliacao` — ver `atualizarAlunosUI`. */
   function carregarAlunos(pagina, cruzar, relato) {
+    // O BOTÃO "ATUALIZAR" MUDA DE FUNÇÃO PARA O PROFESSOR, em vez de recusar.
+    //
+    // Ele parece recarregar a lista, e para o professor é isso que ele vai
+    // fazer: `listarAlunos`, que é leitura e é dele. Travá-lo seria tirar da aba
+    // dele o botão de recarregar; deixá-lo chamar `atualizarAlunos` seria uma
+    // recusa do servidor num botão que ninguém associa a escrita — e
+    // `atualizarAlunos` ESCREVE (chama a reconciliação e reescreve a coleção
+    // `alunos`), o que o nome do botão não conta a ninguém.
+    //
+    // Ele é decidido ANTES do rótulo da espera: `var` sobe sozinho para o topo
+    // da função, e ler `cruza` acima desta linha traria `undefined` — a tela
+    // diria "Carregando..." no clique que vai cruzar o cadastro inteiro.
+    var cruza = Boolean(cruzar) && NIVEL === 'coordenador';
+
     var el = document.getElementById('conteudo-alunos');
     el.className = 'carregando';
-    el.textContent = cruzar ? 'Cruzando os dados e recarregando...' : 'Carregando...';
+    el.textContent = cruza ? 'Cruzando os dados e recarregando...' : 'Carregando...';
 
     var f = filtrosAtuais();
     f.pagina = pagina || 1;
@@ -6571,10 +6903,10 @@
     // curso novo (ele reescreve o histograma de `agregados/cursos`), e sem pedir
     // a lista de novo o curso recém-nascido ficaria fora do filtro até alguém
     // recarregar a página inteira.
-    f.cursos = Boolean(cruzar) ||
+    f.cursos = cruza ||
       document.getElementById('filtro-curso').getAttribute('data-carregado') !== '1';
 
-    chamar(cruzar ? 'atualizarAlunos' : 'listarAlunos', f, function (r) {
+    chamar(cruza ? 'atualizarAlunos' : 'listarAlunos', f, function (r) {
       if (!r) return;                       // chamar() já explicou o motivo
 
       // O resultado do cruzamento é contado ANTES da recusa da listagem: o
@@ -6616,7 +6948,10 @@
           '<td class="pequeno texto-fraco">' + escapar(a.metodo_match) + '</td>' +
           '<td style="white-space:nowrap">' +
           '<button class="btn btn--pequeno" onclick="abrirDetalhe(\'' + escapar(a.id) + '\')">Ver</button> ' +
-          '<button class="btn btn--pequeno" onclick="abrirEdicaoAluno(\'' + escapar(a.id) + '\')">Editar</button>' +
+          // "Ver" fica inteiro: a ficha é leitura, e é a aba do professor.
+          // "Editar" muda nome, matrícula e PROJETO do aluno — ver J10-5.
+          '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.editarAluno) +
+          ' onclick="abrirEdicaoAluno(\'' + escapar(a.id) + '\')">Editar</button>' +
           '</td></tr>';
       });
 
@@ -6710,9 +7045,13 @@
    * do cruzamento — inclusive do "não cruzei" que este botão existe para dizer.
    */
   function atualizarAlunosUI(relato) {
+    // A faixa diz o que vai acontecer de verdade, e para o professor é outra
+    // coisa: prometer um cruzamento que `carregarAlunos` não vai pedir faria a
+    // tela mentir sobre o único botão caro desta aba.
     avisar(relato && relato.tipo === 'atencao' ? 'atencao' : 'info',
-      (relato ? relato.texto + ' ' : '') +
-      'Cruzando inscrições com a lista oficial... pode levar alguns segundos.');
+      (relato ? relato.texto + ' ' : '') + (NIVEL === 'coordenador'
+        ? 'Cruzando inscrições com a lista oficial... pode levar alguns segundos.'
+        : 'Recarregando a lista...'));
     carregarAlunos(1, true, relato);
   }
 
@@ -6791,7 +7130,9 @@
       document.getElementById('modal-corpo').innerHTML = corpoDaEdicaoAluno(r);
       document.getElementById('modal-rodape').innerHTML =
         '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-        '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarEdicaoAluno)">Salvar</button>';
+        '<button class="btn btn--primario" id="modal-salvar"' +
+        travaDeNivel(POR_QUE_TRAVADO.editarAluno) +
+        ' onclick="aoGravar(this, salvarEdicaoAluno)">Salvar</button>';
     });
   }
 
@@ -6977,6 +7318,14 @@
       if (r.aluno.status === 'CANCELADO') {
         html += '<p class="texto-fraco pequeno">Cancelado na lista oficial pela revisão de uma importação: ' +
           'o status não se define à mão. Volta pela reimportação da lista.</p>';
+      } else if (NIVEL !== 'coordenador') {
+        // AQUI O BLOCO NÃO É DESENHADO, e é a única exceção à regra de desabilitar
+        // em vez de esconder: o que ficaria na tela não é um botão, é um `select`
+        // com quatro status para escolher. Desabilitado, ele continuaria
+        // convidando a escolher — e `<select>` apagado é o controle que mais
+        // parece defeito de tela. A frase no lugar dele diz de quem é a decisão,
+        // e a ficha, que é o que o professor veio ver, continua inteira acima.
+        html += '<p class="texto-fraco pequeno">' + escapar(POR_QUE_TRAVADO.decisao) + '</p>';
       } else {
         html += '<div class="campo"><label for="novo-status">Definir status manualmente</label>' +
           '<select id="novo-status">' +
@@ -6990,7 +7339,7 @@
       document.getElementById('modal-corpo').innerHTML = html;
       document.getElementById('modal-rodape').innerHTML =
         '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
-        (r.aluno.status === 'CANCELADO' ? '' :
+        (r.aluno.status === 'CANCELADO' || NIVEL !== 'coordenador' ? '' :
           '<button class="btn btn--primario" id="modal-salvar" onclick="aoGravar(this, salvarRevisao)">Salvar decisão</button>');
     });
   }
@@ -7427,7 +7776,10 @@
         'A lista oficial já está gravada, mas o cruzamento dela com as inscrições ainda ' +
         'não foi feito — até rodar, a aba Alunos mostra os números de antes.</div>' +
         '<div class="barra-acoes">' +
-        '<button class="btn btn--primario" id="botao-reconciliar-pos" ' +
+        // A aba Importar inteira some para o professor; a trava fica pelo mesmo
+        // motivo dos botões da aba Importações — ver `acoesDoLote`.
+        '<button class="btn btn--primario" id="botao-reconciliar-pos"' +
+        travaDeNivel(POR_QUE_TRAVADO.reconciliar) + ' ' +
         // O rótulo da espera diz o que a pessoa precisa saber para não clicar de
         // novo nem fechar a aba: a reconciliação é a chamada mais cara do
         // sistema, e ela demora mesmo.
@@ -7522,8 +7874,9 @@
       html += '<div class="aviso aviso--atencao"><strong>' + r.candidatos + ' aluno(s) que estavam no banco ' +
         'como ' + turma + ' não vieram neste arquivo.</strong> Trancaram, desistiram ou mudaram de turma.' +
         entreParenteses +
-        '<div class="barra-acoes"><button class="btn btn--primario" id="botao-revisar-pos" ' +
-        'onclick="abrirRevisaoDeLote(\'' + escapar(r.loteId) + '\')">Revisar</button></div></div>';
+        '<div class="barra-acoes"><button class="btn btn--primario" id="botao-revisar-pos"' +
+        travaDeNivel(POR_QUE_TRAVADO.revisar) +
+        ' onclick="abrirRevisaoDeLote(\'' + escapar(r.loteId) + '\')">Revisar</button></div></div>';
     }
     if (r.sumiramMaisQueVieram) {
       html += '<div class="aviso aviso--erro"><strong>Sumiram mais alunos do que vieram</strong> (' +
@@ -7682,10 +8035,16 @@
     if (l.status === 'PARCIAL') {
       return '<span class="texto-fraco pequeno">parcial — confirme de novo com o mesmo arquivo</span>';
     }
-    return '<button class="btn btn--pequeno" onclick="abrirRevisaoDeLote(\'' + escapar(l.lote_id) + '\')">' +
+    // A aba Importações inteira some para o professor (ver `ABAS_DA_COORDENACAO`),
+    // e estes dois continuam travados mesmo assim: se um dia a aba for reaberta
+    // para ele — é uma linha em `funcoesDoProfessor_` mais uma aqui —, os botões
+    // já nascem certos, e o dia da reabertura não é o dia de descobrir isto.
+    return '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.revisar) +
+      ' onclick="abrirRevisaoDeLote(\'' + escapar(l.lote_id) + '\')">' +
       (l.revisado_em ? 'Revisar de novo' : 'Revisar') + '</button> ' +
-      '<button class="btn btn--pequeno" data-gravando="Apagando..." ' +
-      'onclick="aoGravar(this, expurgarLoteUI, \'' + escapar(l.lote_id) + '\')">Apagar matriculados</button>';
+      '<button class="btn btn--pequeno" data-gravando="Apagando..."' +
+      travaDeNivel(POR_QUE_TRAVADO.revisar) +
+      ' onclick="aoGravar(this, expurgarLoteUI, \'' + escapar(l.lote_id) + '\')">Apagar matriculados</button>';
   }
 
   /**
@@ -7940,8 +8299,9 @@
 
     rodape.innerHTML = '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
       (r.candidatos
-        ? '<button class="btn btn--primario" id="modal-salvar" data-gravando="Aplicando..." ' +
-          'onclick="aoGravar(this, aplicarRevisaoUI)">Aplicar</button>'
+        ? '<button class="btn btn--primario" id="modal-salvar" data-gravando="Aplicando..."' +
+          travaDeNivel(POR_QUE_TRAVADO.revisar) +
+          ' onclick="aoGravar(this, aplicarRevisaoUI)">Aplicar</button>'
         : '');
     recontarRevisao();
   }
@@ -8271,6 +8631,17 @@
    */
   var ACESSO_EU = '';
 
+  /**
+   * A frase do botão travado na linha do último coordenador geral.
+   *
+   * Ela diz o CONSERTO ("promova outra pessoa antes"), e não só a proibição: uma
+   * recusa que não diz a saída manda a pessoa tentar o mesmo clique de novo, ou
+   * pedir ajuda para uma coisa que ela resolveria sozinha em dois gestos.
+   */
+  var SO_UM_COORDENADOR = 'Este é o último coordenador geral. Promova outra pessoa antes ' +
+    'de rebaixar esta — senão ninguém mais mexe em configuração, na lista de acesso nem ' +
+    'nas importações.';
+
   function carregarAcesso() {
     var el = document.getElementById('conteudo-acesso');
     el.className = 'carregando';
@@ -8284,13 +8655,41 @@
         return;
       }
       ACESSO_EU = r.voce || '';
-      desenharAcesso(r.emails || []);
+      // A QUARTA CHAMADA QUE DIZ O NÍVEL (ver `aplicarNivel`), e a única que o diz
+      // enquanto a tela já está aberta há horas. Só coordenador geral chega aqui,
+      // então na prática ela confirma o que a tela já sabe — e é de graça: o
+      // campo vem na mesma resposta.
+      if (r.seuNivel && r.seuNivel !== NIVEL) aplicarNivel(r.seuNivel);
+      desenharAcesso(r);
     });
   }
 
-  function desenharAcesso(emails) {
+  /**
+   * A tabela de quem entra, agora com a coluna NÍVEL e o botão que o alterna.
+   *
+   * Recebe a RESPOSTA inteira, e não a lista de e-mails: as quatro funções do
+   * cartão (`listarAdmins`, `incluirAdmin`, `removerAdmin` e `definirNivel`)
+   * devolvem a mesma forma `{ pessoas:[{email,nivel}], voce, seuNivel }`, e é
+   * ela que esta função desenha. Uma que devolvesse só `emails` apagaria a
+   * coluna Nível depois de incluir alguém — defeito que passa em teste de
+   * unidade e aparece no dedo de quem usa.
+   *
+   * BOTÃO QUE ALTERNA, e não um `<select>` de dois valores. Com dois níveis, o
+   * select é três gestos para uma decisão binária e pede um Salvar por linha —
+   * ou grava no `onchange`, que é a classe de bug "mudei e não salvou". É o
+   * mesmo molde do Inativar/Ativar da aba Projetos, que já existe e já se
+   * entende.
+   *
+   * NA LINHA DO ÚNICO COORDENADOR GERAL o botão nasce desabilitado com a frase
+   * da invariante. Quem decide continua sendo o servidor (`aplicarAcessos_`,
+   * 07_Auth.gs, com teste de invasão por POST direto): isto aqui é só não
+   * oferecer um clique cujo desfecho já se sabe.
+   */
+  function desenharAcesso(r) {
     var el = document.getElementById('conteudo-acesso');
     el.className = '';
+    var pessoas = (r && r.pessoas) || [];
+    var chefes = pessoas.filter(function (p) { return p.nivel === 'coordenador'; }).length;
 
     var html = '<div class="cartao"><h2>Quem tem acesso ao painel</h2>' +
       '<p class="texto-fraco pequeno">Esta lista vale para as DUAS portas: são os e-mails que ' +
@@ -8299,7 +8698,7 @@
       'nenhuma das duas — e o pedido de link responde a ele a mesma frase que responde a todo ' +
       'mundo, sem dizer que ele não está na lista.</p>';
 
-    if (!emails.length) {
+    if (!pessoas.length) {
       // A lista vazia é o único estado em que a tela de acesso não tem porta
       // nenhuma: o botão do Google recusa todo mundo e não há endereço para onde
       // mandar link. Dizer o conserto aqui é o que evita a descoberta às onze da
@@ -8311,18 +8710,36 @@
         '</div>';
     } else {
       html += '<div class="tabela-wrap"><table><thead><tr>' +
-        '<th>E-mail</th><th></th></tr></thead><tbody>';
-      emails.forEach(function (e) {
-        var souEu = ACESSO_EU && e === ACESSO_EU;
-        html += '<tr><td>' + escapar(e) +
+        '<th>E-mail</th><th>Nível</th><th></th></tr></thead><tbody>';
+      pessoas.forEach(function (p) {
+        var souEu = ACESSO_EU && p.email === ACESSO_EU;
+        var manda = p.nivel === 'coordenador';
+        // O último coordenador geral não vira Professor por esta tela nem por
+        // nenhuma outra: um painel com oito professores é tão trancado por fora
+        // quanto um painel com a lista de acesso vazia, e a saída é a mesma — o
+        // editor do Apps Script, que nem todo professor tem.
+        var ultimo = manda && chefes === 1;
+        html += '<tr><td>' + escapar(p.email) +
           (souEu ? ' <span class="texto-fraco pequeno">(você)</span>' : '') + '</td>' +
-          '<td><button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..." ' +
+          '<td>' + (manda ? 'Coordenador geral' : 'Professor') + '</td>' +
+          '<td style="white-space:nowrap">' +
+          '<button class="btn btn--pequeno" data-gravando="Mudando..."' +
+          (ultimo ? ' disabled aria-disabled="true" title="' + escapar(SO_UM_COORDENADOR) + '"' : '') +
+          ' onclick="aoGravar(this, definirNivelUI, \'' + escapar(p.email) + '\', \'' +
+          (manda ? 'professor' : 'coordenador') + '\')">' +
+          (manda ? 'Tornar Professor' : 'Tornar coordenador geral') + '</button> ' +
+          '<button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..." ' +
           'onclick="aoGravar(this, removerAcesso, \'' +
-          escapar(e) + '\')">Remover</button></td></tr>';
+          escapar(p.email) + '\')">Remover</button></td></tr>';
       });
       html += '</tbody></table></div>';
     }
 
+    // UM BOTÃO SÓ, e quem entra nasce PROFESSOR (o servidor é quem decide isso —
+    // `incluirAdmin`, 07_Auth.gs). Dois botões, "incluir como professor" e
+    // "incluir como coordenador", fariam o padrão ser escolhido no gesto — e
+    // padrão que se escolhe com pressa não é padrão. Promover é um segundo
+    // gesto, com confirmação própria.
     html += '<div class="campo mt">' +
       '<label for="acesso-novo">Incluir e-mail</label>' +
       '<input type="email" id="acesso-novo" placeholder="nome@exemplo.com" autocomplete="off">' +
@@ -8333,7 +8750,12 @@
       '<strong>Remover tira o acesso na hora.</strong> A sessão aberta da pessoa é ' +
       'encerrada na mesma chamada — ela não termina o dia dentro do painel. ' +
       'Ninguém consegue sair da lista sendo o último: seria trancar a porta por dentro ' +
-      'com todo mundo do lado de fora.</p></div>';
+      'com todo mundo do lado de fora.</p>' +
+      '<p class="texto-fraco pequeno">O <strong>Professor</strong> vê e exporta as listas de ' +
+      'inscritos e disciplinas. Ele não remove projeto, não anula nem promove no Geral, não ' +
+      'importa lista oficial e não abre Histórico, Importações nem Configurações — nem esta ' +
+      'lista. <strong>Mudar o nível de alguém encerra a sessão dessa pessoa na hora</strong>, ' +
+      'como remover. A lista nunca fica sem nenhum coordenador geral.</p></div>';
 
     el.innerHTML = html;
   }
@@ -8346,10 +8768,74 @@
     chamar('incluirAdmin', { email: email }, function (r) {
       if (!r || !r.ok) { avisar('erro', (r && r.erro) || 'Não consegui incluir.'); return; }
       // `jaEstava` não é erro — é a resposta certa para "inclua quem já está".
+      //
+      // A frase diz o NÍVEL com que a pessoa nasceu e onde fica o segundo gesto:
+      // sem isso, quem inclui alguém para ajudar na importação descobre que o
+      // acesso "não funciona" pelo telefonema dessa pessoa, e não pela tela.
       avisar('sucesso', r.jaEstava
         ? email.trim() + ' já tinha acesso.'
-        : email.trim() + ' agora tem acesso ao painel.');
-      desenharAcesso(r.emails || []);
+        : email.trim() + ' agora tem acesso ao painel, como Professor: vê e exporta as ' +
+          'listas. Para dar acesso total, use "Tornar coordenador geral" na linha dele.');
+      desenharAcesso(r);
+    });
+  }
+
+  /**
+   * Promove ou rebaixa uma pessoa da lista — o segundo gesto que a inclusão
+   * deixou para trás.
+   *
+   * A PERGUNTA MUDA NOS TRÊS CASOS porque o que se perde muda: promover dá a
+   * alguém tudo o que você pode, inclusive mexer nesta lista; rebaixar outra
+   * pessoa tira dela quatro abas; rebaixar a si mesmo tira as suas — e esta
+   * inclusive. Uma pergunta genérica ("confirma?") seria lida sem ser lida.
+   *
+   * TODAS AS TRÊS DIZEM QUE A SESSÃO CAI, porque ela cai (`aplicarAcessos_`,
+   * 07_Auth.gs): sem isso a tela da pessoa ficaria errada por até oito horas, e
+   * cada clique dela viraria uma recusa que ela não tem como explicar. Quem é
+   * rebaixado por outra pessoa descobre no login seguinte, pela faixa do topo;
+   * quem se rebaixa sozinho é o único caso que a tela consegue explicar na hora,
+   * e é o que este código faz embaixo.
+   */
+  function definirNivelUI(email, nivel) {
+    var souEu = ACESSO_EU && email === ACESSO_EU;
+    var virandoChefe = nivel === 'coordenador';
+
+    var pergunta = virandoChefe
+      ? 'Tornar ' + email + ' coordenador geral?\n\n' +
+        'Ela passa a poder tudo o que você pode, inclusive mexer nesta lista. ' +
+        'A sessão dela é encerrada agora.'
+      : (souEu
+        ? 'Virar Professor você mesmo?\n\n' +
+          'Você perde as abas Importar lista oficial, Importações, Histórico e ' +
+          'Configurações agora — inclusive esta lista. Só volta se outro coordenador ' +
+          'geral promover seu e-mail.'
+        : 'Tornar ' + email + ' Professor?\n\n' +
+          'A sessão dela é encerrada agora. Ela volta a entrar do mesmo jeito, vendo e ' +
+          'exportando as listas — e sem remover, anular, importar nem configurar.');
+
+    if (!window.confirm(pergunta)) return;
+
+    chamar('definirNivel', { email: email, nivel: nivel }, function (r) {
+      if (!r || !r.ok) { avisar('erro', (r && r.erro) || 'Não consegui mudar o nível.'); return; }
+
+      // Rebaixar a si mesmo é o ÚNICO caso que fala na hora: o servidor acabou de
+      // encerrar esta sessão, e continuar mostrando o painel seria mostrar uma
+      // tela em que metade dos cliques volta "Sessão expirada" — inclusive esta
+      // aba, que não é mais dela.
+      if (souEu && !virandoChefe) {
+        gravarToken(null);
+        sairDoPainel();
+        // DEPOIS de `sairDoPainel`, e não antes: `avisar` escreve dentro do
+        // painel, que acabou de ser escondido — ver `removerAcesso`.
+        mostrarAvisoLogin('Você agora entra como Professor, e por isso a sessão foi ' +
+          'encerrada. Entre de novo: você continua vendo e exportando as listas.');
+        return;
+      }
+
+      avisar('sucesso', email + (virandoChefe
+        ? ' agora é coordenador geral, e a sessão dele foi encerrada para a tela dele nascer certa.'
+        : ' agora é Professor, e a sessão dele foi encerrada para a tela dele nascer certa.'));
+      desenharAcesso(r);
     });
   }
 
@@ -8386,7 +8872,7 @@
       }
 
       avisar('sucesso', email + ' não tem mais acesso, e a sessão dele foi encerrada.');
-      desenharAcesso(r.emails || []);
+      desenharAcesso(r);
     });
   }
 </script>

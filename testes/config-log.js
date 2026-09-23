@@ -536,7 +536,7 @@ teste('login por LINK devolve token, e o LOGIN fica na trilha COM NOME', () => {
   igual(r.usuario, 'gestao@exemplo.com');
   verdadeiro(r.token && r.token.length > 20, 'token foi ' + r.token);
   verdadeiro(amb.propriedades.has('sess_' + r.token), 'a sessão deveria estar guardada');
-  igual(amb.api.sessaoAtiva(r.token), { ok: true });
+  igual(amb.api.sessaoAtiva(r.token).ok, true);
 
   // Sem ordenar: os dois registros podem cair no mesmo milissegundo, e aí quem
   // decide a ordem do id é o sufixo aleatório. Ordem de log tem teste próprio,

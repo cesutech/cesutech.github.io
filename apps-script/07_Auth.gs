@@ -177,7 +177,14 @@ function autenticar() {
     }
 
     registrar('LOGIN', 'painel', email, 'via identidade da implantação');
-    return { ok: true, token: criarSessao_(email), usuario: email, via: 'email' };
+    // `nivel` viaja com a sessão recém-criada porque a tela desenha a fita de
+    // abas no instante seguinte, e sem ele ela abriria no nível mais baixo para
+    // subir meio segundo depois, numa chamada a mais. Custo zero: a allowlist
+    // acabou de ser lida logo acima, e as duas chaves moram no mesmo documento.
+    return {
+      ok: true, token: criarSessao_(email), usuario: email, via: 'email',
+      nivel: nivelDe_(email)
+    };
   } catch (err) {
     console.error('autenticar: ' + err.message);
     return { ok: false, erro: 'Erro ao autenticar.' };
@@ -262,7 +269,9 @@ function entrarComGoogle(idToken) {
       ok: true,
       token: criarSessao_(conferido.email),
       usuario: conferido.email,
-      via: 'google'
+      via: 'google',
+      // Ver `autenticar`: o nível vem junto para a tela nascer com a fita certa.
+      nivel: nivelDe_(conferido.email)
     };
   } catch (err) {
     console.error('entrarComGoogle: ' + err.message);
@@ -501,9 +510,29 @@ function exigirCoordenador(token) {
   return true;
 }
 
-/** Versão que não lança — usada pelo cliente para saber se ainda está logado. */
+/**
+ * Versão que não lança — usada pelo cliente para saber se ainda está logado, e
+ * é por ela que a TELA descobre com que nível se desenhar.
+ *
+ * `nivel` VAI SÓ NA RESPOSTA BOA, e é a mesma regra da ordem dentro de
+ * `exigirCoordenador`: quem não tem sessão não aprende que existem dois níveis.
+ * A recusa continua sendo `{ ok: false }` e nada mais — byte a byte o que era
+ * antes desta peça.
+ *
+ * O PREÇO É UMA LEITURA, e ele é conhecido: `nivelDaSessao_` abre o documento
+ * de configuração, e esta função é a primeira chamada do painel. As duas
+ * alternativas são piores — perguntar o nível numa segunda execução do Apps
+ * Script custa muito mais do que um documento, e guardá-lo na sessão é o estado
+ * sem resposta que o cabeçalho de `nivelDe_` explica.
+ *
+ * E A TELA NÃO É A PERMISSÃO: o que este campo decide é o que aparece
+ * desenhado. Quem recusa é o despacho (`rotaDoPainel_`), em toda requisição.
+ * Um cliente que mentisse para si mesmo aqui só conseguiria habilitar botões
+ * que o servidor recusa um por um.
+ */
 function sessaoAtiva(token) {
-  return { ok: tokenValido_(token) };
+  if (!tokenValido_(token)) return { ok: false };
+  return { ok: true, nivel: nivelDaSessao_(token) };
 }
 
 // ----------------------------------------------- Quem tem acesso ao painel

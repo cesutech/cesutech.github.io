@@ -408,7 +408,7 @@ teste('o token emitido é uma sessão de verdade, e exigirAdmin o aceita', () =>
 
   const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
   igual(amb.api.exigirAdmin(r.token), true);
-  igual(amb.api.sessaoAtiva(r.token), { ok: true });
+  igual(amb.api.sessaoAtiva(r.token).ok, true);
 });
 
 teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => {
@@ -865,7 +865,7 @@ teste('com a allowlist VAZIA, cria a sessão E repõe o e-mail na lista', () => 
   const url = amb.api.liberarAcesso('  Professor@Unicesusc.edu.BR ');
 
   const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
-  igual(amb.api.sessaoAtiva(token), { ok: true });
+  igual(amb.api.sessaoAtiva(token).ok, true);
   igual(amb.api.emailDaSessao_(token), 'professor@unicesusc.edu.br');
 
   amb.api.limparCacheConfig();
@@ -1031,7 +1031,7 @@ teste('sessão sem identidade: "você" é ninguém, e não "anonimo"', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const token = amb.api.criarSessao_('');
 
-  igual(amb.api.sessaoAtiva(token), { ok: true });
+  igual(amb.api.sessaoAtiva(token).ok, true);
   igual(amb.api.listarAdmins({ token: token }).voce, '');
 });
 
@@ -1154,12 +1154,12 @@ teste('quem sai da lista perde a sessão na hora', () => {
   // nelas a pessoa removida ainda exportaria o cadastro inteiro.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
   const dela = amb.api.criarSessao_('Saindo@Exemplo.com');
-  igual(amb.api.sessaoAtiva(dela), { ok: true });
+  igual(amb.api.sessaoAtiva(dela).ok, true);
 
   igual(amb.api.removerAdmin({ token: amb.token, email: 'saindo@exemplo.com' }).ok, true);
 
-  igual(amb.api.sessaoAtiva(dela), { ok: false });
-  igual(amb.api.sessaoAtiva(amb.token), { ok: true }, 'a sessão de quem removeu continua valendo');
+  igual(amb.api.sessaoAtiva(dela).ok, false);
+  igual(amb.api.sessaoAtiva(amb.token).ok, true, 'a sessão de quem removeu continua valendo');
 });
 
 teste('a conta removida não entra mais pelo Google', () => {
