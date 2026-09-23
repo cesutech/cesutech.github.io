@@ -1923,6 +1923,16 @@ function detalheAluno(payload) {
         // Atualizar, é aqui que a ficha já diz a verdade. Vazias quando não há.
         situacao_cadastro: cadastroCancelado_(matriculado) ? 'CANCELADO' : '',
         cancelado_em: String(matriculado.cancelado_em || ''),
+        // `cancelado_por` é o e-mail de quem cancelou, e o PROFESSOR o vê —
+        // sabido e aceito, não esquecimento. Filtrá-lo por nível custaria uma
+        // leitura de configuração aqui dentro (o despacho só resolve o nível
+        // para o que NÃO é do professor), e este é o modal mais aberto do
+        // painel, com teste que conta as três leituras de ponto e recusa a
+        // quarta. A aba Histórico fechada é outra coisa: lá está a lista de
+        // acesso inteira e quem entrou e saiu dela. Aqui é um e-mail da
+        // coordenação, na ficha de um aluno cancelado, para quem já trabalha
+        // com essa coordenação. Se um dia incomodar, a troca é esta linha por
+        // um gate e um teste de custo atualizado.
         cancelado_por: String(matriculado.cancelado_por || ''),
         cancelado_lote_id: String(matriculado.cancelado_lote_id || '')
       } : null

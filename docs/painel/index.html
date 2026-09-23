@@ -1116,6 +1116,8 @@
       // É AQUI QUE A FITA GANHA AS QUATRO ABAS DA COORDENAÇÃO, quando é o caso.
       // O painel foi aberto no nível mais baixo uma linha acima; esta resposta é
       // a primeira notícia que ele tem de quem está dentro dele.
+      // `r.nivel` AUSENTE é o servidor velho (ver `aplicarNivel`), e não um
+      // professor: a janela entre publicar o painel e implantar o Apps Script.
       if (r && r.ok) aplicarNivel(r.nivel);
     });
   }
@@ -1875,12 +1877,27 @@
    * `listarAdmins` (a tela que mexe em nível). Mais o cinto e suspensório de
    * `chamar()`, quando uma recusa por nível revela que a tela está errada.
    *
-   * O DESCONHECIDO CAI NO MAIS BAIXO: resposta velha, campo ausente ou palavra
-   * nova viram professor. É o lado seguro para a tela errar, e o servidor
-   * continua sendo quem decide de verdade.
+   * O DESCONHECIDO CAI NO MAIS BAIXO — uma palavra que esta tela não conhece
+   * vira professor. É o lado seguro para a tela errar, e o servidor continua
+   * sendo quem decide de verdade.
+   *
+   * O CAMPO AUSENTE É OUTRA COISA, e foi o que quase nos mordeu: o painel sobe
+   * pelo Pages a cada push, e o Apps Script é implantado À MÃO, depois. Entre
+   * uma coisa e outra, a tela NOVA fala com o servidor VELHO, que responde
+   * `{ok:true}` sem `nivel` nenhum — e não porque alguém seja professor, mas
+   * porque ele não sabe o que é nível. Tratar essa ausência como o mais baixo
+   * tirava as quatro abas de TODA a equipe, inclusive as Configurações, que é
+   * justamente onde se arrumaria isso: ninguém teria saída pela tela.
+   *
+   * Então ausência = como era ANTES desta peça: todo mundo vê tudo. E isso não
+   * abre porta nenhuma, porque o servidor velho não tem porta fechada para
+   * abrir — ele não conhece nível, logo não recusa por nível. A tela nunca foi
+   * a permissão.
    */
   function aplicarNivel(nivel) {
-    NIVEL = nivel === 'coordenador' ? 'coordenador' : 'professor';
+    NIVEL = (nivel === 'coordenador' || nivel === undefined || nivel === null)
+      ? 'coordenador'
+      : 'professor';
 
     var faixa = document.getElementById('faixa-nivel');
     faixa.textContent = NIVEL === 'coordenador'

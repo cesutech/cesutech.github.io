@@ -1526,9 +1526,16 @@ teste('e NENHUMA delas devolve o e-mail de quem importou ou revisou um lote', ()
   // e-mail de quem operou. Fechar `listarAdmins` e `listarLog` e deixar esta
   // aberta é fechar a porta e deixar a janela.
   //
-  // A varredura é DERIVADA do balde: não afirma "listarLotes está fora", afirma
-  // que nada do que o professor alcança nomeia um operador — então uma função
-  // futura que passe a devolver esses campos também cai aqui.
+  // A varredura é DERIVADA do balde, e o que ela cobre é ESTE par de campos:
+  // `importado_por` e `revisado_por`, os do lote. Não é uma promessa de que
+  // nenhum e-mail de operador alcança o professor — `detalheAluno` devolve
+  // `cancelado_por` de propósito, e o porquê está escrito lá (10_Painel.gs).
+  // Dizer mais do que se mede é pior do que não medir: quem vier depois confia.
+  //
+  // O payload é o mesmo para todas, e várias recusam por falta de argumento —
+  // a varredura não prova nada sobre essas. O que ela pega é a função que
+  // RESPONDE e nomeia quem importou ou revisou, que é o caso do `listarLotes`
+  // se alguém o devolver ao balde.
   //
   // Mutação que derruba: pôr `listarLotes: true` de volta em
   // `funcoesDoProfessor_`.

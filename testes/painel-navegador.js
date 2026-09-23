@@ -7272,6 +7272,29 @@ teste('a QUEDA de nível redesenha a aba da frente: o Remover que estava vivo mo
     botao.getAttribute('title'));
 });
 
+teste('servidor VELHO (sem `nivel` na resposta) não rebaixa a equipe inteira — é a janela do deploy', () => {
+  // O painel sobe pelo Pages a cada push; o Apps Script é implantado À MÃO,
+  // depois. Nessa janela a tela NOVA fala com o servidor VELHO, que responde
+  // `{ok:true}` SEM `nivel` — porque ele não sabe o que é nível, não porque
+  // alguém seja professor. Tratar a ausência como o mais baixo tirava as quatro
+  // abas de todo mundo, INCLUSIVE Configurações, que é onde se arrumaria isso.
+  //
+  // Mutação que derruba: `NIVEL = nivel === 'coordenador' ? ... : 'professor'`
+  // (a versão anterior, que não distinguia ausente de desconhecido).
+  const cena = comoCoordenacao();
+
+  cena.js.aplicarNivel(undefined);
+  igual(cena.js.NIVEL, 'coordenador', 'o servidor velho rebaixou a coordenação');
+  cena.js.trocarAba('projetos');
+  verdadeiro(!cena.botaoQueChama(/removerProjetoUI/).disabled,
+    'a janela do deploy matou o Remover de quem coordena');
+
+  // E a palavra DESCONHECIDA continua caindo no mais baixo, que é o outro lado
+  // da moeda: servidor novo, palavra que esta tela não conhece.
+  cena.js.aplicarNivel('titular');
+  igual(cena.js.NIVEL, 'professor', 'uma palavra nova virou coordenação');
+});
+
 teste('a SUBIDA também: quem clica cedo não fica com os botões mortos até um F5', () => {
   // A janela do boot, que é a de todo F5: `entrarComSessao` abre o painel SEM
   // nível e só então pergunta (`sessaoAtiva`), e a fita de abas é marcação
