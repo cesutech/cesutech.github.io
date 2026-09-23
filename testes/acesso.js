@@ -44,7 +44,7 @@
 
 const crypto = require('crypto');
 
-const { teste, grupo, igual, verdadeiro, resultado, criarAmbiente, criarRelogio } = require('./apoio');
+const { teste, grupo, igual, verdadeiro, lancou, resultado, criarAmbiente, criarRelogio } = require('./apoio');
 
 // Todos os `.gs`, na ordem alfabética em que o editor os carrega: os testes de
 // integração deste arquivo entram pelo `doPost`, e o despacho do painel
@@ -429,6 +429,15 @@ teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => 
   igual(trilha.map((l) => l.entidade_id), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
   igual(trilha.map((l) => l.detalhe),
     ['via conta Google (ID token)', 'via link por e-mail']);
+
+  // E a COLUNA "Quem" também: a entrada é a única ação em que a pessoa se
+  // identifica antes de existir sessão, então `exigirAdmin` não passa por ela e
+  // as duas portas anotam o operador por conta própria. Mutação que derruba:
+  // tirar `anotarOperador_` de `entrarComGoogle` ou de `entrarComLink` — este
+  // ambiente é o publicado (`usuario: ''`), e a coluna volta a 'anonimo'
+  // justamente nas duas linhas que dizem que alguém entrou.
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(trilha.map((l) => l.usuario), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
 });
 
 teste('conta fora da allowlist não entra, e a recusa nomeia a própria conta', () => {
@@ -935,6 +944,49 @@ teste('o endereço impresso é o do painel, e leva a sessão pronta', () => {
     'o editor não imprimiu o endereço: quem rodou não tem para onde ir');
 });
 
+// ================================================== Quem operou
+
+grupo('a trilha diz QUEM fez — o operador sai da sessão, não da implantação');
+
+teste('exigirAdmin anota quem passou, e a linha seguinte é assinada por ele', () => {
+  // A pergunta que a coluna "Quem" existe para responder é "qual pessoa
+  // exportou a base?", e no painel publicado ela respondia 'anonimo': o web app
+  // roda como a conta que implantou e `Session.getActiveUser()` volta vazio. A
+  // sessão sabe o e-mail, e `exigirAdmin` é a única linha por onde toda função
+  // do painel passa com o token na mão.
+  //
+  // Mutação que derruba: tirar `anotarOperador_(emailDaSessao_(token))` da
+  // guarda — a linha volta a 'anonimo', e o Histórico deixa de distinguir as
+  // oito pessoas que entram no painel.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+  const token = amb.api.criarSessao_('coordenacao@exemplo.com');
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
+  igual(amb.api.exigirAdmin(token), true);
+  amb.api.registrar('EXPORTACAO', 'alunos', '', '300 linhas');
+
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'EXPORTACAO')[0].usuario,
+    'coordenacao@exemplo.com');
+});
+
+teste('token recusado APAGA o operador — a recusa não herda o nome de quem passou antes', () => {
+  // A variável é global ao script. Numa execução que chame a guarda duas vezes
+  // — e uma requisição do painel pode chamá-la de novo por dentro, como
+  // `aplicarRevisao` faz com `anularInscricoes` —, a segunda, recusada,
+  // sairia assinada pela primeira: a trilha atribuiria a uma pessoa uma ação
+  // que o servidor não deixou acontecer.
+  //
+  // Mutação que derruba: `exigirAdmin` anotar só no caminho feliz, deixando o
+  // nome anterior de pé.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+
+  amb.api.exigirAdmin(amb.api.criarSessao_('coordenacao@exemplo.com'));
+  lancou(() => amb.api.exigirAdmin('inventado'), 'Sess');
+
+  amb.api.registrar('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'BLOQUEIO')[0].usuario, 'anonimo');
+});
+
 // ================================================== Quem tem acesso
 
 grupo('gestão de quem tem acesso ao painel');
@@ -984,7 +1036,13 @@ teste('sessão sem identidade: "você" é ninguém, e não "anonimo"', () => {
 });
 
 teste('incluir normaliza, grava e registra quem mexeu', () => {
+  // Mutação que derruba: `exigirAdmin` deixar de anotar o operador (a coluna
+  // volta a 'anonimo', que é o que `usuarioAtual()` responde no painel
+  // publicado — e este ambiente é o publicado: `usuario: ''`); ou o detalhe
+  // voltar a repetir o e-mail que a coluna já diz.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
+  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+
   const r = amb.api.incluirAdmin({ token: amb.token, email: '  Nova.Pessoa@Exemplo.COM ' });
 
   igual(r.ok, true);
@@ -995,7 +1053,12 @@ teste('incluir normaliza, grava e registra quem mexeu', () => {
 
   const linha = linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_INCLUIDO')[0];
   igual(linha.entidade_id, 'nova.pessoa@exemplo.com');
-  verdadeiro(linha.detalhe.indexOf('coordenacao@exemplo.com') !== -1, linha.detalhe);
+  igual(linha.usuario, 'coordenacao@exemplo.com', 'a trilha não diz quem incluiu');
+  // O detalhe diz POR ONDE, e não repete o nome: a mesma inclusão feita pelo
+  // campo de texto da aba Configurações grava 'pelo campo admin_emails'.
+  igual(linha.detalhe, 'pela tela Quem tem acesso');
+  igual(linha.detalhe.indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail do operador está escrito duas vezes na mesma linha: ' + linha.detalhe);
 });
 
 teste('incluir a mesma conta com outra caixa não cria uma segunda linha', () => {

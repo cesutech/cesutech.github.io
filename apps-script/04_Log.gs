@@ -6,6 +6,41 @@
  * 07_Auth.gs, e depois inscrições, importação e reconciliação — não muda.
  *
  * O que muda é o id do documento, e essa é a decisão do arquivo. Ver `logId_`.
+ *
+ * ------------------------------------------------------ QUEM fez: o operador
+ *
+ * A coluna `usuario` gravava `usuarioAtual()`, e no web app publicado ela vale
+ * 'anonimo': `Session.getActiveUser()` volta vazio em `executeAs:
+ * USER_DEPLOYING` acessado por conta comum (o topo de 07_Auth.gs conta por
+ * quê). Com uma pessoa só isso era incômodo; com uma lista de acesso e dois
+ * níveis, a coluna "Quem" deixa de responder a única pergunta que existe para
+ * responder — "qual professor exportou a base?".
+ *
+ * Quem sabe o e-mail é a SESSÃO, e o único lugar por onde toda função do painel
+ * passa com o token na mão é `exigirAdmin` (07_Auth.gs). Por isso o e-mail
+ * entra por uma VARIÁVEL DE EXECUÇÃO — `anotarOperador_`, escrita lá — e não
+ * por um parâmetro novo de `registrar()`:
+ *
+ *   - o parâmetro obrigaria as ~70 chamadas de `registrar` a ter o token à mão,
+ *     e boa parte delas está em funções fundas (`gravarInscricao`,
+ *     `decorarComATroca_`, `restaurarUma_`) que hoje não sabem nem que existe
+ *     sessão. Seriam setenta lugares onde esquecê-lo é SILENCIOSO: a linha sai
+ *     com a coluna errada, que é exatamente o que ela já fazia;
+ *   - a variável tem um escritor e um leitor, e o escritor é a guarda que já
+ *     recebe o token por construção. Função de painel nova ganha o operador de
+ *     graça, porque ela começa por `exigirAdmin`.
+ *
+ * O que torna a variável segura é o modelo de execução do Apps Script: cada
+ * requisição roda o script do zero, então ela nasce vazia a cada execução e não
+ * atravessa de uma pessoa para a outra. Dentro de uma execução há UMA ação de
+ * painel, com um token só (`rotaDoPainel_`, 08_Api.gs). E `exigirAdmin` a LIMPA
+ * quando o token não vale — recusa não tem operador, e não herda o nome de quem
+ * passou antes dela.
+ *
+ * O que NÃO muda: os caminhos SEM sessão — o formulário do aluno, os gatilhos
+ * diários, o `liberarAcesso()` do editor — continuam caindo em `usuarioAtual()`,
+ * que é quem responde por eles. E a regra de dado pessoal continua inteira:
+ * quem entra na trilha é o OPERADOR, nunca o aluno.
  */
 
 var LOG_COLECAO = 'log';
@@ -49,7 +84,10 @@ function registrar(acao, entidade, entidadeId, detalhe) {
       // pelo mesmo UTC de `criado_em`, o que mantém id e ordem coerentes.
       criado_em: utc,
       timestamp: agora(),
-      usuario: usuarioAtual(),
+      // O operador da execução, quando há um; `usuarioAtual()` quando não há.
+      // Ver `quemOperou_`, no fim do arquivo, e o cabeçalho para por que isto
+      // não é um parâmetro desta função.
+      usuario: quemOperou_(),
       acao: acao,
       entidade: entidade || '',
       entidade_id: entidadeId || '',
@@ -208,4 +246,40 @@ function usuarioAtual() {
   } catch (e) {
     return 'anonimo';
   }
+}
+
+/**
+ * Quem opera ESTA execução, quando o servidor tem como saber.
+ *
+ * Vazio é o estado normal do formulário público, dos gatilhos diários e do
+ * editor — ninguém provou sessão nenhuma ali. Ver o cabeçalho do arquivo para
+ * por que o operador mora numa variável e não num parâmetro de `registrar`.
+ */
+var OPERADOR_DA_EXECUCAO = '';
+
+/**
+ * Anota quem opera — ou apaga a anotação, com vazio. Quem a chama é
+ * `exigirAdmin` (07_Auth.gs), nos dois desfechos dela.
+ *
+ * Não valida nem normaliza de propósito: quem chama já tirou o e-mail da sessão
+ * por `emailDaSessao_`, que é o único lugar que sabe ler uma. Normalizar de
+ * novo aqui seria uma SEGUNDA definição de "e-mail da sessão", e o dia em que
+ * as duas discordassem seria o dia em que a trilha assina um nome e a allowlist
+ * compara outro — é o mesmo argumento do cabeçalho de `adminEmails_`.
+ */
+function anotarOperador_(email) {
+  OPERADOR_DA_EXECUCAO = String(email || '');
+}
+
+/**
+ * O "quem" de cada linha da trilha.
+ *
+ * A ORDEM É A DECISÃO. `usuarioAtual()` responde de verdade no editor e nos
+ * gatilhos, e responde 'anonimo' exatamente onde a sessão sabe o nome — então o
+ * operador vem primeiro, e a identidade da implantação fica como resposta de
+ * quem nunca teve sessão. Invertida, a trilha do painel publicado continuaria
+ * dizendo 'anonimo' e nada nesta mudança teria efeito.
+ */
+function quemOperou_() {
+  return OPERADOR_DA_EXECUCAO || usuarioAtual();
 }

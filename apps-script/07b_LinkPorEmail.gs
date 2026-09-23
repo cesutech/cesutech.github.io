@@ -369,6 +369,12 @@ function entrarComLink(token) {
       return recusa;
     }
 
+    // Como na porta do Google (07_Auth.gs): a entrada é a única ação em que a
+    // pessoa se identifica antes de existir sessão, e `exigirAdmin` — que anota
+    // o operador nas demais — não passa por aqui. A posse da caixa já provou o
+    // endereço e a allowlist acabou de ser conferida, então a linha diz quem
+    // entrou. A recusa acima continua sem operador: ninguém entrou.
+    anotarOperador_(email);
     registrar('LOGIN', 'painel', email, 'via link por e-mail');
     return { ok: true, token: criarSessao_(email), usuario: email, via: 'link' };
   } catch (err) {

@@ -849,19 +849,38 @@ teste('id repetido no payload não vira duas cópias', () => {
 });
 
 teste('a trilha registra uma linha por lote, com quem mandou', () => {
+  // Quem anulou deixou de ser uma frase no detalhe e virou a COLUNA `usuario`,
+  // que `exigirAdmin` preenche com o e-mail da sessão (04_Log.gs). Mutação que
+  // derruba: tirar o `anotarOperador_` da guarda — a coluna volta a 'anonimo',
+  // que é o que `usuarioAtual()` responde neste ambiente (`usuario: ''`, a
+  // realidade do painel publicado) e em produção.
   const { api, falso } = ambiente();
   auditorioLotado(api);
+  igual(api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
 
   api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
 
   igual(acoesDoLog(falso), ['INSCRICOES_ANULADAS'], 'uma linha por id queimaria a cota de escrita');
   let detalhe = '';
+  let quem = '';
   falso.documentos.forEach((c, chave) => {
-    if (chave.indexOf('log/') === 0) detalhe = c.detalhe.stringValue;
+    if (chave.indexOf('log/') !== 0) return;
+    detalhe = c.detalhe.stringValue;
+    quem = c.usuario.stringValue;
   });
-  verdadeiro(detalhe.indexOf('coordenacao@exemplo.com') !== -1, 'a trilha não diz quem anulou: ' + detalhe);
+  igual(quem, 'coordenacao@exemplo.com', 'a trilha não diz quem anulou');
+  igual(detalhe.indexOf('coordenacao@exemplo.com'), -1,
+    'o e-mail do operador está escrito duas vezes na mesma linha: ' + detalhe);
   verdadeiro(detalhe.indexOf('i1') !== -1 && detalhe.indexOf('i2') !== -1,
     'sem os ids, a trilha não permite desfazer nada: ' + detalhe);
+
+  // E a CÓPIA da inscrição continua assinada: `anulado_por` viaja com o
+  // documento e é o que sobra depois do ano de retenção do log.
+  let anuladoPor = '';
+  falso.documentos.forEach((c, chave) => {
+    if (chave.indexOf('inscricoes_anuladas/') === 0) anuladoPor = c.anulado_por.stringValue;
+  });
+  igual(anuladoPor, 'coordenacao@exemplo.com', 'a cópia perdeu quem a anulou');
 });
 
 grupo('restaurarInscricoes — conferindo vaga, uma a uma');

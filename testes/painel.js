@@ -1177,6 +1177,28 @@ teste('exportar deixa rastro no log, com o tamanho do arquivo', () => {
   igual(log[0].detalhe, '4 linhas');
 });
 
+teste('e a trilha diz QUAL pessoa exportou — a pergunta que a coluna existe para responder', () => {
+  // A exportação leva nome, CPF, telefone e nascimento da base inteira. Com uma
+  // pessoa no painel, "quem exportou" era pergunta retórica; com a lista de
+  // acesso cheia, é A pergunta — e a coluna respondia 'anonimo', porque o web
+  // app publicado roda como a conta que implantou (04_Log.gs).
+  //
+  // Mutação que derruba: `registrar` voltar a gravar `usuarioAtual()`. Aqui as
+  // duas identidades DIVERGEM de propósito — a do Apps Script é
+  // coordenacao@exemplo.com e a da SESSÃO é a professora —, então errar a fonte
+  // troca o nome em vez de acertar por coincidência.
+  const amb = ambiente();
+  semear(amb.api);
+  const dela = amb.api.criarSessao_('professora@exemplo.com');
+
+  igual(amb.api.exportarCsv({ token: dela }).ok, true);
+
+  igual(amb.api.usuarioAtual(), 'coordenacao@exemplo.com', 'as identidades tinham de divergir');
+  const log = amb.api.ultimosRegistros(5);
+  igual(log[0].acao, 'EXPORTACAO');
+  igual(log[0].usuario, 'professora@exemplo.com', 'a trilha não diz quem baixou o cadastro');
+});
+
 teste('acima do teto o arquivo sai truncado e o log DIZ que saiu', () => {
   const amb = ambiente();
   for (let i = 1; i <= 6; i++) criarAluno(amb.api, 'c' + i, {});
@@ -3054,7 +3076,8 @@ teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto
   const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
   igual(linhas.length, 1);
   igual(linhas[0].entidade_id, amb.fila.id);
-  igual(linhas[0].detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO (promovida da fila)');
+  igual(linhas[0].detalhe, 'no projeto Robótica (3/2) — ACIMA DO TETO (promovida da fila)');
+  igual(linhas[0].usuario, 'coordenacao@exemplo.com', 'a trilha não diz quem promoveu');
 
   // Promovida, a pessoa OCUPA vaga: o Incluir de novo é a duplicata comum.
   amb.zerar();
@@ -3080,7 +3103,7 @@ teste('cenário B — projeto FECHADO (inscrições encerradas) com vaga e a mat
   igual(r.situacao, 'FECHADO');
   igual(amb.api.contarInscritos_('p2'), 1);
   igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe,
-    'por coordenacao@exemplo.com no projeto Robótica (1/5) (promovida da fila)');
+    'no projeto Robótica (1/5) (promovida da fila)');
 });
 
 teste('cenário C — matrícula da fila FORA da lista oficial: promover não avisa "entrou marcada como não conferida" e devolve a marca do DOCUMENTO', () => {
@@ -3197,7 +3220,10 @@ teste('já inscrito em OUTRO projeto: grava mesmo assim, e o aviso nomeia o proj
 teste('a trilha diz quem, em que projeto e quanto ficou — e NUNCA o dado do aluno', () => {
   // Mutação que derruba: pôr `dados.nome`, `dados.matricula` ou o e-mail do
   // aluno no detalhe do log — é a regra de `registrarEdicao_`, e a afirmação
-  // aqui é NEGATIVA de propósito.
+  // aqui é NEGATIVA de propósito. A outra: `exigirAdmin` deixar de anotar o
+  // operador, e a coluna "Quem" voltar a 'anonimo' — que é o que
+  // `usuarioAtual()` responde AQUI (`cenarioInclusao` roda com `usuario: ''`,
+  // a realidade do painel publicado) e em produção.
   const amb = cenarioInclusao();
   const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
 
@@ -3206,7 +3232,11 @@ teste('a trilha diz quem, em que projeto e quanto ficou — e NUNCA o dado do al
   const linha = linhas[0];
   igual(linha.entidade, 'inscricao');
   igual(linha.entidade_id, r.id);
-  igual(linha.detalhe, 'por coordenacao@exemplo.com no projeto R+ Cidades (1/60)');
+  // O OPERADOR na coluna; o detalhe, sem ele: repetido nos dois, a mesma linha
+  // diria o mesmo e-mail duas vezes.
+  igual(linha.usuario, 'coordenacao@exemplo.com', 'a trilha não diz QUAL pessoa incluiu');
+  igual(linha.detalhe, 'no projeto R+ Cidades (1/60)');
+  igual(linha.detalhe.indexOf('coordenacao@exemplo.com'), -1, linha.detalhe);
 
   ['Aluna', 'Exemplo', 'aluna@exemplo.com', '9110001', '48999990000', '99999'].forEach((pessoal) => {
     igual(linha.detalhe.indexOf(pessoal), -1, 'dado pessoal na trilha: ' + pessoal);
@@ -3220,7 +3250,7 @@ teste('acima do teto, a trilha diz ACIMA DO TETO — é ela que responde "por qu
 
   chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   const linha = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0];
-  igual(linha.detalhe, 'por coordenacao@exemplo.com no projeto Robótica (3/2) — ACIMA DO TETO');
+  igual(linha.detalhe, 'no projeto Robótica (3/2) — ACIMA DO TETO');
 });
 
 teste('o custo é o do cabeçalho: 3 leituras de ponto, 2 agregações, 3 consultas, 3 escritas — e NENHUMA rodada inteira', () => {
@@ -3612,7 +3642,11 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
     'o efeito pode ter entrado, e o Histórico não registrou nem a tentativa');
   const detalhe = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe;
   verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
-  verdadeiro(detalhe.indexOf('coordenacao@exemplo.com') !== -1, 'o detalhe foi: ' + detalhe);
+  // Quem tentou está na COLUNA, e não na frase: um ramo que sai por aqui sem
+  // passar por `registrar` não teria nem a tentativa, e um que registre sem
+  // operador não diria de quem foi a tentativa.
+  igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].usuario, 'coordenacao@exemplo.com',
+    'a linha do ramo indeterminado não diz quem tentou');
 });
 
 teste('a recusa do Incluir chega à tela SEM o caminho do documento (D-27)', () => {

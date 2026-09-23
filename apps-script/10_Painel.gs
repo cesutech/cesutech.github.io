@@ -931,9 +931,11 @@ function incluirInscricao(payload) {
     exigirAdmin(payload && payload.token);
     payload = payload || {};
 
-    // Quem operou: a sessão sabe (07_Auth.gs), e `usuarioAtual()` é o que
-    // `registrar` gravaria sozinho — no GitHub Pages ele vem vazio, e por isso o
-    // e-mail da sessão entra no DETALHE da linha.
+    // Quem operou, para o campo `incluido_por` DO DOCUMENTO: a sessão sabe
+    // (07_Auth.gs) e `usuarioAtual()` vem vazio no GitHub Pages, então a sessão
+    // vem primeiro — é a mesma ordem de `quemOperou_` (04_Log.gs), pelo mesmo
+    // motivo. A linha da trilha não precisa mais dele: lá o nome é a coluna
+    // `usuario`, que `exigirAdmin` preenche.
     var quem = emailDaSessao_(payload.token) || usuarioAtual();
 
     // Formato antes de qualquer leitura: pedido malformado não custa cota. É a
@@ -1122,10 +1124,12 @@ function incluirInscricao(payload) {
           // viria lá embaixo — quem sai por aqui passaria por fora dele, e a
           // inscrição ganharia vaga sem uma linha dizendo que alguém tentou.
           // `registrar` é à prova de falha (04_Log.gs) e a linha diz o que se
-          // sabe: o que foi tentado, por quem, e que não houve confirmação.
+          // sabe: o que foi tentado, em que projeto, e que não houve
+          // confirmação. Quem tentou está na coluna `usuario` da mesma linha,
+          // que `exigirAdmin` passou a preencher — e por isso saiu daqui.
           registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
             'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
-            'da fila pode ter entrado — por ' + quem + ' no projeto ' + projetoNome);
+            'da fila pode ter entrado — no projeto ' + projetoNome);
 
           return {
             ok: false,
@@ -1153,8 +1157,13 @@ function incluirInscricao(payload) {
     // que a trilha responde é "quem pôs esta pessoa neste projeto", e a resposta
     // é a mesma — a coordenação, por esta porta. O que muda é que o documento já
     // existia, e a linha diz isso.
+    //
+    // O NOME de quem incluiu saiu do detalhe e está na coluna `usuario`, desde
+    // que `exigirAdmin` anota o operador (04_Log.gs). `quem` continua vivo
+    // acima porque ele também vira `incluido_por` NO DOCUMENTO da inscrição,
+    // que é o que o CSV e a ficha leem — e essa cópia não tem coluna nenhuma.
     registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
-      'por ' + quem + ' no projeto ' + projetoNome + ' (' + inscritos +
+      'no projeto ' + projetoNome + ' (' + inscritos +
       (vagas > 0 ? '/' + vagas : ' inscritos, vagas ilimitadas') + ')' +
       (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : '') +
       (promovida ? ' (promovida da fila)' : ''));
@@ -2739,7 +2748,9 @@ function registrarEdicao_(id, plano, destino, vizinhas) {
 
   // Linha própria, e não um pedaço da anterior: é ela que responde "por que este
   // projeto tem 61 inscritos", e ela precisa carregar de onde saiu, para onde foi
-  // e quanto ficou. Quem fez vem de `registrar`, que grava `usuarioAtual()`.
+  // e quanto ficou. Quem fez vem de `registrar`, que grava o operador anotado
+  // por `exigirAdmin` — o e-mail da sessão, e não mais o 'anonimo' que
+  // `usuarioAtual()` devolve no painel publicado (04_Log.gs).
   registrar('ALUNO_MIGRADO', 'aluno', id,
     'de "' + (plano.projeto.de.nome || plano.projeto.de.id || 'sem projeto') + '" para "' +
     destino.nome + '" (' + destino.id + '); o destino ficou com ' + destino.inscritos +

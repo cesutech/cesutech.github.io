@@ -53,6 +53,14 @@ lista de e-mails. Qualquer uma errada e ninguém entra, inclusive quem
 consertaria. Por isso existem caminhos independentes de entrada: nenhum deles
 pode ser desligado por quem não tem acesso.
 
+**A trilha diz quem fez.** O painel publicado roda como a conta que o implantou,
+e o Apps Script não entrega a identidade de quem está do outro lado — a coluna
+**Quem** do Histórico dizia `anonimo` em toda linha. Quem sabe o e-mail é a
+sessão, conferida na primeira linha de toda função do painel, e é de lá que o
+nome passa a sair: quem exportou o cadastro, quem anulou, quem revisou uma
+importação. Os caminhos sem sessão — o formulário do aluno, o backup diário —
+continuam anônimos, porque ali não há ninguém a nomear.
+
 **Nada de dado pessoal no repositório.** As amostras usadas nos testes são
 sintéticas. O formato reproduz o do relatório da secretaria; os nomes, as
 matrículas e os telefones são inventados.

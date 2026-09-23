@@ -234,6 +234,13 @@ function entrarComGoogle(idToken) {
     }
 
 
+    // A entrada é a primeira ação da pessoa, e a única em que ela se identifica
+    // sem ter sessão ainda — `exigirAdmin`, que anota o operador nas outras,
+    // não passa por aqui. O e-mail já foi PROVADO (`verificarIdTokenGoogle_`) e
+    // já passou pela allowlist, então a linha de LOGIN pode dizer quem entrou
+    // na coluna "Quem", e não só no campo da entidade. As recusas acima ficam
+    // sem operador de propósito: ninguém entrou.
+    anotarOperador_(conferido.email);
     registrar('LOGIN', 'painel', conferido.email, 'via conta Google (ID token)');
     return {
       ok: true,
@@ -414,11 +421,36 @@ function sair(token) {
   return { ok: true };
 }
 
-/** Guarda usada por toda função sensível. Lança erro se o token não valer. */
+/**
+ * Guarda usada por toda função sensível. Lança erro se o token não valer.
+ *
+ * E É AQUI QUE A TRILHA APRENDE QUEM ESTÁ OPERANDO. A sessão sabe o e-mail; o
+ * web app publicado não (`usuarioAtual()` volta 'anonimo' — ver o topo deste
+ * arquivo); e esta é a única linha por onde toda função do painel passa com o
+ * token na mão. `anotarOperador_` (04_Log.gs) guarda o e-mail pela execução e
+ * `registrar` o grava na coluna `usuario`, sem que nenhuma das ~70 chamadas de
+ * log precise carregar o token até lá. O cabeçalho de 04_Log.gs tem a conta
+ * inteira de por que é assim e não por parâmetro.
+ *
+ * A LIMPEZA NO CAMINHO DA RECUSA não é zelo. A variável é global ao script:
+ * numa execução que chamasse a guarda duas vezes — e todo teste chama —, a
+ * segunda, recusada, herdaria o nome da primeira e a trilha assinaria a uma
+ * pessoa uma ação que o servidor não deixou acontecer.
+ *
+ * O PREÇO: `emailDaSessao_` abre a sessão de novo, que é uma leitura de
+ * ScriptProperties — local, sem nenhuma cota do Firestore. Ela é a mesma
+ * leitura que `quemMexeu_(payload.token)` fazia nas funções que assinavam a
+ * linha do log à mão, e que agora não precisam mais: onde havia duas, passa a
+ * haver uma. Ler a sessão aqui numa única vez exigiria abrir `tokenValido_`
+ * para devolver o documento — e abrir a guarda de autenticação para poupar uma
+ * leitura local é troca ruim.
+ */
 function exigirAdmin(token) {
   if (!tokenValido_(token)) {
+    anotarOperador_('');
     throw new Error(RECUSA_SESSAO);
   }
+  anotarOperador_(emailDaSessao_(token));
   return true;
 }
 
@@ -487,7 +519,12 @@ function incluirAdmin(payload) {
 
     lista.push(email);
     gravarConfig('admin_emails', lista.join(', '));
-    registrar('ADMIN_INCLUIDO', 'config', email, 'incluído por ' + quemMexeu_(payload.token));
+    // O detalhe diz POR ONDE, e não POR QUEM: quem mexeu é a coluna `usuario`
+    // da própria linha desde que `exigirAdmin` anota o operador (04_Log.gs).
+    // Repetir o e-mail aqui seria escrevê-lo duas vezes na mesma linha; a porta
+    // usada, essa sim, a coluna não tem como saber — e é ela que separa este
+    // gesto do mesmo gesto feito pelo campo de texto (`regravarAllowlist_`).
+    registrar('ADMIN_INCLUIDO', 'config', email, 'pela tela Quem tem acesso');
     return { ok: true, emails: lista };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -546,7 +583,8 @@ function removerAdmin(payload) {
     lista.splice(posicao, 1);
     gravarConfig('admin_emails', lista.join(', '));
     invalidarSessoesDe_(email);
-    registrar('ADMIN_REMOVIDO', 'config', email, 'removido por ' + quemMexeu_(payload.token));
+    // Por onde, não por quem — ver `incluirAdmin`.
+    registrar('ADMIN_REMOVIDO', 'config', email, 'pela tela Quem tem acesso');
     return { ok: true, emails: lista };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -621,28 +659,36 @@ function regravarAllowlist_(valor, token) {
 
   gravarConfig('admin_emails', depois.join(', '));
 
+  // As duas linhas dizem POR ONDE. Quem mexeu é a coluna `usuario`, que
+  // `exigirAdmin` passou a preencher (04_Log.gs) — e é o campo de texto, e não
+  // a tela de acesso, que distingue esta saída da de `removerAdmin`.
   saindo.forEach(function (email) {
     invalidarSessoesDe_(email);
-    registrar('ADMIN_REMOVIDO', 'config', email,
-      'removido por ' + quemMexeu_(token) + ' pelo campo admin_emails');
+    registrar('ADMIN_REMOVIDO', 'config', email, 'pelo campo admin_emails');
   });
 
   depois.forEach(function (email) {
     if (antes.indexOf(email) !== -1) return;
-    registrar('ADMIN_INCLUIDO', 'config', email,
-      'incluído por ' + quemMexeu_(token) + ' pelo campo admin_emails');
+    registrar('ADMIN_INCLUIDO', 'config', email, 'pelo campo admin_emails');
   });
 
   return { ok: true, emails: depois };
 }
 
 /**
- * Como a trilha nomeia quem agiu.
+ * Como um DOCUMENTO nomeia quem agiu: `anulado_por`, `excluido_por`,
+ * `cancelado_por`, `revisado_por`.
+ *
+ * Não é mais quem assina a trilha — isso virou a coluna `usuario`, preenchida
+ * pelo operador que `exigirAdmin` anota (04_Log.gs). Ela fica porque o campo
+ * gravado no documento é outra coisa: ele sobrevive à retenção de um ano do
+ * log e viaja junto com a cópia (a inscrição anulada, o matriculado excluído),
+ * onde não há coluna nenhuma para consultar.
  *
  * O fallback ficou INALCANÇÁVEL de propósito e continua aqui: desde que o PIN
  * saiu, as três portas gravam um e-mail na sessão, então `emailDaSessao_` sempre
  * responde. Ele é a rede embaixo do trapézio — o dia em que uma sessão sem nome
- * aparecer, o log diz isso em vez de gravar uma linha em branco e deixar a
+ * aparecer, o documento diz isso em vez de gravar um campo em branco e deixar a
  * pergunta "quem foi?" sem resposta em lugar nenhum.
  */
 function quemMexeu_(token) {

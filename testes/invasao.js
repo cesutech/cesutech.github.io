@@ -447,6 +447,10 @@ const NAO_DESPACHAVEIS = [
   // O verificador e as peças internas do acesso.
   'verificarIdTokenGoogle_', 'emailAutorizado_', 'adminEmails_', 'tokenValido_',
   'emailDaSessao_', 'invalidarSessoesDe_', 'excedeuVerificacoesGoogle_',
+  // Quem assina a trilha. Despachável, ela deixaria o cliente escolher o nome
+  // que vai na coluna "Quem" de todas as linhas da execução — auditoria que o
+  // auditado escreve não é auditoria. Quem a chama é `exigirAdmin` (04_Log.gs).
+  'anotarOperador_',
   // O ÚLTIMO RECURSO. Ela cria sessão sem provar nada, e o que a torna segura é
   // exigir acesso ao arquivo do projeto no editor do Apps Script. Despachá-la
   // seria transformá-la numa porta dos fundos anônima — o teste dedicado a ela
@@ -659,6 +663,34 @@ teste('a lista branca cobre o que o painel realmente chama', () => {
 
   const orfas = chamadas.filter((f) => listadas.indexOf(f) === -1 && deLogin.indexOf(f) === -1);
   igual(orfas, [], 'a tela chama funções que a rota não despacha');
+});
+
+teste('ATAQUE: assinar a trilha com o nome de outra pessoa, pelo payload', () => {
+  // A coluna "Quem" passou a dizer quem operou (04_Log.gs), e a pergunta é de
+  // onde ela tira o nome. Se fosse de algum campo do payload, a trilha viraria
+  // papel: quem faz a ação escolhe quem ela acusa.
+  //
+  // Mutação que derruba: `registrar` (ou a rota) aceitar um `usuario` vindo de
+  // fora em vez do operador que `exigirAdmin` anotou a partir da SESSÃO.
+  const amb = montar({ allowlist: ADMIN });
+  const token = amb.api.criarSessao_(ADMIN);
+
+  const r = painel(amb, 'incluirAdmin', token, {
+    email: 'nova@exemplo.com',
+    usuario: 'outra.pessoa@exemplo.com',
+    operador: 'outra.pessoa@exemplo.com',
+    token: 'nao-e-este-que-vale'
+  });
+  igual(r.ok, true, 'erro foi: ' + r.erro);
+
+  const linhas = [];
+  amb.falso.documentos.forEach((campos, chave) => {
+    if (chave.indexOf('log/') === 0) linhas.push(campos);
+  });
+  const incluiu = linhas.filter((c) => c.acao.stringValue === 'ADMIN_INCLUIDO')[0];
+  igual(incluiu.usuario.stringValue, ADMIN, 'o cliente assinou a trilha com outro nome');
+  igual(incluiu.detalhe.stringValue.indexOf('outra.pessoa@exemplo.com'), -1,
+    incluiu.detalhe.stringValue);
 });
 
 // ============================= 4. Dá para trancar o Jonathan do lado de fora?
