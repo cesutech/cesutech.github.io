@@ -360,16 +360,19 @@ teste('o .claspignore da raiz faz o clasp enviar só os .gs do primeiro nível e
     ['**/**', '!appsscript.json', '!*.gs', '!apps-script/appsscript.json', '!apps-script/*.gs']);
 });
 
-/** A seção "Publicar o servidor" do README, inteira: do título até o próximo `## `. */
+/**
+ * O guia "Publicar o servidor" (guias/publicar-o-servidor.md), do título ao fim.
+ * Ele morou no README até 17/11/2026, e o README hoje aponta para ele.
+ */
 function secaoPublicar() {
-  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  const inicio = readme.indexOf('## Publicar o servidor');
-  verdadeiro(inicio !== -1, 'o README perdeu a seção "Publicar o servidor"');
-  return readme.slice(inicio, readme.indexOf('\n## ', inicio + 1));
+  const guia = fs.readFileSync(path.join(__dirname, '..', 'guias', 'publicar-o-servidor.md'), 'utf8');
+  const inicio = guia.indexOf('# Publicar o servidor');
+  verdadeiro(inicio !== -1, 'o guia de publicação perdeu o título "Publicar o servidor"');
+  return guia.slice(inicio);
 }
 
 /**
- * Os passos numerados de uma seção do README, pelo número: cada um com as suas
+ * Os passos numerados de um guia, pelo número: cada um com as suas
  * linhas de continuação — as recuadas e as em branco — até a próxima linha que
  * começa na margem. É o que deixa um teste cobrar uma frase NO passo em que ela
  * vale, e não em qualquer lugar da seção.
@@ -395,18 +398,18 @@ teste('publicar é atualizar a implantação do config.js — e é isso que o re
   // Tudo o que este arquivo segura vale para o código ENVIADO, e só chega ao ar
   // pela implantação que o site chama. Uma implantação nova ganha outra URL, e a
   // antiga continua respondendo com o código de antes; um envio para o projeto
-  // errado "dá certo" sem mudar nada no ar. O roteiro mora no README ("Publicar
-  // o servidor"), e o cabeçalho do config.js — o arquivo que quem publica abre —
+  // errado "dá certo" sem mudar nada no ar. O roteiro mora em guias/publicar-o-servidor.md,
+  // e o cabeçalho do config.js — o arquivo que quem publica abre —
   // aponta para ele.
   //
   // O roteiro é o da publicação de verdade: a suíte antes, o código do projeto
   // comparado com o git, o envio com `--force` só depois disso — o clasp 3.3.0
   // pula o envio sem ele e sai sem erro —, a saída do envio conferida, a Nova
   // versão pelo editor ou pelo clasp, e o merge no mesmo dia. A contagem do envio
-  // sai da pasta: um `.gs` novo sem o README acompanhar derruba o teste.
+  // sai da pasta: um `.gs` novo sem o guia acompanhar derruba o teste.
   //
   // Mutação que derruba: o config.js voltar a mandar colar a URL de uma "Nova
-  // implantação"; o README perder a conferência do destino (`list-deployments`),
+  // implantação"; o guia perder a conferência do destino (`list-deployments`),
   // a Nova versão na mesma implantação, o arquivamento das outras, o `npm test`,
   // a comparação com o git, o `--force`, a conferência do `Pushed N files` e do
   // `Skipping push.`, o caminho pelo clasp ou o merge no mesmo dia.
@@ -422,7 +425,7 @@ teste('publicar é atualizar a implantação do config.js — e é isso que o re
   // A receita do cabeçalho é o caminho do editor do passo 7, e leva o que ele
   // leva: a conta que já implanta e a descrição com o commit.
   const corrido = cabecalho.replace(/\n \* ?/g, ' ');
-  verdadeiro(corrido.indexOf('com a conta que já implanta (README, passo 1)') !== -1,
+  verdadeiro(corrido.indexOf('com a conta que já implanta (guias/publicar-o-servidor.md, passo 1)') !== -1,
     'o cabeçalho do config.js ensina a Nova versão sem dizer com que conta');
   verdadeiro(corrido.indexOf('Nova versão, Descrição: `Cesutech vN <sha>`') !== -1,
     'o cabeçalho do config.js ensina a Nova versão sem o commit na descrição');
@@ -433,11 +436,11 @@ teste('publicar é atualizar a implantação do config.js — e é isso que o re
     '**arquive todas as outras**', 'janela anônima', 'corrija para a frente', '`npm test`', 'pull`',
     'push --force', '`Pushed ' + (quantosGs + 1) + ' files`', 'os ' + quantosGs + ' `.gs`', '`Skipping push.`',
     'create-version', 'update-deployment', '-V N', 'mesmo dia'].forEach((trecho) => {
-    verdadeiro(secao.indexOf(trecho) !== -1, 'a seção do README perdeu: ' + trecho);
+    verdadeiro(secao.indexOf(trecho) !== -1, 'o guia de publicação perdeu: ' + trecho);
   });
 });
 
-teste('publicar é com a conta que já implanta, porque o web app roda com ela — e o README diz qual é e como entrar com ela', () => {
+teste('publicar é com a conta que já implanta, porque o web app roda com ela — e o guia diz qual é e como entrar com ela', () => {
   // O manifesto implanta o web app `executeAs: USER_DEPLOYING`: o `/exec` roda
   // com a conta de quem implantou, e é com ela que o servidor pega o token do
   // banco (`ScriptApp.getOAuthToken`, 02_Repo.gs), manda o link de entrada
@@ -451,7 +454,7 @@ teste('publicar é com a conta que já implanta, porque o web app roda com ela �
   // Quem publica pela primeira vez vê `Not logged in.`, e o passo 1 diz o que
   // fazer e com que conta: a dona dos acionadores que só a conta que implanta
   // tem. Os nomes citados têm de ser gatilhos da lista fechada — renomear um
-  // deixaria o README mandando procurar o que não existe na tela Acionadores.
+  // deixaria o guia mandando procurar o que não existe na tela Acionadores.
   //
   // Mutação que derruba: o passo 1 sem os gatilhos que reconhecem a conta, sem
   // a tela Acionadores, sem o `executeAs`, sem o `Not logged in.`, o
@@ -460,19 +463,19 @@ teste('publicar é com a conta que já implanta, porque o web app roda com ela �
   // caminho do editor, no passo 7, sem a conta do passo 1.
   const manifesto = JSON.parse(fs.readFileSync(path.join(PASTA_GS, 'appsscript.json'), 'utf8'));
   igual(manifesto.webapp.executeAs, 'USER_DEPLOYING',
-    'o web app deixou de rodar como quem implanta, e o passo 1 do README explica uma regra que mudou');
+    'o web app deixou de rodar como quem implanta, e o passo 1 do guia explica uma regra que mudou');
 
   const passos = passosDaSecao(secaoPublicar());
-  verdadeiro(passos[1] !== undefined && passos[7] !== undefined, 'o README perdeu o passo 1 ou o passo 7');
+  verdadeiro(passos[1] !== undefined && passos[7] !== undefined, 'o guia perdeu o passo 1 ou o passo 7');
 
   ['fazerBackup', 'aquecerWebApp'].forEach((gatilho) => {
-    igual(PUBLICAS[gatilho], 'gatilho', gatilho + ' saiu da lista de gatilhos, e o README reconhece a conta por ele');
+    igual(PUBLICAS[gatilho], 'gatilho', gatilho + ' saiu da lista de gatilhos, e o guia reconhece a conta por ele');
     verdadeiro(passos[1].indexOf('`' + gatilho + '`') !== -1, 'o passo 1 não reconhece a conta pelo ' + gatilho);
   });
   ['tela Acionadores', '`executeAs: USER_DEPLOYING`', 'passo 7', '`Not logged in.`',
     '`npx @google/clasp@3.3.0 login --no-localhost`', 'https://script.google.com/home/usersettings', '**pare**',
     '`npx @google/clasp@3.3.0 logout`', 'tem de ser a que implanta hoje'].forEach((trecho) => {
-    verdadeiro(passos[1].indexOf(trecho) !== -1, 'o passo 1 do README perdeu: ' + trecho);
+    verdadeiro(passos[1].indexOf(trecho) !== -1, 'o passo 1 do guia perdeu: ' + trecho);
   });
   // O acionador da reconciliação é de OUTRA conta, e reconhecer a conta que
   // implanta por ele mandaria publicar justamente com a errada.
@@ -493,7 +496,7 @@ teste('cada versão leva na descrição o commit enviado — e é contra ele que
   // nada ou cala o que devia segurar. O `list-deployments` só mostra o id, o
   // `@N` e a descrição: por isso a descrição leva o commit, nos dois comandos
   // do clasp e no caminho do editor, e o passo 8 confere que ela chegou. As
-  // versões até a 21 foram publicadas sem ele, e o README diz como reconhecê-las.
+  // versões até a 21 foram publicadas sem ele, e o guia diz como reconhecê-las.
   // E o commit tem de continuar na `main` depois do merge: squash e rebase o
   // trocam por outro, e o passo 13 manda mesclar com merge commit.
   //
@@ -505,18 +508,18 @@ teste('cada versão leva na descrição o commit enviado — e é contra ele que
   // o passo 13 sem o merge commit.
   const secao = secaoPublicar();
   const passos = passosDaSecao(secao);
-  [4, 5, 7, 8].forEach((n) => verdadeiro(passos[n] !== undefined, 'o README perdeu o passo ' + n));
+  [4, 5, 7, 8].forEach((n) => verdadeiro(passos[n] !== undefined, 'o guia perdeu o passo ' + n));
 
   const descricoes = secao.match(/Cesutech vN[^"`]*/g) || [];
-  verdadeiro(descricoes.length > 0, 'o README não diz mais que descrição a versão leva');
+  verdadeiro(descricoes.length > 0, 'o guia não diz mais que descrição a versão leva');
   descricoes.forEach((d) => igual(d, 'Cesutech vN <sha>', 'uma descrição de versão sem o commit'));
 
   ['`git status --short apps-script`', '`git rev-parse --short HEAD`', '`<sha>`'].forEach((trecho) => {
-    verdadeiro(passos[4].indexOf(trecho) !== -1, 'o passo 4 do README perdeu: ' + trecho);
+    verdadeiro(passos[4].indexOf(trecho) !== -1, 'o passo 4 do guia perdeu: ' + trecho);
   });
 
   ['create-version "Cesutech vN <sha>"', '-V N -d "Cesutech vN <sha>"'].forEach((trecho) => {
-    verdadeiro(passos[7].indexOf(trecho) !== -1, 'o passo 7 do README perdeu: ' + trecho);
+    verdadeiro(passos[7].indexOf(trecho) !== -1, 'o passo 7 do guia perdeu: ' + trecho);
   });
   const inicioEditor = passos[7].indexOf('- no editor');
   verdadeiro(inicioEditor !== -1, 'o passo 7 perdeu o caminho do editor');
@@ -529,12 +532,12 @@ teste('cada versão leva na descrição o commit enviado — e é contra ele que
     '`npx @google/clasp@3.3.0 list-versions`', '`npx @google/clasp@3.3.0 pull --versionNumber N`',
     'do commit do último envio', 'versão de número mais alto', '`N - Cesutech vN <sha>`',
     'retome do passo 7'].forEach((trecho) => {
-    verdadeiro(passos[5].indexOf(trecho) !== -1, 'o passo 5 do README perdeu: ' + trecho);
+    verdadeiro(passos[5].indexOf(trecho) !== -1, 'o passo 5 do guia perdeu: ' + trecho);
   });
   igual(/archive <commit>/.test(passos[5]), false, 'o passo 5 voltou a comparar com um commit que ninguém gravou');
   igual(/é o da `main`/.test(passos[5]), false, 'o passo 5 voltou a comparar com a main');
 
-  verdadeiro(passos[13] !== undefined, 'o README perdeu o passo 13');
+  verdadeiro(passos[13] !== undefined, 'o guia perdeu o passo 13');
   verdadeiro(passos[13].indexOf('**merge commit**') !== -1,
     'o passo 13 não manda mesclar com merge commit, e num squash o <sha> gravado sumiria da main');
 });

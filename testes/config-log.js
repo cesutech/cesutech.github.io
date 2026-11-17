@@ -14,6 +14,8 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const {
   RAIZ, teste, grupo, igual, verdadeiro, resultado, criarAmbiente, criarRelogio, ultima
@@ -303,6 +305,18 @@ teste('a descrição de `aluno_projeto_unico` cobre as DUAS portas — é ela qu
         'a descrição não fala de "' + palavra + '": ' + chave.descricao);
     });
   verdadeiro(chave.descricao.length > 400, 'descrição de uma linha não cobre duas portas');
+});
+
+teste('o README leva ao checklist que a descrição de aluno_projeto_unico manda ler', () => {
+  // A descrição da chave diz "leia o checklist no README". Desde 17/11/2026 o
+  // checklist mora num guia, e o README aponta para ele. Se o link ou o título
+  // sumirem, a frase que a coordenação lê em Configurações leva a lugar nenhum.
+  const raiz = path.join(__dirname, '..');
+  const readme = fs.readFileSync(path.join(raiz, 'README.md'), 'utf8');
+  const guia = fs.readFileSync(path.join(raiz, 'guias', 'um-projeto-por-aluno.md'), 'utf8');
+  verdadeiro(readme.indexOf('guias/um-projeto-por-aluno.md#antes-de-virar-a-chave-para-sim') !== -1,
+    'o README não aponta mais para o checklist');
+  verdadeiro(/^## Antes de virar a chave para SIM$/m.test(guia), 'o guia perdeu o título do checklist');
 });
 
 grupo('configLista');
