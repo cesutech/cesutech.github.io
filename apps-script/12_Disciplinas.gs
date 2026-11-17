@@ -914,7 +914,9 @@ function incluirDisciplinas_(payload) {
     }
 
     var agoraStr = agora_();
-    var usuario = usuarioAtual_();
+    // Pela sessão (`quemMexeu_`, 07_Auth.gs): no web app publicado,
+    // `usuarioAtual_()` volta 'anonimo'.
+    var usuario = quemMexeu_(payload.token);
     var criadas = [];
     var jaExistiam = [];
     var falharam = [];
@@ -1016,7 +1018,7 @@ function editarDisciplina_(payload) {
       coringa: antiga.coringa ? 'SIM' : 'NAO',
       // Carregados do documento velho: sem isto, toda edição zeraria a autoria.
       criado_em: antiga.criado_em || agoraStr,
-      criado_por: antiga.criado_por || usuarioAtual_(),
+      criado_por: antiga.criado_por || quemMexeu_(payload.token),
       atualizado_em: agoraStr
     }, chaveNova);
 

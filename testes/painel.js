@@ -1097,6 +1097,20 @@ teste('grava status, observação, quem revisou e quando', () => {
   igual(aluno.nome, 'João Souza', 'a updateMask precisa preservar o resto do documento');
 });
 
+teste('no painel publicado, quem revisou é a SESSÃO, e não "anonimo"', () => {
+  // `usuario: ''` é o GitHub Pages: ali `usuarioAtual_()` volta 'anonimo'
+  // (04_Log.gs). Com o usuário do ambiente igual ao da sessão, como no teste
+  // acima, o defeito passava verde.
+  //
+  // Mutação que derruba: `revisado_por: usuarioAtual_()` de volta em
+  // `resolverAluno_`.
+  const amb = ambiente({ usuario: '' });
+  semear(amb.api);
+
+  igual(chamar(amb, 'resolverAluno_', { id: 'a002', status: 'CONFIRMADO' }).ok, true);
+  igual(amb.api.ler_('alunos', 'a002').revisado_por, 'coordenacao@exemplo.com');
+});
+
 teste('a decisão vai para a trilha de auditoria, com o de-para', () => {
   const amb = ambiente();
   semear(amb.api);
@@ -3495,10 +3509,10 @@ teste('a decisão da coordenação sobrevive à inclusão da MESMA pessoa em out
   const ficha = amb.api.ler_('alunos', id);
   igual(ficha.status, 'DIVERGENCIA', 'o incremental passou por cima da decisão humana');
   igual(ficha.observacoes, 'conferir na secretaria');
-  // 'anonimo' é o que `usuarioAtual_()` responde no painel publicado (o cenário
-  // é o do GitHub Pages, ver `cenarioInclusao`). O que importa é o campo
-  // continuar preenchido: é ele o sinal de que houve gente.
-  igual(ficha.revisado_por, 'anonimo');
+  // O campo continua preenchido, e é ele o sinal de que houve gente. O cenário
+  // é o do GitHub Pages (`usuario: ''`, ver `cenarioInclusao`), onde
+  // `usuarioAtual_()` volta 'anonimo': quem revisou é a SESSÃO.
+  igual(ficha.revisado_por, 'coordenacao@exemplo.com');
   // A ordem é a da rodada: as duas inscrições nasceram no mesmo segundo, e
   // `porChegada_` desempata pelo id do documento. Quem prova que ela é a mesma
   // não é a frase acima — é a rodada de auditoria logo abaixo, que não reescreve.

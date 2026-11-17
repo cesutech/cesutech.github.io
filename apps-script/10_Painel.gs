@@ -2019,7 +2019,9 @@ function resolverAluno_(payload) {
       // Teto no texto livre: o campo vai para um documento que o painel relê a
       // cada listagem, e não há por que carregar um romance colado sem querer.
       observacoes: String(payload.observacoes || '').trim().slice(0, PAINEL_MAX_OBSERVACOES),
-      revisado_por: usuarioAtual_(),
+      // Pela sessão (`quemMexeu_`, 07_Auth.gs): no web app publicado,
+      // `usuarioAtual_()` volta 'anonimo'.
+      revisado_por: quemMexeu_(payload.token),
       revisado_em: carimbo,
       atualizado_em: carimbo
     });

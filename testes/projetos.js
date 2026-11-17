@@ -1106,7 +1106,10 @@ teste('criar grava com o id do projeto como id do documento, e sem campo id', ()
   igual(gravado.id, undefined, 'id repetido como campo é cópia livre para divergir do documento');
   igual(gravado.codigo.stringValue, 'r-cidades');
   igual(gravado.email_professor.stringValue, 'marina@exemplo.com');
-  igual(gravado.criado_por.stringValue, 'anonimo');
+  // O ambiente deste arquivo é o do GitHub Pages (`usuario: ''`), onde
+  // `usuarioAtual_()` volta 'anonimo': quem criou é a SESSÃO. Mutação que
+  // derruba: `criado_por: usuarioAtual_()` de volta em `salvarProjeto_`.
+  igual(gravado.criado_por.stringValue, 'coordenacao@exemplo.com');
   verdadeiro(gravado.criado_em.stringValue.length === 19, 'criado_em foi ' + gravado.criado_em.stringValue);
   igual(acoesDoLog(falso), ['PROJETO_CRIADO']);
 });
