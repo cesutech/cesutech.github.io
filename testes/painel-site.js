@@ -36,7 +36,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { teste, grupo, igual, verdadeiro, resultado } = require('./apoio');
-const { abrirPainel, jaResolvido, respostaHttp, travada } = require('./dom-painel');
+const { abrirPainel, jaResolvido, respostaHttp, travada, desescapar } = require('./dom-painel');
 
 const RAIZ = path.join(__dirname, '..');
 const PAGINA = fs.readFileSync(path.join(RAIZ, 'docs', 'painel', 'index.html'), 'utf8');
@@ -1728,6 +1728,145 @@ teste('sair volta para a tela de login com a recuperação fechada e vazia', () 
   verdadeiro(escondido(cena, 'bloco-link'), 'a recuperação ficou aberta depois do logout');
   igual(cena.elemento('email-link').value, '', 'sobrou o e-mail de quem saiu no campo');
   igual(corpoDe(cena, 'sair').acao, 'login');
+});
+
+// ================================== 3a. Quem tentou entrar, na aba Histórico
+
+grupo('o Histórico diz quem tentou entrar');
+
+/**
+ * As linhas da tabela do Histórico como a coordenação as lê: o texto de cada
+ * célula, já sem o escape do HTML. As colunas vão na ordem do cabeçalho da
+ * tabela: Quando, Quem, Ação, Entidade e Detalhe.
+ */
+function linhasDoHistorico(cena) {
+  const html = cena.html('conteudo-log');
+  const linha = /<tr><td>([^<]*)<\/td><td>([^<]*)<\/td><td><strong>([^<]*)<\/strong><\/td><td>([^<]*)<\/td><td[^>]*>([^<]*)<\/td><\/tr>/g;
+  const linhas = [];
+  for (let m = linha.exec(html); m !== null; m = linha.exec(html)) {
+    linhas.push({
+      quem: desescapar(m[2]), acao: desescapar(m[3]), entidade: desescapar(m[4]), detalhe: desescapar(m[5])
+    });
+  }
+  return linhas;
+}
+
+/** As linhas que o servidor GRAVOU, para separar o que o banco diz do que a tela mostra. */
+function gravadasNoBanco(cena, acao) {
+  return cena.api.ultimosRegistros_(50).filter((l) => l.acao === acao);
+}
+
+/** A coordenação entra pela conta Google e abre a aba Histórico. */
+function coordenacaoAbreOHistorico(cena) {
+  tokenBom(cena, 'coord@exemplo.com');
+  cena.entrarComGoogle(ID_TOKEN);
+  verdadeiro(!escondido(cena, 'tela-painel'), 'a coordenação não entrou: ' + cena.texto('erro-login'));
+  cena.js.trocarAba('log');
+  return linhasDoHistorico(cena);
+}
+
+teste('a conta Google recusada aparece em "Quem" pelo e-mail, e não como "anonimo"', () => {
+  // O pedido de 17/11/2026: uma conta fora da lista tentou entrar, e o Histórico
+  // dizia "anonimo". O e-mail estava gravado na linha, em `entidade_id`, e a
+  // tabela não o mostrava.
+  //
+  // Mutação que derruba: `escapar(l.usuario)` de volta na coluna Quem.
+  const cena = telaDeLogin();
+  tokenBom(cena, 'fora.da.lista@exemplo.com');
+  cena.entrarComGoogle(ID_TOKEN);
+  verdadeiro(cena.texto('erro-login').indexOf('não tem acesso ao painel') !== -1, cena.texto('erro-login'));
+
+  // O banco diz o que sempre disse: sem sessão, `usuario` sai 'anonimo', e o
+  // e-mail de quem tentou fica em `entidade_id`. Quem muda é a tela.
+  const banco = gravadasNoBanco(cena, 'LOGIN_NEGADO');
+  igual(banco.map((l) => [l.usuario, l.entidade_id]), [['anonimo', 'fora.da.lista@exemplo.com']]);
+
+  const linhas = coordenacaoAbreOHistorico(cena);
+  const negadas = linhas.filter((l) => l.acao === 'LOGIN_NEGADO');
+  igual(negadas.length, 1, JSON.stringify(linhas));
+  igual(negadas[0].quem, 'fora.da.lista@exemplo.com');
+  igual(negadas[0].detalhe, 'conta Google fora da allowlist');
+
+  // E a entrada que deu certo continua assinada por quem entrou.
+  igual(linhas.filter((l) => l.acao === 'LOGIN').map((l) => l.quem), ['coord@exemplo.com']);
+});
+
+teste('o link de quem saiu da lista antes de clicar também aparece pelo e-mail', () => {
+  // A outra recusa com e-mail provado (`entrarComLink_`, 07b_LinkPorEmail.gs):
+  // o link chegou à caixa da pessoa, e ela saiu da lista antes de usá-lo.
+  const caixa = [];
+  const cena = telaDeLogin({ emails: caixa, allowlist: 'coord@exemplo.com, saiu@exemplo.com' });
+
+  cena.js.abrirPedidoDeLink();
+  cena.digitar('email-link', 'saiu@exemplo.com');
+  cena.js.enviarPedidoDeLink();
+  const token = /\?entrar=([0-9a-f]+)/.exec(caixa[0].body)[1];
+
+  cena.api.gravarConfig_('admin_emails', 'coord@exemplo.com');
+  cena.js.pedirConfirmacaoDoLink(token);
+  cena.js.confirmarEntradaPorLink();
+  verdadeiro(escondido(cena, 'tela-painel'), 'o link entrou depois de a pessoa sair da lista');
+
+  const linhas = coordenacaoAbreOHistorico(cena);
+  igual(linhas.filter((l) => l.acao === 'LOGIN_NEGADO').map((l) => [l.quem, l.detalhe]),
+    [['saiu@exemplo.com', 'link válido, mas o endereço não está mais autorizado']]);
+
+  // O PEDIDO do link também guarda o endereço em `entidade_id`, e com
+  // `usuario` 'anonimo', mas ali o endereço foi só DIGITADO: qualquer pessoa
+  // pede link para o endereço de outra. Ele não pode virar "Quem".
+  //
+  // Mutações que derrubam: trocar `l.acao === 'LOGIN_NEGADO'` por
+  // `l.usuario === 'anonimo'`, por `l.entidade === 'painel'` ou por
+  // `l.acao !== 'ADMIN_INCLUIDO'`. As três passavam pelo resto da suíte.
+  igual(linhas.filter((l) => l.acao === 'LINK_ENVIADO').map((l) => l.quem), ['anonimo']);
+});
+
+teste('o token que o Google não confirma não deixa e-mail, e a linha fica "anonimo"', () => {
+  // Ninguém se identificou, e a tela não inventa um nome: `entidade_id` vem vazio.
+  //
+  // Mutação que derruba: tirar `tentou.indexOf('@') > 0` da condição — a coluna
+  // sai vazia.
+  const cena = telaDeLogin();
+  cena.tokeninfo.resposta = { codigo: 400, corpo: { error: 'invalid_token' } };
+  cena.entrarComGoogle(ID_TOKEN);
+
+  const negadas = coordenacaoAbreOHistorico(cena).filter((l) => l.acao === 'LOGIN_NEGADO');
+  igual(negadas.length, 1);
+  igual(negadas[0].quem, 'anonimo');
+  verdadeiro(negadas[0].detalhe.indexOf('ID token recusado') === 0, negadas[0].detalhe);
+});
+
+teste('nas outras ações, "Quem" continua sendo quem fez: o e-mail incluído não vira autor', () => {
+  // ADMIN_INCLUIDO também grava um e-mail em `entidade_id`, mas é o de quem FOI
+  // incluído. Mostrá-lo em "Quem" trocaria o autor pelo alvo.
+  //
+  // Mutação que derruba: tirar `l.acao === 'LOGIN_NEGADO'` da condição.
+  const cena = telaDeLogin();
+  coordenacaoAbreOHistorico(cena);
+
+  cena.js.trocarAba('config');
+  cena.digitar('acesso-novo', 'nova@exemplo.com');
+  cena.js.incluirAcesso();
+  igual(gravadasNoBanco(cena, 'ADMIN_INCLUIDO').map((l) => l.entidade_id), ['nova@exemplo.com']);
+
+  cena.js.carregarLog();
+  igual(linhasDoHistorico(cena).filter((l) => l.acao === 'ADMIN_INCLUIDO').map((l) => l.quem),
+    ['coord@exemplo.com']);
+});
+
+teste('o e-mail de quem tentou passa pelo escape, como toda célula da tabela', () => {
+  // Pelas duas portas, o e-mail de uma recusa chega provado e com forma de
+  // endereço. A célula escapa assim mesmo: é texto do banco indo para `innerHTML`.
+  //
+  // Mutação que derruba: tirar o `escapar` da coluna Quem.
+  const cena = telaDeLogin();
+  cena.api.registrar_('LOGIN_NEGADO', 'painel', '<img src=x onerror=alert(1)>@exemplo.com',
+    'conta Google fora da allowlist');
+
+  coordenacaoAbreOHistorico(cena);
+  const html = cena.html('conteudo-log');
+  igual(html.indexOf('<img'), -1, 'o e-mail entrou na tabela como marcação');
+  verdadeiro(html.indexOf('&lt;img src=x onerror=alert(1)&gt;@exemplo.com') !== -1, html);
 });
 
 // ============================================ 3b. O link por e-mail
