@@ -29,7 +29,7 @@
  * os escopos autorizados. É a mesma escolha que 02b_Drive.gs fez: chamada mais
  * verbosa, mas sem credencial parada em lugar nenhum.
  *
- * Pré-requisitos que NÃO estão neste arquivo (ver README.md):
+ * Pré-requisitos que NÃO estão neste arquivo (ver guias/configurar-o-ambiente.md):
  *   - escopos `script.external_request` e `datastore` no appsscript.json
  *   - propriedade de script FIRESTORE_PROJETO
  */
@@ -94,7 +94,7 @@ function fsAlvo_() {
     throw new Error(
       'Firestore não configurado. No editor do Apps Script: Configurações do projeto > ' +
       'Propriedades do script > adicionar FIRESTORE_PROJETO com o ID do projeto do ' +
-      'Firebase (algo como unicesusc-cesutech-4f2a). Passo a passo em README.md.'
+      'Firebase (algo como unicesusc-cesutech-4f2a). Passo a passo em guias/configurar-o-ambiente.md.'
     );
   }
 
@@ -843,7 +843,7 @@ function excluirEmLote_(colecao, ids) {
  * A MEDIR contra o banco de verdade: os status exatos das precondições DENTRO
  * de um `:commit` misto. A prova já está escrita — `provaCommitMisto`
  * (20_Prova.gs), ao lado de `provaAtualizarEmLote` —, e rodá-la é o item 1 do
- * checklist de ligar `aluno_projeto_unico=SIM` (README). O falso dos testes imita `exists:false` com o documento no
+ * checklist de ligar `aluno_projeto_unico=SIM` (guias/um-projeto-por-aluno.md). O falso dos testes imita `exists:false` com o documento no
  * lugar como 409 ALREADY_EXISTS, `exists:true` em documento ausente como 404
  * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
  * divergir, corrigem-se o falso e esta função — nunca o contrário.

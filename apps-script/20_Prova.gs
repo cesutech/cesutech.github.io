@@ -197,7 +197,7 @@ function provaDiagnostico_(erro) {
   if (mensagem.indexOf('FIRESTORE_PROJETO') !== -1) {
     Logger.log('A propriedade do script não existe. No editor: Configurações do projeto');
     Logger.log('> Propriedades do script > Adicionar > FIRESTORE_PROJETO = unicesusc-cesutech');
-    Logger.log('Passo a passo em documentacao/01-configurar-o-ambiente.md.');
+    Logger.log('Passo a passo em guias/configurar-o-ambiente.md.');
     return;
   }
 
@@ -580,7 +580,7 @@ function provaAtualizarEmLote_() {
  * aqui se mede se o banco concorda. Divergiu, corrigem-se o falso e
  * `escreverAtomico_` — nunca o contrário.
  *
- * É o item 1 do checklist de ligar `aluno_projeto_unico=SIM` (README). Três
+ * É o item 1 do checklist de ligar `aluno_projeto_unico=SIM` (guias/um-projeto-por-aluno.md). Três
  * afirmações:
  *
  *   1. `gravar` (upsert noutra coleção) + `apagar` + `criar` (`exists:false`)

@@ -25,7 +25,7 @@ teste('sem FIRESTORE_PROJETO, o erro diz exatamente o que configurar', () => {
   const { api } = criarAmbiente({ projeto: null });
   const e = lancou(() => api.ler_('teste_conexao', 'x'), 'FIRESTORE_PROJETO');
   verdadeiro(e.message.indexOf('Propriedades do script') !== -1, 'deveria dizer onde configurar');
-  verdadeiro(e.message.indexOf('README.md') !== -1, 'deveria apontar a documentação');
+  verdadeiro(e.message.indexOf('guias/configurar-o-ambiente.md') !== -1, 'deveria apontar o guia de configuração');
 });
 
 teste('banco padrão é (default) e o token vai no header Authorization', () => {
