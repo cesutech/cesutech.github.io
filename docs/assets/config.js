@@ -3,13 +3,13 @@
  *
  * O `endpoint` é a URL /exec da implantação do web app, e ela NÃO muda quando o
  * servidor é publicado de novo. Publicar é atualizar a implantação que já
- * existe, com a conta que já implanta (README, passo 1) — Implantar ›
- * Gerenciar implantações › editar (o lápis) › Versão: Nova versão, Descrição:
- * `Cesutech vN <sha>` › Implantar —, e nunca usar Implantar › Nova implantação:
+ * existe, com a conta que já implanta (guias/publicar-o-servidor.md, passo 1)
+ * — Implantar › Gerenciar implantações › editar (o lápis) › Versão: Nova versão,
+ * Descrição: `Cesutech vN <sha>` › Implantar —, e nunca usar Implantar › Nova implantação:
  * a implantação nova ganha outra URL, e a antiga continua respondendo com o
  * código antigo. Pelo mesmo motivo, arquive todas as outras implantações que
  * existirem no projeto, de qualquer tipo. O passo a passo — o envio do código
- * vem antes da Nova versão — está no README, em "Publicar o servidor".
+ * vem antes da Nova versão — está em guias/publicar-o-servidor.md.
  *
  * Esta linha só muda se a implantação de produção for substituída de propósito
  * (outra conta, outro projeto) — e aí no mesmo dia em que a antiga é arquivada.

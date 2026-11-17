@@ -1,522 +1,115 @@
-# CESUTECH — inscrição em projetos de extensão
+<div align="center">
 
-Sistema de inscrição e gestão de alunos dos projetos de extensão do CESUTECH,
-do Centro Universitário CESUSC.
+# CESUTECH
 
-O aluno abre o site, escolhe um projeto, confere a matrícula e se inscreve. A
-coordenação acompanha as vagas, importa a lista oficial da secretaria e concilia
-inscrição com matrícula por um painel de gestão.
+**Inscrição e gestão de alunos dos projetos de extensão do Centro Universitário CESUSC**
 
----
+[![Testes](https://github.com/cesutech/cesutech.github.io/actions/workflows/testes.yml/badge.svg?branch=main)](https://github.com/cesutech/cesutech.github.io/actions/workflows/testes.yml)
+[![Publicar o site](https://github.com/cesutech/cesutech.github.io/actions/workflows/publicar-site.yml/badge.svg?branch=main)](https://github.com/cesutech/cesutech.github.io/actions/workflows/publicar-site.yml)
 
-## Como ele é feito
+[Site do aluno](https://cesutech.github.io/) · [Painel da coordenação](https://cesutech.github.io/painel/) · [Segurança](SECURITY.md)
+
+</div>
+
+O aluno abre o site, escolhe um projeto, confere a matrícula e se inscreve, sem
+criar conta. A coordenação acompanha as vagas, importa a lista oficial da
+secretaria e concilia inscrição com matrícula num painel de gestão.
+
+## Como funciona
+
+```mermaid
+flowchart LR
+    aluno([Aluno]) --> site["Site<br/>GitHub Pages"]
+    coord([Coordenação]) --> painel["Painel<br/>GitHub Pages"]
+    site -- "fetch, só JSON" --> api["Servidor<br/>Google Apps Script"]
+    painel -- "fetch, só JSON" --> api
+    api --> banco[("Cloud Firestore")]
+    api --> drive[("Google Drive<br/>banners e backups")]
+    acionadores(["Acionadores"]) --> api
+```
 
 | Camada | Tecnologia |
 | --- | --- |
-| Interface do aluno e painel de gestão | HTML, CSS e JavaScript, sem framework |
-| Hospedagem do site | GitHub Pages (conteúdo estático) |
-| Lógica de servidor | Google Apps Script |
+| Site do aluno e painel de gestão | HTML, CSS e JavaScript, sem framework |
+| Hospedagem do site e do painel | GitHub Pages (conteúdo estático) |
+| Servidor | Google Apps Script, como web app que só responde JSON |
 | Banco de dados | Cloud Firestore, acessado por API REST |
-| Autenticação do painel | Google Identity Services e link de acesso por e-mail |
+| Arquivos | Google Drive: banners dos projetos e backups do banco |
+| Entrada no painel | conta Google (Google Identity Services) ou link de acesso por e-mail |
 | Testes | Node.js, sem dependências externas |
 
-Tudo dentro da camada gratuita. Não há servidor para manter, conta de serviço,
-chave guardada nem cartão de crédito envolvido — o acesso ao banco usa o token
-da própria execução.
+Três acionadores rodam sozinhos: a reconciliação das inscrições com a lista
+oficial e o backup do banco, uma vez por dia, de manhã cedo, e o aquecimento do
+web app, a cada cinco minutos.
 
----
+Tudo cabe na camada gratuita do Google e do GitHub. Não há servidor para manter,
+conta de serviço, chave guardada nem cartão de crédito: o acesso ao banco usa o
+token da própria execução.
 
-## Decisões que explicam o resto
+## Segurança
 
-**O banco é de documentos, e não uma planilha.** A versão anterior deste sistema
-guardava as inscrições numa planilha. Ali, impedir que a mesma pessoa se
-inscreva duas vezes custa varrer uma coluna inteira dentro de um bloqueio, e
-contar inscritos por projeto custa o mesmo. Num banco de documentos, a unicidade
-é o próprio identificador do registro — a segunda gravação é recusada pelo
-banco, não por uma conferência que pode chegar tarde — e a contagem é feita no
-servidor.
+- **Superfície pública fechada.** O servidor só responde JSON e só aceita uma
+  lista fechada de ações. Todo o resto é privado, e testes por árvore sintática
+  conferem essa lista a cada mudança.
+- **Entrada no painel** pela conta Google, com o token conferido no próprio
+  Google, ou por link de uso único enviado por e-mail.
+- **Dois níveis de acesso**, coordenador geral e professor, cobrados pelo
+  servidor em toda requisição. O professor lê as listas e as fichas de todos os
+  alunos e exporta o cadastro completo, mas não altera nada: os níveis separam
+  ações, e não o acesso ao dado. A tela esconde as abas e desabilita os botões
+  que não são de cada um, mas quem recusa é o servidor.
+- **Rotas públicas com freios** contra abuso: teto por hora na inscrição, na
+  conferência de matrícula e na entrada pela conta Google, freio por endereço no
+  link por e-mail, e campo-isca e tempo mínimo de preenchimento no formulário.
+  A configuração que essas rotas consultam fica num cache de um minuto, então
+  um robô recusado não esgota a cota de leituras do banco.
+- **Trilha de auditoria.** O Histórico do painel diz quem fez o quê.
+- **Backup diário** do banco no Google Drive.
+- **Nenhum dado pessoal no repositório.** As amostras dos testes são inventadas.
 
-**A vaga fecha sob bloqueio.** Contar antes de gravar não basta: duas inscrições
-simultâneas contam o mesmo número e as duas passam. A reserva acontece dentro de
-uma seção crítica, e é ela que garante que sessenta vagas não viram sessenta e
-uma.
+Para relatar uma vulnerabilidade, veja o [SECURITY.md](SECURITY.md).
 
-**O aluno não precisa de conta.** A inscrição é anônima por desenho, porque exigir
-login afastaria justamente quem o programa quer alcançar. Isso tem uma
-consequência que atravessa o projeto inteiro: as rotas públicas não sabem quem
-está do outro lado, então cada uma tem freio próprio e conferência de formato
-antes de qualquer consulta ao banco.
+## Guias
 
-**O painel tem mais de uma porta.** Entrar depende de coisas que moram fora do
-código — um identificador de aplicativo no console, uma origem autorizada, uma
-lista de e-mails. Qualquer uma errada e ninguém entra, inclusive quem
-consertaria. Por isso existem caminhos independentes de entrada: nenhum deles
-pode ser desligado por quem não tem acesso.
+| Guia | Quando ler |
+| --- | --- |
+| [Configurar o ambiente do zero](guias/configurar-o-ambiente.md) | ao montar o sistema numa conta ou num repositório novos |
+| [Decisões que explicam o resto](guias/decisoes.md) | antes de mexer no código |
+| [Um projeto por aluno, e a troca](guias/um-projeto-por-aluno.md) | antes de ligar a regra `aluno_projeto_unico` |
+| [A lista oficial ao longo do semestre](guias/lista-oficial.md) | ao importar e revisar listas, e na virada de semestre |
+| [Dois níveis de acesso ao painel](guias/niveis-de-acesso.md) | ao dar ou mudar o acesso de alguém |
+| [Publicar o servidor](guias/publicar-o-servidor.md) | ao publicar uma versão nova do servidor |
 
-**A trilha diz quem fez.** O painel publicado roda como a conta que o implantou,
-e o Apps Script não entrega a identidade de quem está do outro lado — a coluna
-**Quem** do Histórico dizia `anonimo` em toda linha. Quem sabe o e-mail é a
-sessão, conferida na primeira linha de toda função do painel, e é de lá que o
-nome passa a sair: quem exportou o cadastro, quem anulou, quem revisou uma
-importação. Os caminhos sem sessão — o formulário do aluno, o backup diário —
-continuam anônimos, porque ali não há ninguém a nomear.
+**Antes de ligar `aluno_projeto_unico`**, leia o
+[checklist](guias/um-projeto-por-aluno.md#antes-de-virar-a-chave-para-sim): a
+base de hoje tem duplicidades, e a regra só vale daqui para a frente.
 
-**Dois níveis, e o servidor é quem cobra.** Quem tem acesso ao painel é uma
-lista (`admin_emails`); quem é **coordenador geral** é outra
-(`coordenadores_gerais`), e todo e-mail da primeira que não esteja na segunda é
-**professor**: vê e exporta as listas de inscritos e disciplinas, e não remove
-projeto, não anula, não promove, não importa lista oficial nem abre
-Configurações. A segunda lista **vazia** quer dizer "ninguém separou os níveis
-ainda", e nesse estado todo mundo é coordenador geral — é por isso que a mudança
-não pediu migração nenhuma. O nível é lido a cada requisição, nunca guardado na
-sessão, e é cobrado no **despacho**: o que não estiver na lista do professor é da
-coordenação geral, então função nova nasce fechada para ele. A tela esconde e
-desabilita o que não é dele, mas a tela nunca é a permissão — há teste de invasão
-para cada uma das trinta e uma, chamadas pelo POST direto. O nível **não é porta**:
-quem não está em `admin_emails` não entra, esteja onde estiver. E a lista nunca
-fica sem nenhum coordenador geral: um painel de oito professores é tão trancado
-por fora quanto uma lista de acesso vazia.
-
-**Exportar o CSV continua sendo dos dois níveis.** É decisão tomada e sabida: o
-professor exporta a lista inteira de alunos, com nome, CPF, e-mail, telefone e
-nascimento. Os dois níveis resolvem o clique errado, não a cópia — e a linha
-`EXPORTACAO` na trilha agora diz qual professor exportou.
-
-**Nada de dado pessoal no repositório.** As amostras usadas nos testes são
-sintéticas. O formato reproduz o do relatório da secretaria; os nomes, as
-matrículas e os telefones são inventados.
-
----
-
-## Um projeto por aluno, e a troca
-
-A regra é opcional e vive numa chave: **`aluno_projeto_unico`**, na aba
-Configurações. O padrão é **NAO**, e em NAO a **regra** não muda nada — as duas
-portas apenas avisam que a pessoa já está em outro projeto, como sempre fizeram.
-(Publicar o código, esse sim, muda três coisas com a chave em NAO: está no fim
-desta seção.) Em **SIM**, cada matrícula participa de **um projeto ativo por
-semestre**, e a regra vale nas **duas portas**:
-
-**No formulário do aluno**, quem já está em outro projeto não é recusado: o site
-pergunta, e a confirmação **troca** — a inscrição anterior é cancelada e a nova
-nasce no lugar, tudo numa escrita só (ou entra inteira, ou não entra). Três
-condições para a troca acontecer: o **e-mail** do envio tem de ser o mesmo da
-inscrição anterior (é a prova de posse; divergiu, a recusa não diz sequer o nome
-do projeto), a inscrição anterior **não** pode ter sido feita pela coordenação
-(essa é migrada por Alunos → Editar → Projeto) e o projeto novo tem de ter
-**vaga na hora de confirmar** — sem vaga, nada muda e a anterior continua
-valendo. Matrícula cancelada na lista oficial não troca; ela é mandada à
-coordenação.
-
-**No painel, em Incluir aluno**, incluir quem já está em outro projeto passa a
-**perguntar** antes de gravar — e a coordenação inclui do mesmo jeito se
-confirmar. A porta da coordenação nunca é barrada (é a régua da janela, do teto
-e do anti-abuso); o que ela não pode é criar duplicidades novas caladas depois
-de a chave ser virada.
-
-**O que a troca deixa para trás.** A inscrição cancelada vai para a quarentena,
-com o motivo `TROCA` e um ponteiro para o protocolo novo — é o Desfazer da aba
-Geral que a traz de volta, e ele **recusa** devolvê-la se a pessoa já estiver em
-outro projeto ativo. O protocolo do aluno MUDA na troca: o antigo morre, e a
-recepção não o acha mais pela tela. A inscrição nova aparece no Geral com o selo
-**"trocou de projeto"**; a que a coordenação incluiu à mão, com **"incluída pela
-coordenação"**.
-
-**A lembrança do site é por navegador.** O aluno que trocou de projeto noutro
-aparelho continua vendo "você já está inscrito em X" no aparelho antigo — o site
-diz isso na tela. É o desenho: a lembrança é local, e o que vale é o banco.
-
-**Migrar pelo painel não é a mesma coisa que trocar.** Alunos → Editar → Projeto
-move a inscrição — mesmo documento, endereço novo — e, de propósito, **estoura o
-teto** do projeto de destino (a coordenação decide, vendo a ocupação no select) e
-**não deixa cópia na quarentena** (não houve cancelamento). Só a atomicidade é
-igual nas duas.
-
-### Antes de virar a chave para SIM
-
-1. **Medir o `:commit` misto contra o banco de verdade**: rodar
-   `provaCommitMisto()` pelo editor do Apps Script (`20_Prova.gs`, ao lado das
-   outras provas). Copiar + apagar + criar com `exists:false` aplica os três;
-   com o id novo já ocupado, o commit inteiro volta ALREADY_EXISTS e nada é
-   aplicado. Se o banco divergir do que o falso dos testes imita, corrigem-se o
-   falso e a primitiva — nunca o contrário.
-2. **Pré-voo nas matrículas já gravadas**: varrer as inscrições (o backup do dia
-   serve) por matrícula diferente da normalizada (zero à esquerda gravado antes
-   do corte) ou de tamanho diferente de `matricula_digitos`. Sem isso a regra
-   passa por baixo, em silêncio, exatamente na base existente.
-3. **Projetos do semestre passado em `ativo=NAO`** — a regra só olha projeto
-   ativo.
-4. **A lista de quem está em 2+ projetos nas mãos da coordenação.** A regra é só
-   para frente: ninguém é migrado nem apagado por script, e quem escolhe qual
-   fica é o professor. A reconciliação já mostra a lista; entram nela também as
-   inscrições que a revisão apontou **sem a matrícula** (casadas por e-mail, CPF
-   ou nome), porque para a regra elas são invisíveis.
-5. **Homologação com duas abas**: duas primeiras inscrições ao mesmo tempo, e uma
-   troca confirmada nas duas.
-6. **Virar a chave pela tela de Configurações.** É o último passo, e é o único
-   que liga a regra — mas não é o único que muda alguma coisa: o que vem logo
-   abaixo já vale desde a publicação.
-
-### O que muda ao publicar, mesmo com a chave em NAO
-
-Estas coisas não dependem da chave, e valem a partir do deploy:
-
-1. **Promover da fila passa a recusar a corrida em vez de sobrescrever calado.**
-   Vale nas duas portas que promovem — a aba **Geral** (lote de até 200) e
-   **Incluir aluno** (uma). Cada escrita leva a versão que o SERVIDOR acabou de
-   ler, ao montar a promoção (a tela manda só os ids, como sempre mandou); se
-   qualquer inscrição do lote mudou entre essa leitura e a gravação (outra aba
-   editou, a coordenação anulou, o aluno trocou de projeto), o banco recusa o
-   lote **inteiro**,
-   **ninguém** é promovido, e a resposta manda recarregar: *"a lista da tela é
-   de antes"* na aba Geral, *"a ficha é de antes"* no Incluir. Antes, a
-   promoção gravava por cima do que tivesse mudado. O preço é dito: um lote de
-   200 volta inteiro quando **uma** das 200 mudou — clicar de novo depois de
-   recarregar é mais barato do que promover por cima.
-2. **Alunos → Editar → Projeto move a inscrição num `:commit` só.** Eram duas
-   requisições (criar no endereço novo, apagar o velho) e uma janela entre elas
-   em que a inscrição existia nos dois lugares; agora é uma, tudo ou nada. Se o
-   endereço novo já estiver ocupado, a edição é recusada e o documento velho
-   **continua vivo**.
-3. **A aba Geral mostra a procedência de cada inscrição** — o selo de quem foi
-   incluído pela coordenação (`incluido_por`) e, quando houver, o de quem veio
-   de uma troca (`trocada_de`, que só nasce com a chave em SIM).
-4. **O aviso de vaga perdida diz QUAL das três coisas aconteceu.** É texto que
-   todo aluno lê, inclusive com a regra desligada: o título passa de duas
-   aberturas para três — *o projeto ficou sem vaga* (esgotou), *este projeto não
-   recebe mais inscrições* (a coordenação fechou as inscrições dele) e *este
-   projeto saiu da lista* (foi inativado) —, e deixa de repetir a frase que vem
-   logo abaixo.
-5. **Toda recusa de escrita sai sem o caminho do documento.** As mensagens que
-   vinham do banco carregavam `projects/<projeto>/databases/...`; agora passam
-   pela mesma régua do resto do sistema antes de virar tela, resposta ou log.
-
-Com a chave em **SIM** é que entra a regra em si: a pergunta e a troca no
-formulário do aluno, a pergunta antes de gravar no Incluir aluno, a recusa da
-troca para quem tem matrícula cancelada ou inscrição feita pela coordenação, e a
-guarda da restauração no Geral.
-
-**Regra operacional, com a chave em SIM:** não rode a **Revisão de divergências**
-com a janela de inscrição aberta. Entre a releitura e o apaga da revisão passam
-segundos a minutos, e é essa janela que faz a troca de um aluno e a anulação da
-coordenação se atropelarem — o aluno fica correto nos dois sentidos, mas a
-trilha de quem anulou o quê se perde (ela sobrevive no Histórico, na linha
-`INSCRICAO_TROCADA`).
-
----
-
-## A lista oficial ao longo do semestre
-
-Importar nunca apaga: quem sumiu do relatório novo continua na lista oficial.
-Isso é deliberado — descobrir "quem ficou de fora" custaria ler a coleção
-inteira a cada importação —, e por isso existem duas ferramentas separadas
-para tirar alguém:
-
-**Revisar** é o bisturi dentro do semestre. A secretaria emite um relatório
-por turma, e o lote guarda essa turma (lida do cabeçalho do arquivo e conferida
-no campo "Turma do relatório", no passo 2 da importação). Ao fim de cada
-importação, e pelo botão **Revisar** da aba Importações, o sistema lista quem
-estava no banco como aquela turma e não veio no arquivo — quem veio em outra
-lista deste semestre e quem já está cancelado aparecem à parte, sem ação. Para
-cada um se decide **Manter**, **Cancelar** (a matrícula some do formulário e
-das listas; volta sozinha se a secretaria a reenviar) ou **Excluir** (sai do
-banco, com cópia em `matriculados_excluidos`; só para quem nunca deveria ter
-entrado). Cancelar e Excluir sempre anulam as inscrições da pessoa: a vaga é
-liberada, e a inscrição fica na quarentena do Geral. Quem já está cancelado
-não sofre ação nenhuma — a inscrição que ele tiver ganhado depois da marca
-(pelo formulário de um projeto sem conferência, ou por Alunos → Incluir aluno,
-que avisa) é deliberada, e tirá-la é pelo Geral.
-
-A revisão anula **só a inscrição que traz a matrícula da pessoa**. A que o
-cruzamento de Alunos ligou a ela por e-mail, CPF ou nome aparece na linha como
-informação ("possível inscrição sem esta matrícula em … — confira no Geral") e
-não é tocada: nome casa homônimo e e-mail casa conta de família, e anular é
-destrutivo — a vaga vai para o próximo da fila, e quem não está na lista não
-volta por "Incluir aluno". A coordenação confere e, se for mesmo a pessoa,
-anula pelo Geral. Fica de fora até disso a inscrição que o cruzamento não
-ligou a ninguém — a segunda da mesma pessoa, sem matrícula, quando a primeira
-tinha, ou a feita depois do último cruzamento: ela só é vista no cruzamento
-seguinte, e aí aparece em Alunos como cancelada com projeto. Depois de aplicar,
-**Alunos → Atualizar** refaz o cruzamento.
-
-Com `aluno_projeto_unico` em **SIM**, a revisão não deve rodar com a janela de
-inscrição aberta — ver "Um projeto por aluno, e a troca", acima.
-
-Um Aplicar que morre ou é recusado depois de já ter anulado ou excluído alguém
-deixa trilha: a linha `LOTE_REVISADO_PARCIAL` no Histórico com as matrículas
-por ação, a marca "revisão interrompida" no lote, e a resposta na tela diz de
-quem era cada inscrição anulada — é por ela que se sabe quem reincluir.
-
-**Apagar matriculados** é a vassoura entre semestres: tira do banco uma lista
-antiga inteira, lote a lote. O rito da virada de semestre é importar TODAS as
-listas do semestre novo, revisar lote a lote, e só então apagar os lotes do
-semestre anterior — revisar antes de importar as outras turmas apontaria como
-"não veio" quem só mudou de turma (a tela avisa, mas não bloqueia).
-
----
-
-## Dois níveis de acesso ao painel
-
-Quem entra no painel é **Coordenador geral** ou **Professor**. O nível mora numa
-segunda chave de configuração, `coordenadores_gerais`: todo e-mail de
-`admin_emails` que não estiver nela é Professor. **Campo vazio quer dizer que
-ninguém separou os níveis ainda, e nesse estado todos são coordenadores
-gerais** — é o sistema como ele era antes desta divisão existir, e é por isso que
-implantá-la não muda nada para ninguém até alguém promover ou rebaixar a
-primeira pessoa.
-
-O nível nunca é porta: um e-mail que esteja em `coordenadores_gerais` e não
-esteja em `admin_emails` não vale nada. Quem entra continua sendo decidido só
-pela lista de acesso.
-
-**O que o Professor pode**, e é a maior parte do painel:
-
-- as abas **Painel**, **Geral**, **Projetos**, **Disciplinas** e **Alunos**,
-  inteiras para ler — inclusive a ficha de cada aluno, a lista de inscritos de
-  cada projeto e a de matriculados de cada turma;
-- **exportar**: o Excel e o PDF das janelas de inscritos e de turma, e o
-  **CSV completo da aba Alunos**. O CSV leva nome, CPF, e-mail, telefone e data
-  de nascimento de até cinco mil alunos, e isso é decisão tomada e sabida: os
-  dois níveis resolvem o clique errado, não a cópia. Cada exportação deixa uma
-  linha `EXPORTACAO` no Histórico, com o e-mail de quem a fez;
-- marcar linhas no Geral e ver a contagem — é com ela que ele pede uma anulação
-  a quem coordena.
-
-**O que é da coordenação geral:** remover e editar projeto, anular e promover no
-Geral, criar e editar disciplina, editar a ficha do aluno, incluir aluno,
-importar a lista oficial, revisar e apagar importação, reconciliar, mexer em
-Configurações e mexer na própria lista de acesso.
-
-Na tela isso aparece de dois jeitos, e a regra é uma frase: **o painel esconde
-destino e desabilita ação.** As quatro abas cujo conteúdo não é do Professor —
-Importar lista oficial, Importações, Histórico e Configurações — **somem da
-fita**, porque aba que só sabe recusar é porta pintada na parede. Os botões
-pontuais que vivem dentro das telas que ele usa **ficam na tela,
-desabilitados**, com o rótulo de sempre e uma frase dizendo de quem a ação é
-("Remover projeto é da coordenação geral."): botão que some faz a pessoa
-concluir que o sistema quebrou.
-
-**A tela nunca é a permissão.** Quem recusa é o servidor, em toda requisição, e
-um POST montado à mão no console do navegador recebe a mesma recusa que o botão
-desabilitado não chega a mandar. Há um grupo inteiro de testes que entra por
-esse caminho e não clica em nada.
-
-A gestão fica em **Configurações › Quem tem acesso ao painel**, na mesma tabela
-onde o e-mail entra e sai. Quem é incluído **nasce Professor** — promover é um
-segundo gesto, com confirmação própria, porque padrão que se escolhe com pressa
-não é padrão. **Mudar o nível de alguém encerra a sessão dessa pessoa na hora**,
-como remover: sem isso a tela dela continuaria errada por até oito horas. E a
-lista **nunca fica sem nenhum coordenador geral** — um painel com oito
-professores é tão trancado por fora quanto um painel sem ninguém na lista de
-acesso, e a saída seria a mesma: o editor do Apps Script.
-
----
-
-## Organização
+## O repositório
 
 ```
-apps-script/   a lógica de servidor e o acesso ao banco
-docs/          o site publicado — formulário do aluno e painel de gestão
+apps-script/   o servidor: as rotas, a lógica e o acesso ao banco
+docs/          o que o GitHub Pages publica: o site do aluno e o painel
+guias/         a documentação detalhada
 testes/        a suíte automatizada
 ```
 
-O código é comentado em português, e os comentários explicam **por que** cada
-decisão foi tomada — não o que a linha faz. Quem for mexer aqui depois vai
-querer saber o motivo, não a tradução.
+O código é comentado em português. Os comentários explicam **por que** cada
+decisão foi tomada, e não o que a linha faz. Onde um comentário manda ler o
+README, o texto hoje mora num dos guias.
 
----
-
-## Publicar o servidor
-
-O site e o painel (`docs/`) são publicados pelo GitHub Pages a cada merge na
-`main`. O servidor (`apps-script/`) não: ele vive num projeto do Google Apps
-Script, e só muda quando alguém o publica, à mão, com o
-[clasp](https://github.com/google/clasp). Mesclar o pull request não publica o
-servidor, e publicar o servidor não depende do merge — mas os dois vão no mesmo
-dia (passo 13).
-
-**O desenho.** O servidor só responde JSON: não serve página nenhuma, e quem
-desenha as telas é o site e o painel, no Pages. O que o projeto deixa público
-são o `doGet` e o `doPost`, as funções dos acionadores e as ferramentas de
-editor (entre elas `setup`, `liberarMeuAcesso`, `liberarAcesso`,
-`invalidarSessoes`, os instaladores dos acionadores, os diagnósticos e as
-provas do banco; a lista inteira é a `PUBLICAS` de `testes/portas.js`), e cada
-uma começa por uma guarda: o `doPost` só despacha uma lista fechada de ações,
-as funções dos acionadores só rodam pelo acionador instalado no projeto ou pelo
-editor, e as ferramentas, só pelo editor, com a conta de quem está com o
-projeto aberto. Todo o resto termina em `_`, que é como o Apps Script marca a
-função privada. `testes/portas.js` confere essas listas.
-
-**O que é preciso.** Node 20 e o clasp 3.3.0 pelo `npx`
-(`npx @google/clasp@3.3.0 ...`), sem instalar nada no repositório. A versão é
-fixa porque as conferências dos passos 5 a 8 são as das mensagens dela. Na
-raiz, um `.clasp.json` — fora do git, pelo
-`.gitignore` — com o id do projeto (em Configurações do projeto, no editor):
-
-```
-{ "scriptId": "<id do projeto>", "rootDir": "apps-script" }
-```
-
-O envio leva só os `.gs` de `apps-script/` e o `appsscript.json`: o
-`.claspignore` da raiz deixa o resto de fora (`.js`, `.html` e afins), e
-`testes/portas.js` recusa qualquer outro arquivo ou subpasta ali. É exatamente
-o que o servidor tem de ter — e é por isso que o `npm test` vem antes do envio.
-
-**Antes de enviar, conferir o destino.** O envio substitui o código inteiro do
-projeto, e um envio para o projeto errado "dá certo" sem mudar nada no ar.
-
-1. `npx @google/clasp@3.3.0 show-authorized-user` mostra a conta que vai publicar
-   (`You are logged in as <e-mail>.`), e ela tem de ser a que implanta hoje: a
-   dona de `fazerBackup` e `aquecerWebApp` na tela Acionadores do editor (o
-   relógio, no menu da esquerda). O web app roda como quem implantou
-   (`executeAs: USER_DEPLOYING`, no `appsscript.json`), e quem faz o passo 7
-   implanta: com outra conta, o banco passa a ser lido e gravado com o token
-   dela, o link de entrada por e-mail sai do endereço dela, e as pastas dos
-   banners e dos temporários da importação, que estão no Drive de quem
-   implanta, ficam fora de alcance. Com `Not logged in.`, entre com a conta
-   que implanta: `npx @google/clasp@3.3.0 login --no-localhost` mostra um
-   endereço; abra-o, autorize com essa conta e cole no terminal o endereço em
-   que o navegador parar (a página não carrega, e é assim mesmo). A conta
-   precisa da API do Apps Script ligada, em
-   https://script.google.com/home/usersettings. Se aparecer outra conta,
-   **pare**: com ela, o passo 7 trocaria a conta com que o web app roda. Saia
-   com `npx @google/clasp@3.3.0 logout` e entre com a certa;
-2. `npx @google/clasp@3.3.0 list-deployments` lista a implantação cujo id está em
-   `docs/assets/config.js` (o `endpoint`, entre `/s/` e `/exec`). Se ela não
-   aparecer, **pare**: o `.clasp.json` aponta para outro projeto. A lista traz
-   também a implantação de teste, com `@HEAD`: ela não aparece em Gerenciar
-   implantações, e fica;
-3. no editor, Implantar › Gerenciar implantações mostra a mesma implantação, e
-   a tela Execuções mostra o projeto em uso: `aquecerWebApp` a cada cinco
-   minutos, que é o acionador, e as chamadas do site e do painel, como App da
-   Web — anônimas, com a função, a versão e o status de cada uma (50 por
-   página).
-
-**Antes de enviar, conferir o código.**
-
-4. `npm test` no mesmo checkout que vai ser enviado, com a suíte inteira verde
-   e nada por commitar em `apps-script/` (`git status --short apps-script`
-   vazio): o envio leva o `apps-script/` do commit em que o checkout está, e
-   `git rev-parse --short HEAD` dá o `<sha>` dele, que o passo 7 grava;
-5. compare o que o projeto tem agora com o git. Numa pasta vazia, fora do
-   repositório, um `.clasp.json` com o mesmo `scriptId`:
-
-   ```
-   { "scriptId": "<id do projeto>", "rootDir": ".", "scriptExtensions": [".gs"] }
-   ```
-
-   e ali `npx @google/clasp@3.3.0 pull` baixa, pela API do Apps Script, o
-   código que o projeto tem, com os mesmos nomes do repositório. Compare com o
-   `apps-script/` do commit do último envio: o `<sha>` que o passo 7 gravou na
-   descrição da versão de número mais alto, que
-   `npx @google/clasp@3.3.0 list-versions` mostra (`N - Cesutech vN <sha>`).
-   Vale a versão mais alta, e não a da implantação do `config.js` que a lista
-   do passo 2 mostra (`@N - Cesutech vN <sha>`): depois de uma volta a uma
-   versão anterior, a implantação aponta para trás, e o código do projeto
-   continua o do último envio. A comparação:
-
-   ```
-   git -C <repositório> archive <sha> apps-script | tar -x -C <outra pasta vazia>
-   diff -r -x .clasp.json <outra pasta vazia>/apps-script .
-   ```
-
-   Os `.gs` têm de ser iguais, e o `appsscript.json` só pode diferir pela
-   quebra de linha do fim. Qualquer outra diferença é código mexido direto no
-   editor, que o envio apagaria: **pare**, e leve a mudança para o git antes.
-
-   Esse commit não é, necessariamente, a ponta da `main`: a publicação vem
-   antes do merge (passo 13), e a branch pode ganhar commits depois do envio.
-   As versões até a 21 foram publicadas antes desta regra, sem o `<sha>` na
-   descrição. Uma versão sem o `<sha>` se
-   reconhece pelo código: `npx @google/clasp@3.3.0 pull --versionNumber N`,
-   numa terceira pasta com o mesmo `.clasp.json`, baixa o dela. E se a
-   publicação anterior parou depois do passo 6 e antes do fim do 7, o projeto
-   já tem o código daquele envio, sem versão: compare com o `<sha>` do passo 4
-   daquela vez e, se for igual, retome do passo 7. Sem commit com o mesmo
-   `apps-script/`, **pare**.
-
-**Publicar.**
-
-6. `npx @google/clasp@3.3.0 push --force` envia o código. O `--force` só depois do
-   passo 5, e é ele que faz o envio acontecer: o clasp 3.3.0 vê o manifesto do
-   projeto diferente do local (a quebra de linha do fim), pergunta se pode
-   sobrescrevê-lo e, sem o `--force` — com Enter, ou fora de um terminal
-   interativo —, não envia nada e sai sem erro. Confira a saída:
-   `Pushed 22 files` e a lista, só com `apps-script/*.gs` e
-   `apps-script/appsscript.json` (hoje, os 21 `.gs` e o manifesto). Se aparecer
-   `Skipping push.`, **pare**: nada foi enviado, e uma Nova versão agora
-   publicaria o código antigo;
-7. a Nova versão, na implantação do `config.js`, com a descrição
-   `Cesutech vN <sha>`: N é o número da versão nova, e o `<sha>`, o do passo
-   4 — é por ele que a próxima publicação sabe com que commit comparar (passo
-   5). Por um dos dois caminhos, e a URL não muda em nenhum deles:
-   - no editor, aberto com a conta do passo 1: Implantar › Gerenciar
-     implantações › a implantação do `config.js` › editar (o lápis) › Versão:
-     **Nova versão**, Descrição: `Cesutech vN <sha>` › Implantar;
-   - pelo clasp: `npx @google/clasp@3.3.0 create-version "Cesutech vN <sha>"`, que
-     responde `Created version N`, e depois
-     `npx @google/clasp@3.3.0 update-deployment <id da implantação do config.js> -V N -d "Cesutech vN <sha>"`.
-
-   **Nunca** use Implantar › Nova implantação, nem o `create-deployment` do
-   clasp: a implantação nova ganha outra URL, e a antiga continua servindo a
-   versão anterior;
-8. `npx @google/clasp@3.3.0 list-deployments` mostra a implantação do `config.js`
-   com `@N - Cesutech vN <sha>`;
-9. ainda em Gerenciar implantações, **arquive todas as outras** implantações,
-   de qualquer tipo. Uma implantação presa a uma versão antiga responde com o
-   código daquela versão até ser arquivada.
-
-Os acionadores — backup, aquecimento e reconciliação — rodam na implantação de
-teste, que é o código do último envio, e não numa versão: do passo 6 em diante
-eles já rodam o código novo, e o site e o painel, só a partir do passo 7. Por
-isso o passo 7 vem logo depois do 6.
-
-**Depois, numa janela anônima.**
-
-10. o endereço `/exec` sem parâmetros responde só um JSON com os endereços do
-    site e do painel;
-11. o site: os cartões dos projetos aparecem e a conferência de matrícula
-    responde — sem enviar inscrição de verdade;
-12. o painel: entrar, abrir cada aba e esperar cada uma carregar. No editor, em
-    Execuções, as chamadas de App da Web destes passos aparecem com a versão
-    nova.
-
-**No mesmo dia, mesclar o pull request.**
-
-13. o site e o painel no ar são os da `main`: até o merge, o painel é o antigo,
-    falando com o servidor novo, e o que ele diz sobre o servidor pode não
-    valer mais. Mescle com **merge commit** (Create a merge commit), e não por
-    squash nem por rebase: os dois trocam o commit por outro, e o `<sha>` que
-    o passo 7 gravou sumiria da `main`, que é onde a próxima publicação o
-    procura (passo 5). Depois do merge, espere o GitHub Pages publicar e
-    repita os passos 11 e 12.
-
-**Se algo quebrar,** corrija para a frente, num commit novo, e publique de novo.
-O erro das rotas do site e do login, e o que escapar de uma função do painel,
-fica no Histórico do painel como `ERRO_INTERNO`, com o nome da rota no começo
-do detalhe; o erro que uma função do painel trata aparece na própria tela.
-Voltar a implantação para uma versão anterior só com o OK explícito de quem
-responde pelo sistema, e pelo menor tempo possível: as versões até a 20 são
-anteriores ao desenho descrito no começo desta seção.
-
----
-
-## Rodando os testes
+## Testes
 
 ```
 npm test
 ```
 
-Mais de mil testes, e nenhum precisa de rede, credencial ou conta Google: eles
-carregam o código num ambiente isolado, com um banco falso em memória. Rodam em
-alguns segundos.
+São mais de dois mil testes, e nenhum precisa de rede, credencial ou conta
+Google. Eles carregam o servidor num ambiente isolado, com um banco falso em
+memória, e o painel num navegador falso. Um arquivo é dedicado a atacar o próprio
+sistema, e outro confere por árvore sintática que a superfície pública continua
+fechada.
 
-Há um arquivo dedicado a atacar o próprio sistema — ele exercita as recusas do
-controle de acesso, os limites das rotas públicas e as formas de alguém se
-trancar do lado de fora. Testar que algo funciona é metade do trabalho; a outra
-metade é testar que ele recusa.
-
----
+O CI roda a suíte em todo pull request, e a `main` só aceita merge com ela verde.
 
 ## Licença
 
