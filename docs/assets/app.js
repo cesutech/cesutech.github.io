@@ -1171,7 +1171,7 @@
     // Um a mais que a matrícula tem, e não o tamanho exato: a secretaria escreve
     // com zero à esquerda (09110001) e é assim que ela aparece em documento —
     // o aluno que copia dali não pode ser cortado no último dígito. O servidor
-    // tira o zero (`normalizarMatricula`, 04_Inscricoes.gs). Sem o número, nada é
+    // tira o zero (`normalizarMatricula_`, 04_Inscricoes.gs). Sem o número, nada é
     // posto: o HTML não declara `maxlength`, e é isso que "sem configuração" quer
     // dizer — ver `ESTADO.matriculaDigitos`.
     if (ESTADO.matriculaDigitos) matricula.setAttribute('maxlength', String(ESTADO.matriculaDigitos + 1));
@@ -1450,12 +1450,12 @@
   // Espelha 04_Inscricoes.gs. O servidor revalida tudo — isto é conveniência
   // para o aluno, não segurança.
 
-  /** algo@algo.algo — a mesma régua mínima de `emailValido` (01_Utils.gs). */
+  /** algo@algo.algo — a mesma régua mínima de `emailValido_` (01_Utils.gs). */
   function emailServe(v) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
   }
 
-  /** DDD + número: 10 ou 11 dígitos, como `validarInscricao` exige. */
+  /** DDD + número: 10 ou 11 dígitos, como `validarInscricao_` exige. */
   function whatsappServe(soDigitos) {
     return soDigitos.length >= 10 && soDigitos.length <= 11;
   }
@@ -1545,7 +1545,7 @@
     // própria — inclusive `autoriza_imagem: false`, que é uma resposta legítima
     // e não um campo faltando. Ver o comentário das caixas em index.html: manter
     // cada aceite como escolha separada foi decisão deliberada de 06/08/2026.
-    // Quem exige o quê está em `validarInscricao` (04_Inscricoes.gs): ciência e
+    // Quem exige o quê está em `validarInscricao_` (04_Inscricoes.gs): ciência e
     // LGPD são obrigatórios, imagem não.
     var dados = {
       acao: 'inscricao',

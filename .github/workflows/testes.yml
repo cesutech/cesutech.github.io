@@ -1,0 +1,54 @@
+# Roda a suíte inteira a cada push na main e a cada pull request.
+#
+# Existe porque a regra deste repositório — todo comportamento novo com um teste
+# que uma mutação derruba — só protege alguma coisa se os testes rodarem antes
+# do merge, e "antes do merge" não pode depender de alguém lembrar. É aqui que
+# o teste das portas (testes/portas.js) segura a superfície pública do servidor
+# a cada mudança.
+#
+# Rodar não basta: o merge só espera por este job se o check `testes` for
+# EXIGIDO na proteção da `main` (Settings › Branches › main › Require status
+# checks to pass before merging, com "Require branches to be up to date"). O
+# GitHub só oferece para escolha um check que já rodou — por isso ele é marcado
+# depois da primeira rodada num pull request. Sem isso, um PR com este job
+# vermelho ainda pode ser mesclado, e o publicar-site.yml publica docs/ do
+# mesmo jeito.
+#
+# Nada para instalar: a suíte é Node puro, sem dependência nenhuma (o teste das
+# portas lê os .gs com o acorn que já vem dentro do Node). E nada de segredo: o
+# job só lê o código.
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    name: testes
+    runs-on: ubuntu-latest
+    # A suíte inteira roda em ~10 s. Um teste que travasse prenderia o runner
+    # até o teto do GitHub (6 h); dez minutos é folga de sobra e acaba antes.
+    timeout-minutes: 10
+    steps:
+      # As v5 rodam no Node 24, que é o que os runners oferecem às ações desde
+      # que o Node 20 saiu deles; as v4 ainda rodavam, forçadas, com aviso.
+      - uses: actions/checkout@v5
+        with:
+          # O token do checkout não fica gravado no repositório clonado: nenhum
+          # passo daqui fala com o GitHub depois de baixar o código.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          # É a versão em que a suíte foi rodada (inclusive o acorn interno que
+          # testes/portas.js usa, via --expose-internals). O Node 20 já saiu do
+          # suporte: subir para 22 ou 24 é trocar este número depois de rodar a
+          # suíte inteira na versão nova.
+          node-version: 20
+
+      - run: npm test

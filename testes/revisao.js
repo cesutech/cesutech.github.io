@@ -6,7 +6,7 @@
  *   1. A RÉGUA DO CARIMBO. Candidato é quem tem a turma do lote E `lote_id`
  *      ANTERIOR ao lote — nunca `lote_id !=`. O mesmo arquivo importado duas
  *      vezes e a reimportação que veio depois não inventam candidato.
- *   2. LEITURA PURA. `revisarLote` não escreve nada, nem a turma que deduz de
+ *   2. LEITURA PURA. `revisarLote_` não escreve nada, nem a turma que deduz de
  *      um lote antigo — ela está em SO_LEITURA e é repetida pelo painel.
  *   3. A ORDEM DO APLICAR. Anular primeiro (o passo com quarentena); a
  *      releitura pula quem voltou; os tetos recusam antes de qualquer leitura;
@@ -23,8 +23,8 @@
  *      ramo; e o Aplicar que morre depois de já ter escrito deixa a trilha
  *      parcial: quem perdeu a inscrição, nominalmente.
  *
- * As listas entram pelo caminho REAL da importação (`analisarArquivo` +
- * `confirmarImportacao`, CSV no formato do sistema acadêmico), com o relógio
+ * As listas entram pelo caminho REAL da importação (`analisarArquivo_` +
+ * `confirmarImportacao_`, CSV no formato do sistema acadêmico), com o relógio
  * sob controle — dois lotes no mesmo milissegundo teriam o mesmo carimbo, e a
  * régua deixaria de distinguir "antes" de "depois". O Drive fica de fora: o
  * temporário entre os dois passos vive num Map aqui, porque o que se prova não
@@ -136,7 +136,7 @@ function importar(amb, cabecalho, linhas, opcoes) {
   opcoes = opcoes || {};
   amb.relogio.avancar(60 * 1000);
   const texto = csvAcademico(cabecalho, linhas);
-  const analise = amb.api.analisarArquivo({
+  const analise = amb.api.analisarArquivo_({
     token: amb.token, filename: opcoes.nome || 'lista.csv', mimeType: 'text/csv',
     dataBase64: Buffer.from(texto, 'utf8').toString('base64')
   });
@@ -146,7 +146,7 @@ function importar(amb, cabecalho, linhas, opcoes) {
     mapeamento: analise.mapeamento
   };
   if (opcoes.turmaCabecalho !== undefined) payload.turmaCabecalho = opcoes.turmaCabecalho;
-  const r = amb.api.confirmarImportacao(payload);
+  const r = amb.api.confirmarImportacao_(payload);
   if (!r.ok) throw new Error('importação recusou: ' + r.erro);
   return { loteId: r.loteId, resposta: r, analise: analise };
 }
@@ -173,14 +173,14 @@ function turma(n, chave, base) {
 
 /** Um projeto e uma inscrição pela porta pública de verdade. */
 function projeto(amb, id, nome) {
-  amb.api.inserir('projetos', {
+  amb.api.inserir_('projetos', {
     nome: nome || 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM',
     ordem: '1', validar_matricula: 'NAO'
   }, id);
 }
 
 function inscrever(amb, matricula, nome, projetoId, extras) {
-  return amb.api.gravarInscricao(Object.assign({
+  return amb.api.gravarInscricao_(Object.assign({
     matricula: matricula, nome: nome, email: (nome.split(' ')[0].toLowerCase()) + '@exemplo.com',
     projeto_id: projetoId, projeto_nome: 'Robótica', origem: 'SITE', curso_fase: 'ADS - 4'
   }, extras || {})).id;
@@ -269,7 +269,8 @@ teste('as duas estão na lista branca, e sem token nenhuma toca no banco', () =>
   amb.zerar();
   [undefined, '', 'token-inventado', null].forEach((token) => {
     ['revisarLote', 'aplicarRevisao'].forEach((nome) => {
-      const r = amb.api[nome]({ token: token, loteId: 'x', turma: 'ADS41', decisoes: [{ matricula: '9110001', acao: 'CANCELAR' }] });
+      // `lista[nome]`: a função que a lista branca guarda para o nome do fio.
+      const r = lista[nome]({ token: token, loteId: 'x', turma: 'ADS41', decisoes: [{ matricula: '9110001', acao: 'CANCELAR' }] });
       igual(r.ok, false, nome + ' respondeu ok com o token ' + JSON.stringify(token));
       verdadeiro(/Sess.o expirada/.test(r.erro), nome + ': ' + r.erro);
     });
@@ -295,11 +296,16 @@ teste('os tetos repetidos de 12_Disciplinas.gs são iguais, e a coleção de exc
   verdadeiro(/MATRICULADOS_EXCLUIDOS_COLECAO/.test(FONTE), '05c não escreve na coleção de excluídos');
 });
 
-teste('só as duas públicas nascem sem sufixo — o resto do arquivo é interno', () => {
-  const publicas = (FONTE.match(/^function ([a-zA-Z][\w$]*)\(/gm) || [])
-    .map((l) => l.replace(/^function /, '').replace(/\($/, ''))
-    .filter((n) => n.slice(-1) !== '_');
-  igual(publicas.sort(), ['aplicarRevisao', 'revisarLote']);
+teste('só as duas da lista branca saem deste arquivo — o resto é interno', () => {
+  // Desde 16/11/2026 toda função do servidor termina em `_` (ver testes/portas.js),
+  // e o que separa as duas do painel das internas é a lista branca: são as únicas
+  // daqui que ela alcança.
+  const declaradas = (FONTE.match(/^function ([a-zA-Z][\w$]*)\(/gm) || [])
+    .map((l) => l.replace(/^function /, '').replace(/\($/, ''));
+  const naLista = Object.values(ambiente().api.funcoesDoPainel_()).map((f) => f.name);
+
+  igual(declaradas.filter((n) => naLista.indexOf(n) !== -1).sort(), ['aplicarRevisao_', 'revisarLote_']);
+  igual(declaradas.filter((n) => n.slice(-1) !== '_'), [], 'nasceu função pública neste arquivo');
 });
 
 // -------------------------------------------------------- Quem é candidato
@@ -314,7 +320,7 @@ teste('quem estava como ADS41 e não veio no arquivo de ADS41 é candidato; quem
   const { l1 } = cenario(amb);
   amb.zerar();
 
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.ok, true, r.erro);
   igual(r.turma, 'ADS41');
   igual(r.semestre, '2026/2');
@@ -347,7 +353,7 @@ teste('a lista ANTERIOR desta mesma turma, no mesmo semestre, é exatamente de o
   // em TODA reimportação dentro do semestre, e a revisão nunca acharia ninguém.
   const amb = ambiente();
   const { l1 } = cenario(amb);
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.candidatos, 1, 'a Beatriz virou informação em vez de candidata');
   igual(r.outraListaDoSemestre.map((i) => i.matricula), ['9110009'],
     'o Xavier (ADS41 na linha, veio na lista de ADS31 do mesmo semestre) é informação');
@@ -364,7 +370,7 @@ teste('quem veio de lista de OUTRO semestre (ou sem semestre) é candidato, com 
   importar(amb, ADS31_2026_1, [CARLOS_DE_ADS31, XAVIER_DE_ADS41], { nome: 'ads31-semestre-passado.csv' });
   const l1 = importar(amb, ADS41_2026_2, [ANA, DUDA], { nome: 'ads41-segunda.csv' }).loteId;
 
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.candidatos, 2, 'Beatriz (mesma turma) e Xavier (semestre passado)');
   igual(r.outraListaDoSemestre, []);
   const aviso = r.avisos.filter((a) => /outro semestre/.test(a))[0];
@@ -380,7 +386,7 @@ teste('régua do carimbo: quem foi reimportado DEPOIS não é candidato deste lo
   const { l1 } = cenario(amb);
   importar(amb, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' });
 
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.candidatos, 0);
   igual(r.emLoteMaisNovo, 3, 'Ana, Beatriz e Duda vieram na terça');
   verdadeiro(r.avisos.some((a) => /importação mais nova/.test(a) && /ADS41/.test(a)), r.avisos.join(' | '));
@@ -391,8 +397,8 @@ teste('o mesmo arquivo importado duas vezes dá os MESMOS candidatos nos dois lo
   const { l1 } = cenario(amb);
   const l1b = importar(amb, ADS41_2026_2, [ANA, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-segunda.csv' }).loteId;
 
-  const a = chamar(amb, 'revisarLote', { loteId: l1 });
-  const b = chamar(amb, 'revisarLote', { loteId: l1b });
+  const a = chamar(amb, 'revisarLote_', { loteId: l1 });
+  const b = chamar(amb, 'revisarLote_', { loteId: l1b });
   igual(b.candidatos, 1);
   igual(b.semProjeto.map((i) => i.matricula), ['9110002']);
   // No lote de segunda, quem veio de novo na segunda importação é "mais novo";
@@ -407,12 +413,12 @@ teste('já cancelados ficam fora dos candidatos, listados à parte e com as insc
   projeto(amb, 'p1');
   const inscricao = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
   // A marca como o Aplicar a grava.
-  amb.api.atualizarEmLote('matriculados', [{
+  amb.api.atualizarEmLote_('matriculados', [{
     _id: '9110002', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-20 10:00:00',
     cancelado_por: PROF, cancelado_lote_id: l1
   }]);
 
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.candidatos, 0);
   igual(r.jaCancelados.length, 1);
   igual(r.jaCancelados[0].matricula, '9110002');
@@ -430,7 +436,7 @@ teste('contarApenas não varre inscrições, e sem candidato nenhum não lê lot
   inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
 
   amb.zerar();
-  const com = chamar(amb, 'revisarLote', { loteId: l1, contarApenas: true });
+  const com = chamar(amb, 'revisarLote_', { loteId: l1, contarApenas: true });
   igual(com.candidatos, 1);
   igual(com.semProjeto, undefined, 'contarApenas não lista');
   igual(consultaPor(amb.falso, 'turma').length, 1);
@@ -446,7 +452,7 @@ teste('contarApenas não varre inscrições, e sem candidato nenhum não lê lot
   importar(outro, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' });
   const l2 = importar(outro, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-quarta.csv' }).loteId;
   outro.zerar();
-  const zero = chamar(outro, 'revisarLote', { loteId: l2, contarApenas: true });
+  const zero = chamar(outro, 'revisarLote_', { loteId: l2, contarApenas: true });
   igual(zero.candidatos, 0);
   igual(zero.vieram, 3);
   igual(outro.falso.requisicoes.filter(CONSULTA).length, 1, 'só a turma foi lida');
@@ -457,7 +463,7 @@ teste('"sumiram mais do que vieram" liga com 25 contra 5 e não com 3 contra 27'
   const trinta = turma(30, 'ADS41');
   importar(amb, ADS41_2026_2, trinta, { nome: 'ads41-sexta.csv' });
   const poucos = importar(amb, ADS41_2026_2, trinta.slice(0, 5), { nome: 'ads41-errada.csv' }).loteId;
-  const r = chamar(amb, 'revisarLote', { loteId: poucos, contarApenas: true });
+  const r = chamar(amb, 'revisarLote_', { loteId: poucos, contarApenas: true });
   igual(r.candidatos, 25);
   igual(r.vieram, 5);
   igual(r.sumiramMaisQueVieram, true);
@@ -466,7 +472,7 @@ teste('"sumiram mais do que vieram" liga com 25 contra 5 e não com 3 contra 27'
   const outro = ambiente();
   importar(outro, ADS41_2026_2, trinta, { nome: 'ads41-sexta.csv' });
   const quase = importar(outro, ADS41_2026_2, trinta.slice(3), { nome: 'ads41-segunda.csv' }).loteId;
-  const s = chamar(outro, 'revisarLote', { loteId: quase, contarApenas: true });
+  const s = chamar(outro, 'revisarLote_', { loteId: quase, contarApenas: true });
   igual(s.candidatos, 3);
   igual(s.vieram, 27);
   igual(s.sumiramMaisQueVieram, false);
@@ -480,7 +486,7 @@ teste('com projeto: a lista B traz cada inscrição com id, projeto e fila — a
   const i1 = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
   const i2 = inscrever(amb, '09110002', 'Beatriz Exemplo Martins', 'p2', { projeto_nome: 'Horta', em_espera: 'SIM' });
 
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.semProjeto, []);
   igual(r.comProjeto.length, 1);
   igual(r.comProjeto[0].inscricoes.map((i) => i.id).sort(), [i1, i2].sort(),
@@ -498,12 +504,12 @@ grupo('revisarLote — lote anterior ao cabeçalho: a turma vem das linhas, e NA
 
 /** Um lote como os de antes de 21/09: sem campo de cabeçalho nenhum. */
 function loteAntigo(amb, id, linhas) {
-  amb.api.inserir('lotes', {
+  amb.api.inserir_('lotes', {
     criado_em: id.split('_')[0], arquivo: 'antigo.pdf', tipo: 'PDF', linhas: String(linhas.length),
     previstas: String(linhas.length), importado_em: '2026-08-01 09:00:00', importado_por: PROF,
     mapeamento_json: '{}', substituir_pedido: 'NAO', status: 'ATUALIZOU'
   }, id);
-  amb.api.escreverEmLote('matriculados', linhas.map((l) => Object.assign({
+  amb.api.escreverEmLote_('matriculados', linhas.map((l) => Object.assign({
     _id: l.matricula, lote_id: id, importado_em: '2026-08-01 09:00:00', importado_por: PROF,
     nome: 'Aluno ' + l.matricula, cpf: '', email: '', telefone: '', data_nascimento: '',
     curso: 'ADS', situacao: '', raw_json: '[]', matricula_oficial: ''
@@ -528,7 +534,7 @@ teste('sem cabeçalho, a turma é a maioria das linhas que sobraram — origem L
   ]);
 
   amb.zerar();
-  const r = chamar(amb, 'revisarLote', { loteId: velho });
+  const r = chamar(amb, 'revisarLote_', { loteId: velho });
   igual(r.ok, true, r.erro);
   igual(r.turma, 'ADS41');
   igual(r.origemTurma, 'LINHAS');
@@ -548,7 +554,7 @@ teste('maioria fraca pede a turma (com sugestão); zero sobras diz que o lote fo
     { matricula: '9140001', turma: 'ADS41' }, { matricula: '9140002', turma: 'ADS41' },
     { matricula: '9140003', turma: 'ADS31' }
   ]);
-  const r = chamar(amb, 'revisarLote', { loteId: fraco });
+  const r = chamar(amb, 'revisarLote_', { loteId: fraco });
   igual(r.ok, false);
   igual(r.precisaTurma, true);
   igual(r.sugestao, 'ADS41', 'a sugestão é o palpite, nunca a chave');
@@ -556,11 +562,11 @@ teste('maioria fraca pede a turma (com sugestão); zero sobras diz que o lote fo
 
   const vazio = '20260801T120000000Z_cccccc';
   loteAntigo(amb, vazio, []);
-  const v = chamar(amb, 'revisarLote', { loteId: vazio });
+  const v = chamar(amb, 'revisarLote_', { loteId: vazio });
   igual(v.precisaTurma, true);
   verdadeiro(/reescritos por importações mais novas/.test(v.motivo), v.motivo);
 
-  const i = chamar(amb, 'revisarLote', { loteId: fraco, turma: ' ads 41 ' });
+  const i = chamar(amb, 'revisarLote_', { loteId: fraco, turma: ' ads 41 ' });
   igual(i.ok, true, i.erro);
   igual(i.turma, 'ADS41');
   igual(i.origemTurma, 'INFORMADA');
@@ -571,9 +577,9 @@ teste('maioria fraca pede a turma (com sugestão); zero sobras diz que o lote fo
 teste('turma informada igual à do lote não vira INFORMADA — o Consultar sem mexer continua sendo do arquivo', () => {
   const amb = ambiente();
   const { l1 } = cenario(amb);
-  const r = chamar(amb, 'revisarLote', { loteId: l1, turma: 'ADS41' });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1, turma: 'ADS41' });
   igual(r.origemTurma, 'CABECALHO');
-  const outra = chamar(amb, 'revisarLote', { loteId: l1, turma: 'ADS31' });
+  const outra = chamar(amb, 'revisarLote_', { loteId: l1, turma: 'ADS31' });
   igual(outra.origemTurma, 'INFORMADA');
   igual(outra.turma, 'ADS31');
 });
@@ -586,26 +592,26 @@ teste('lote inexistente, PARCIAL, EXPURGADO e cabeçalho sem linha recusam com f
   const amb = ambiente();
   const { l1 } = cenario(amb);
 
-  const nada = chamar(amb, 'revisarLote', { loteId: 'nao-existe' });
+  const nada = chamar(amb, 'revisarLote_', { loteId: 'nao-existe' });
   verdadeiro(/não encontrada/.test(nada.erro), nada.erro);
-  igual(chamar(amb, 'revisarLote', { loteId: '' }).ok, false);
+  igual(chamar(amb, 'revisarLote_', { loteId: '' }).ok, false);
 
-  amb.api.atualizar('lotes', l1, { status: 'PARCIAL', linhas: '1', previstas: '3' });
-  const parcial = chamar(amb, 'revisarLote', { loteId: l1 });
+  amb.api.atualizar_('lotes', l1, { status: 'PARCIAL', linhas: '1', previstas: '3' });
+  const parcial = chamar(amb, 'revisarLote_', { loteId: l1 });
   verdadeiro(/parou no meio \(1 de 3 gravados\)/.test(parcial.erro), parcial.erro);
-  igual(chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] }).erro,
+  igual(chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] }).erro,
     parcial.erro, 'as duas recusam a mesma coisa com a mesma frase');
 
-  amb.api.atualizar('lotes', l1, { status: 'EXPURGADO' });
-  verdadeiro(/já foi apagada/.test(chamar(amb, 'revisarLote', { loteId: l1 }).erro));
+  amb.api.atualizar_('lotes', l1, { status: 'EXPURGADO' });
+  verdadeiro(/já foi apagada/.test(chamar(amb, 'revisarLote_', { loteId: l1 }).erro));
 
-  amb.api.atualizar('lotes', l1, { status: 'ATUALIZOU', linhas_da_turma: '0' });
-  const semLinha = chamar(amb, 'revisarLote', { loteId: l1 });
+  amb.api.atualizar_('lotes', l1, { status: 'ATUALIZOU', linhas_da_turma: '0' });
+  const semLinha = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(semLinha.ok, false);
   igual(semLinha.precisaTurma, true);
   verdadeiro(/cabeçalho do arquivo diz ADS41, mas nenhuma linha gravada é ADS41/.test(semLinha.motivo), semLinha.motivo);
   // Informar a turma passa por cima da recusa.
-  igual(chamar(amb, 'revisarLote', { loteId: l1, turma: 'ADS41' }).ok, true);
+  igual(chamar(amb, 'revisarLote_', { loteId: l1, turma: 'ADS41' }).ok, true);
 });
 
 teste('mais de 100 candidatos é sobra de semestre: recusa SEM ler lotes nem inscrições', () => {
@@ -617,7 +623,7 @@ teste('mais de 100 candidatos é sobra de semestre: recusa SEM ler lotes nem ins
   const novo = importar(amb, ADS41_2026_2, [ANA, BEATRIZ], { nome: 'ads41-nova.csv' }).loteId;
 
   amb.zerar();
-  const r = chamar(amb, 'revisarLote', { loteId: novo });
+  const r = chamar(amb, 'revisarLote_', { loteId: novo });
   igual(r.ok, false);
   igual(r.candidatos, 101);
   verdadeiro(/Apagar matriculados/.test(r.erro), r.erro);
@@ -629,16 +635,16 @@ teste('mais de 100 candidatos é sobra de semestre: recusa SEM ler lotes nem ins
 grupo('aplicarRevisao — CANCELAR grava a marca, EXCLUIR move, e a inscrição é anulada primeiro');
 
 teste('CANCELAR: exatamente quatro campos mudam, num commit com máscara; a matrícula some do formulário', () => {
-  // Mutação que derruba: gravar por `escreverEmLote` (substituição inteira) —
-  // nome, cpf e raw_json sumiriam; ou por `atualizar` um a um — N PATCHes.
+  // Mutação que derruba: gravar por `escreverEmLote_` (substituição inteira) —
+  // nome, cpf e raw_json sumiriam; ou por `atualizar_` um a um — N PATCHes.
   const amb = ambiente();
   const { l1 } = cenario(amb);
   const antes = documento(amb.falso, 'matriculados', '9110002');
-  const versaoAntes = amb.api.ler('matriculados', '9110002')._versao;
-  igual(amb.api.matriculaConhecida('09110002'), true);
+  const versaoAntes = amb.api.ler_('matriculados', '9110002')._versao;
+  igual(amb.api.matriculaConhecida_('09110002'), true);
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '09110002', acao: 'CANCELAR' }]
   });
   igual(r.ok, true, r.erro);
@@ -665,9 +671,9 @@ teste('CANCELAR: exatamente quatro campos mudam, num commit com máscara; a matr
   // e não `exists:true` — é o que faz o patch recusar um documento reescrito
   // no meio do Aplicar (teste da corrida, abaixo).
   igual(commits[0].corpo.writes[0].currentDocument, { updateTime: versaoAntes });
-  verdadeiro(amb.api.ler('matriculados', '9110002')._versao !== versaoAntes, 'o patch não trocou a versão do documento');
+  verdadeiro(amb.api.ler_('matriculados', '9110002')._versao !== versaoAntes, 'o patch não trocou a versão do documento');
 
-  igual(amb.api.matriculaConhecida('09110002'), false, 'cancelado é "não encontrada" para o formulário');
+  igual(amb.api.matriculaConhecida_('09110002'), false, 'cancelado é "não encontrada" para o formulário');
 });
 
 teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pessoa NÃO é cancelada', () => {
@@ -692,7 +698,7 @@ teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pes
     return v;
   };
 
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
   });
   amb.api.varrerInscricoes_ = varredura;
@@ -706,7 +712,7 @@ teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pes
   const doc = documento(amb.falso, 'matriculados', '9110002');
   igual(doc.lote_id, loteNovo, 'o documento é o da reimportação');
   igual(doc.situacao_cadastro, undefined, 'a marca foi gravada por cima do documento novo');
-  igual(amb.api.matriculaConhecida('9110002'), true, 'quem está na lista mais nova saiu do formulário');
+  igual(amb.api.matriculaConhecida_('9110002'), true, 'quem está na lista mais nova saiu do formulário');
   igual(documento(amb.falso, 'inscricoes', inscricao), null);
   igual(registrosDoLog(amb.falso, 'LOTE_REVISADO').length, 0, 'um Aplicar recusado não é revisão');
   igual(registrosDoLog(amb.falso, 'LOTE_REVISADO_PARCIAL').length, 1, 'mas a anulação que entrou deixa a trilha parcial');
@@ -721,7 +727,7 @@ teste('corrida DENTRO do Aplicar: reimportada entre a releitura e o patch, a pes
     importar(outro, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
     return v;
   };
-  const e = chamar(outro, 'aplicarRevisao', {
+  const e = chamar(outro, 'aplicarRevisao_', {
     loteId: c2.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }]
   });
   outro.api.varrerInscricoes_ = varredura2;
@@ -741,13 +747,13 @@ teste('CANCELAR repetido é idempotente: já cancelado, zero commits, e nada no 
   const amb = ambiente();
   const { l1 } = cenario(amb);
   const decisoes = [{ matricula: '9110002', acao: 'CANCELAR' }];
-  chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: decisoes });
+  chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: decisoes });
   const carimbo = documento(amb.falso, 'matriculados', '9110002').cancelado_em;
   const linhas = registrosDoLog(amb.falso, 'LOTE_REVISADO').length;
 
   amb.relogio.avancar(60 * 1000);
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: decisoes });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: decisoes });
   igual(r.ok, true);
   igual(r.cancelados, 0);
   igual(r.jaCancelados, 1);
@@ -764,7 +770,7 @@ teste('EXCLUIR: a cópia com o mesmo id existe ANTES do apagar, com excluido_*; 
   const original = documento(amb.falso, 'matriculados', '9110002');
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }]
   });
   igual(r.ok, true, r.erro);
@@ -783,7 +789,7 @@ teste('EXCLUIR: a cópia com o mesmo id existe ANTES do apagar, com excluido_*; 
   const commits = amb.falso.requisicoes.filter(COMMIT).map(colecaoDoCommit);
   verdadeiro(commits.indexOf('matriculados_excluidos') < commits.indexOf('matriculados'),
     'a ordem tem de ser copia-depois-apaga: ' + commits.join(' > '));
-  igual(amb.api.matriculaConhecida('9110002'), false);
+  igual(amb.api.matriculaConhecida_('9110002'), false);
 });
 
 teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só quando ficou sem origem', () => {
@@ -808,25 +814,25 @@ teste('EXCLUIR apaga a ficha órfã em alunos — achada por matricula_id, e só
   ], { nome: 'ads41-segunda.csv' }).loteId;
   projeto(amb, 'p1');
   const daBeatriz = inscrever(amb, '9110002', 'Beatriz Exemplo', 'p1');
-  const daClara = amb.api.gravarInscricao({
+  const daClara = amb.api.gravarInscricao_({
     matricula: '', nome: 'Clara Exemplo', email: 'clara@exemplo.com', projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
   }).id;
   const daFlavia = inscrever(amb, '9110006', 'Flavia Exemplo', 'p1');
   // O e-mail da Clara na lista oficial é o que faz a cascata casá-la.
-  amb.api.atualizar('matriculados', '9110003', { email: 'clara@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.atualizar_('matriculados', '9110003', { email: 'clara@exemplo.com' });
+  amb.api.reconciliar_();
   // A da Flávia foi anulada pelo Auditório DEPOIS da rodada: a ficha ainda a aponta.
-  igual(amb.api.anularInscricoes({ token: amb.token, ids: [daFlavia] }).anuladas, 1);
+  igual(amb.api.anularInscricoes_({ token: amb.token, ids: [daFlavia] }).anuladas, 1);
 
   igual(idsDe(amb.falso, 'alunos').length, 6, 'uma ficha por matriculada; a Clara casou pelo e-mail');
-  const fichaDe = (m) => amb.api.listar('alunos', { campo: 'matricula_id', valor: m }).itens[0];
+  const fichaDe = (m) => amb.api.listar_('alunos', { campo: 'matricula_id', valor: m }).itens[0];
   igual(fichaDe('9110002').inscricao_id, daBeatriz);
   igual(fichaDe('9110003').inscricao_id, daClara, 'a Clara casou pelo e-mail');
   igual(fichaDe('9110006').inscricao_id, daFlavia, 'a ficha da Flávia ainda aponta a inscrição anulada');
   verdadeiro(fichaDe('9110003')._id !== amb.api.chaveAluno_('mat:9110003'),
     'a ficha de quem casou por e-mail não mora no endereço derivado da matrícula');
 
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [
       { matricula: '9110001', acao: 'EXCLUIR' }, { matricula: '9110002', acao: 'EXCLUIR' },
@@ -853,22 +859,22 @@ teste('inscrição casada por e-mail (sem matrícula) NÃO é anulada: é "poss�
   // não saberia que existe uma inscrição a conferir no Geral.
   const amb = ambiente();
   const { l1 } = cenario(amb);
-  amb.api.atualizar('matriculados', '9110002', { email: 'beatriz@exemplo.com' });
+  amb.api.atualizar_('matriculados', '9110002', { email: 'beatriz@exemplo.com' });
   projeto(amb, 'p1', 'Robótica');
   projeto(amb, 'p2', 'Horta');
-  const semMatricula = amb.api.gravarInscricao({
+  const semMatricula = amb.api.gravarInscricao_({
     matricula: '', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
   }).id;
-  const segunda = amb.api.gravarInscricao({
+  const segunda = amb.api.gravarInscricao_({
     matricula: '', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
     projeto_id: 'p2', projeto_nome: 'Horta', origem: 'SITE'
   }).id;
-  amb.api.reconciliar();
-  igual(amb.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0].metodo_match, 'E-mail');
+  amb.api.reconciliar_();
+  igual(amb.api.listar_('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0].metodo_match, 'E-mail');
 
   amb.zerar();
-  const r = chamar(amb, 'revisarLote', { loteId: l1 });
+  const r = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(r.comProjeto, [], 'sem inscrição COM a matrícula, ninguém é "com projeto"');
   igual(r.semProjeto.map((i) => i.matricula), ['9110002']);
   igual(r.semProjeto[0].inscricoes, [], 'nada a anular');
@@ -884,7 +890,7 @@ teste('inscrição casada por e-mail (sem matrícula) NÃO é anulada: é "poss�
 
   igual(amb.api.contarInscritos_('p1'), 1);
   amb.zerar();
-  const a = chamar(amb, 'aplicarRevisao', {
+  const a = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
   });
   igual(a.ok, true, a.erro);
@@ -903,8 +909,8 @@ teste('inscrição casada por e-mail (sem matrícula) NÃO é anulada: é "poss�
   const c = cenario(outro);
   projeto(outro, 'p1');
   const pelaMatricula = inscrever(outro, '9110002', 'Beatriz Exemplo Martins', 'p1');
-  outro.api.reconciliar();
-  const pela = chamar(outro, 'revisarLote', { loteId: c.l1 });
+  outro.api.reconciliar_();
+  const pela = chamar(outro, 'revisarLote_', { loteId: c.l1 });
   igual(pela.comProjeto[0].inscricoes.map((i) => i.id), [pelaMatricula]);
   igual(pela.comProjeto[0].inscricoes[0].casadaPor, undefined, 'o campo morreu com a ponte');
   igual(pela.comProjeto[0].possiveis, [], 'a inscrição que VAI ser anulada não é "possível"');
@@ -922,32 +928,32 @@ teste('a ficha DIVERGENCIA (nome exato, nome parecido, CPF diverge) e a resolvid
   const amb = ambiente();
   const { l1 } = cenario(amb);
   projeto(amb, 'p1', 'Robótica');
-  const daHomonima = amb.api.gravarInscricao({
+  const daHomonima = amb.api.gravarInscricao_({
     matricula: '', nome: 'Beatriz Exemplo Martins', email: 'outra.pessoa@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
   }).id;
-  amb.api.reconciliar();
-  const ficha = () => amb.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
+  amb.api.reconciliar_();
+  const ficha = () => amb.api.listar_('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
   igual(ficha().status, 'DIVERGENCIA');
   igual(ficha().metodo_match, 'Nome exato');
   igual(ficha().inscricao_id, daHomonima);
 
   // Antes de a coordenação decidir: informação, com o degrau e a divergência.
-  const antes = chamar(amb, 'revisarLote', { loteId: l1 });
+  const antes = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(antes.comProjeto, []);
   igual(antes.semProjeto[0].inscricoes, []);
   igual(antes.semProjeto[0].possiveis.map((p) => [p.id, p.casadaPor, p.status]), [[daHomonima, 'Nome exato', 'DIVERGENCIA']]);
 
   // A coordenação resolve à mão: não é a mesma pessoa. A ficha mantém os dois
-  // ids (é assim que `resolverAluno` grava), e a decisão tem de mandar.
-  igual(amb.api.resolverAluno({ token: amb.token, id: ficha()._id, status: 'SO_INSCRITO', observacoes: 'homônima' }).ok, true);
+  // ids (é assim que `resolverAluno_` grava), e a decisão tem de mandar.
+  igual(amb.api.resolverAluno_({ token: amb.token, id: ficha()._id, status: 'SO_INSCRITO', observacoes: 'homônima' }).ok, true);
   igual(ficha().status, 'SO_INSCRITO');
   igual(ficha().inscricao_id, daHomonima, 'resolver à mão não tira o id da inscrição');
-  const depois = chamar(amb, 'revisarLote', { loteId: l1 });
+  const depois = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(depois.semProjeto[0].possiveis, [], 'a ficha resolvida como "não é a mesma pessoa" ainda é apontada');
 
   igual(amb.api.contarInscritos_('p1'), 1);
-  const cancelar = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const cancelar = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(cancelar.ok, true, cancelar.erro);
   igual(cancelar.cancelados, 1);
   igual(cancelar.anuladas, 0);
@@ -959,14 +965,14 @@ teste('a ficha DIVERGENCIA (nome exato, nome parecido, CPF diverge) e a resolvid
   const outro = ambiente();
   const c = cenario(outro);
   projeto(outro, 'p1', 'Robótica');
-  const daParecida = outro.api.gravarInscricao({
+  const daParecida = outro.api.gravarInscricao_({
     matricula: '', nome: 'Beatriz Exemplo Martinez', email: 'martinez@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Robótica', origem: 'SITE'
   }).id;
-  outro.api.reconciliar();
-  const fichaDela = outro.api.listar('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
+  outro.api.reconciliar_();
+  const fichaDela = outro.api.listar_('alunos', { campo: 'matricula_id', valor: '9110002' }).itens[0];
   verdadeiro(/^Nome aproximado/.test(fichaDela.metodo_match), fichaDela.metodo_match);
-  const excluir = chamar(outro, 'aplicarRevisao', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
+  const excluir = chamar(outro, 'aplicarRevisao_', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
   igual(excluir.ok, true, excluir.erro);
   igual(excluir.excluidos, 1);
   igual(excluir.anuladas, 0);
@@ -985,7 +991,7 @@ teste('as inscrições são anuladas PRIMEIRO, pela quarentena de verdade, e a v
   igual(amb.api.contarInscritos_('p1'), 1);
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }]
   });
   igual(r.ok, true, r.erro);
@@ -1008,11 +1014,11 @@ teste('a inscrição a anular é descoberta no Aplicar: a feita entre abrir a ja
   const amb = ambiente();
   const { l1 } = cenario(amb);
   projeto(amb, 'p1');
-  const tela = chamar(amb, 'revisarLote', { loteId: l1 });
+  const tela = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(tela.semProjeto[0].inscricoes, [], 'a janela abriu com a Beatriz sem projeto');
 
   const tardia = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR', inscricoes: [] }]
   });
   igual(r.anuladas, 1);
@@ -1040,7 +1046,7 @@ teste('anulação recusada = nada cancelado, nada excluído — e a resposta diz
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '9110001', acao: 'EXCLUIR' }]
   });
@@ -1061,15 +1067,15 @@ teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscri
   // incluiu num projeto pelo Alunos, com o aviso de CANCELADA na tela — é
   // deliberado. Um Aplicar com as mesmas decisões (janela estagnada, replay)
   // anulava essa inscrição. Mutação que derruba: juntar `jaCancelados` aos que
-  // têm inscrição anulada; ou mandar o já cancelado para `excluir` quando a
+  // têm inscrição anulada; ou mandar o já cancelado para `excluir_` quando a
   // ação é EXCLUIR.
   const amb = ambiente();
   const { l1 } = cenario(amb);
   projeto(amb, 'p1', 'Robótica');
-  chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   const carimbo = documento(amb.falso, 'matriculados', '9110002').cancelado_em;
 
-  const incluida = amb.api.incluirInscricao({
+  const incluida = amb.api.incluirInscricao_({
     token: amb.token, matricula: '9110002', nome: 'Beatriz Exemplo Martins', email: 'beatriz@exemplo.com',
     projeto_id: 'p1', motivo: 'voltou a cursar'
   });
@@ -1078,7 +1084,7 @@ teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscri
   igual(amb.api.contarInscritos_('p1'), 1);
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, true);
   igual(r.jaCancelados, 1);
   igual(r.cancelados, 0);
@@ -1089,7 +1095,7 @@ teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscri
   igual(documento(amb.falso, 'matriculados', '9110002').cancelado_em, carimbo);
   igual(amb.falso.requisicoes.filter(ESCRITA).length, 0, 'já cancelado escreveu alguma coisa');
 
-  const e = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
+  const e = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'EXCLUIR' }] });
   igual(e.ok, true);
   igual(e.jaCancelados, 1);
   igual(e.excluidos, 0);
@@ -1110,7 +1116,7 @@ teste('já cancelado: nenhuma ação — nem CANCELAR nem EXCLUIR tocam a inscri
   igual(amb.api.contarInscritos_('p1'), 2);
 
   amb.zerar();
-  const misto = chamar(amb, 'aplicarRevisao', { loteId: l3, turma: 'ADS41', decisoes: [
+  const misto = chamar(amb, 'aplicarRevisao_', { loteId: l3, turma: 'ADS41', decisoes: [
     { matricula: '9110005', acao: 'CANCELAR' }, { matricula: '9110002', acao: 'CANCELAR' }
   ] });
   igual(misto.ok, true, misto.erro);
@@ -1134,11 +1140,11 @@ teste('a recusa de anularInscricoes chega à tela e ao log SEM o caminho do docu
   // `an.erro` ia cru para a resposta. O id de inscrição é hash, mas o id do
   // projeto Cloud é "o começo da trilha para quem quiser sondar" (02_Repo.gs).
   // São DUAS réguas em camadas — `semCaminhoDeDocumento_` no catch de
-  // `anularInscricoes` (13) e `fraseSegura_(an.erro)` aqui — e cada uma cobre
+  // `anularInscricoes_` (13) e `fraseSegura_(an.erro)` aqui — e cada uma cobre
   // a outra: tirar UMA sozinha não muda o que este teste vê. A mutação que
   // este teste derruba é tirar as duas (ou a primitiva em 02_Repo.gs). A
   // camada do 13 tem teste PRÓPRIO em auditorio.js, porque o Geral chama
-  // `anularInscricoes` direto, sem passar por aqui.
+  // `anularInscricoes_` direto, sem passar por aqui.
   const amb = ambiente();
   const { l1 } = cenario(amb);
   projeto(amb, 'p1');
@@ -1160,7 +1166,7 @@ teste('a recusa de anularInscricoes chega à tela e ao log SEM o caminho do docu
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, false);
   verdadeiro(/anulação das inscrições falhou e nada mais foi feito/.test(r.erro), r.erro);
   igual(r.erro.indexOf('projects/'), -1, 'o caminho vazou na resposta: ' + r.erro);
@@ -1196,7 +1202,7 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
     const v = varredura(teto);
     importar(amb, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
     // Armados DEPOIS da reimportação, de propósito: `importar` avança o relógio
-    // 60 s (o cache de 30 s expiraria sozinho) e `confirmarImportacao` já
+    // 60 s (o cache de 30 s expiraria sozinho) e `confirmarImportacao_` já
     // esquece a marca. Armados antes, as duas asserções lá embaixo passariam
     // com o `catch` sem fazer nada — e é o `catch` que este teste vigia.
     amb.propriedades.set('painel_reconciliacao', JSON.stringify({
@@ -1205,7 +1211,7 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
     amb.api.CacheService.getScriptCache().put('painel_estatisticas', '{"ok":true,"velho":1}', 30);
     return v;
   };
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '9110004', acao: 'CANCELAR' }]
   });
   amb.api.varrerInscricoes_ = varredura;
@@ -1230,7 +1236,7 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   // Quem revisou saiu do fim da frase e virou a coluna `usuario` da linha.
   // Aqui ela prova mais do que provava: o ambiente roda com
   // `Session.getActiveUser()` = coordenacao@exemplo.com e a SESSÃO em prof@ —
-  // então a mutação "voltar a `usuarioAtual()`" troca o nome, em vez de acertar
+  // então a mutação "voltar a `usuarioAtual_()`" troca o nome, em vez de acertar
   // por coincidência.
   igual(parcial[0].usuario, PROF, 'a trilha parcial não diz quem revisou');
   igual(parcial[0].detalhe.indexOf(PROF), -1, parcial[0].detalhe);
@@ -1241,7 +1247,7 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   verdadeiro(Boolean(lote.revisado_em), 'o lote interrompido ficou sem revisado_em');
   igual(lote.revisado_por, PROF);
   igual(JSON.parse(lote.revisao_resumo), { cancelados: 0, excluidos: 0, anuladas: 2, pulados: 1, ja_cancelados: 0, situacao: 'PARCIAL' });
-  igual(chamar(amb, 'revisarLote', { loteId: l1 }).revisado.resumo.situacao, 'PARCIAL', 'a janela tem de poder dizer "interrompida"');
+  igual(chamar(amb, 'revisarLote_', { loteId: l1 }).revisado.resumo.situacao, 'PARCIAL', 'a janela tem de poder dizer "interrompida"');
 
   const marca = JSON.parse(amb.propriedades.get('painel_reconciliacao'));
   igual(marca.inscricoes, -1, 'a contagem mudou e a marca não foi esquecida');
@@ -1261,11 +1267,11 @@ teste('Aplicar recusado DEPOIS de anular deixa a trilha parcial: quem perdeu a i
   const varredura2 = outro.api.varrerInscricoes_;
   outro.api.varrerInscricoes_ = (teto) => {
     const v = varredura2(teto);
-    igual(outro.api.anularInscricoes({ token: outro.token, ids: [j2] }).anuladas, 1);
+    igual(outro.api.anularInscricoes_({ token: outro.token, ids: [j2] }).anuladas, 1);
     importar(outro, ADS41_2026_2, [ANA, BEATRIZ, CARLOS_DE_ADS31, DUDA], { nome: 'ads41-terca.csv' });
     return v;
   };
-  const r2 = chamar(outro, 'aplicarRevisao', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r2 = chamar(outro, 'aplicarRevisao_', { loteId: c.l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   outro.api.varrerInscricoes_ = varredura2;
   igual(r2.ok, false);
   igual(r2.anuladas, 1, 'só a que existia');
@@ -1291,7 +1297,7 @@ teste('EXCLUIR que entrou seguido de CANCELAR recusado: a exclusão irreversíve
     importar(amb, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' });
     return v;
   };
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [{ matricula: '9110003', acao: 'EXCLUIR' }, { matricula: '9110002', acao: 'CANCELAR' }]
   });
@@ -1323,15 +1329,15 @@ teste('quem foi reimportado entre a tela e o clique é PULADO, não é tocado e 
   const { l1 } = cenario(amb);
   projeto(amb, 'p1');
   const inscricao = inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
-  const tela = chamar(amb, 'revisarLote', { loteId: l1 });
+  const tela = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(tela.comProjeto.map((i) => i.matricula), ['9110002']);
 
   importar(amb, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' });
   // E o Carlos, que a tela nunca listou, mudou de turma na lista dele.
-  amb.api.atualizar('matriculados', '9110001', { turma: 'ADS42' });
+  amb.api.atualizar_('matriculados', '9110001', { turma: 'ADS42' });
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '9110001', acao: 'EXCLUIR' }]
   });
@@ -1355,22 +1361,22 @@ teste('tetos e formato recusam ANTES de qualquer leitura: 101 decisões, repetid
 
   const cento = [];
   for (let i = 0; i < 101; i++) cento.push({ matricula: String(9150000 + i), acao: 'CANCELAR' });
-  const muitas = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: cento });
+  const muitas = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: cento });
   verdadeiro(/Vieram 101 decisões/.test(muitas.erro), muitas.erro);
 
-  const repetida = chamar(amb, 'aplicarRevisao', {
+  const repetida = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '09110002', acao: 'EXCLUIR' }]
   });
   verdadeiro(/9110002 aparece duas vezes/.test(repetida.erro), repetida.erro);
 
-  const estranha = chamar(amb, 'aplicarRevisao', {
+  const estranha = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'MANTER' }]
   });
   verdadeiro(/Ação desconhecida/.test(estranha.erro), estranha.erro);
 
-  igual(chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [] }).erro, 'Nada marcado.');
-  igual(chamar(amb, 'aplicarRevisao', { loteId: l1, turma: '', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] }).ok, false);
+  igual(chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [] }).erro, 'Nada marcado.');
+  igual(chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: '', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] }).ok, false);
 
   igual(amb.falso.requisicoes.length, 0, 'alguma recusa custou uma requisição');
 });
@@ -1385,10 +1391,10 @@ teste('mais de 200 inscrições a anular recusa antes de escrever — o teto do 
     docs.push({ _id: 'i' + i, matricula: '9110002', nome: 'Beatriz Exemplo Martins', projeto_id: 'p' + i,
       projeto_nome: 'P' + i, criado_em: '2026-09-01 10:00:00' });
   }
-  amb.api.escreverEmLote('inscricoes', docs);
+  amb.api.escreverEmLote_('inscricoes', docs);
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, false);
   verdadeiro(/201 inscrições a anular de uma vez; o teto é 200/.test(r.erro), r.erro);
   igual(amb.falso.requisicoes.filter(ESCRITA).length, 0);
@@ -1408,15 +1414,15 @@ teste('varredura de inscrições cortada no teto: o Aplicar recusa, porque cance
     docs.push({ _id: 'z' + String(i).padStart(4, '0'), matricula: String(9200000 + i), projeto_id: 'p1',
       nome: 'Aluno ' + i, criado_em: '2026-09-01 10:00:00' });
   }
-  amb.api.escreverEmLote('inscricoes', docs);
+  amb.api.escreverEmLote_('inscricoes', docs);
 
   amb.zerar();
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, false);
   verdadeiro(/varredura de inscrições foi cortada em 2100/.test(r.erro), r.erro);
   igual(amb.falso.requisicoes.filter(ESCRITA).length, 0);
 
-  const tela = chamar(amb, 'revisarLote', { loteId: l1 });
+  const tela = chamar(amb, 'revisarLote_', { loteId: l1 });
   igual(tela.truncado, true);
   verdadeiro(tela.avisos.some((a) => /2100 primeiras inscrições de 2101/.test(a)), tela.avisos.join(' | '));
 });
@@ -1434,7 +1440,7 @@ teste('o lote é marcado com revisado_* e o resumo; o log leva matrículas por a
   projeto(amb, 'p1');
   inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
 
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: l1, turma: 'ADS41',
     decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }, { matricula: '9110004', acao: 'CANCELAR' }]
   });
@@ -1457,7 +1463,7 @@ teste('o lote é marcado com revisado_* e o resumo; o log leva matrículas por a
   verdadeiro(/1 inscrição\(ões\) anulada\(s\), 1 pulado\(s\), 0 já cancelado\(s\)$/.test(detalhe), detalhe);
   // O nome de quem revisou está na COLUNA, e em duas cópias que o log não
   // guarda: `revisado_por` no lote (acima) e `cancelado_por` no matriculado.
-  // Mutação que derruba: `registrar` cair em `usuarioAtual()` — este ambiente
+  // Mutação que derruba: `registrar_` cair em `usuarioAtual_()` — este ambiente
   // tem a identidade da implantação em coordenacao@ e a sessão em prof@, e a
   // linha passaria a assinar a pessoa errada.
   igual(linhas[0].usuario, PROF, 'a trilha não diz quem revisou');
@@ -1479,10 +1485,10 @@ teste('lote antigo ganha a turma que a revisão usou (origem LINHAS), e só ele'
     { matricula: '9130005', turma: 'ADS41' }
   ]);
 
-  const tela = chamar(amb, 'revisarLote', { loteId: velho });
+  const tela = chamar(amb, 'revisarLote_', { loteId: velho });
   igual(tela.origemTurma, 'LINHAS');
   igual(tela.candidatos, 1);
-  const r = chamar(amb, 'aplicarRevisao', {
+  const r = chamar(amb, 'aplicarRevisao_', {
     loteId: velho, turma: tela.turma, origemTurma: tela.origemTurma,
     decisoes: [{ matricula: '9130009', acao: 'CANCELAR' }]
   });
@@ -1493,7 +1499,7 @@ teste('lote antigo ganha a turma que a revisão usou (origem LINHAS), e só ele'
   igual(lote.status, 'ATUALIZOU', 'status do lote não ganha valor novo');
 
   // Da segunda vez a turma já está lá, e o rótulo vem do lote.
-  igual(chamar(amb, 'revisarLote', { loteId: velho }).origemTurma, 'LINHAS');
+  igual(chamar(amb, 'revisarLote_', { loteId: velho }).origemTurma, 'LINHAS');
 });
 
 teste('a resposta diz se o lote JÁ foi revisado — quando, por quem e o resumo — e null antes', () => {
@@ -1504,12 +1510,12 @@ teste('a resposta diz se o lote JÁ foi revisado — quando, por quem e o resumo
   projeto(amb, 'p1');
   inscrever(amb, '9110002', 'Beatriz Exemplo Martins', 'p1');
 
-  igual(chamar(amb, 'revisarLote', { loteId: l1 }).revisado, null, 'lote nunca revisado');
+  igual(chamar(amb, 'revisarLote_', { loteId: l1 }).revisado, null, 'lote nunca revisado');
 
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, true, r.erro);
 
-  const deNovo = chamar(amb, 'revisarLote', { loteId: l1 });
+  const deNovo = chamar(amb, 'revisarLote_', { loteId: l1 });
   verdadeiro(deNovo.revisado !== null && typeof deNovo.revisado === 'object', 'revisado veio ' + JSON.stringify(deNovo.revisado));
   igual(deNovo.revisado.por, PROF);
   igual(deNovo.revisado.em, documento(amb.falso, 'lotes', l1).revisado_em);
@@ -1518,7 +1524,7 @@ teste('a resposta diz se o lote JÁ foi revisado — quando, por quem e o resumo
   igual(deNovo.jaCancelados.length, 1);
 
   // `contarApenas` não relata a revisão anterior (o passo 3 não a mostra).
-  igual(chamar(amb, 'revisarLote', { loteId: l1, contarApenas: true }).revisado, undefined);
+  igual(chamar(amb, 'revisarLote_', { loteId: l1, contarApenas: true }).revisado, undefined);
 });
 
 teste('a marca da reconciliação é reescrita com -1 preservando dia, gasto e custo; o cache do Painel cai', () => {
@@ -1531,7 +1537,7 @@ teste('a marca da reconciliação é reescrita com -1 preservando dia, gasto e c
   }));
   amb.api.CacheService.getScriptCache().put('painel_estatisticas', '{"ok":true,"velho":1}', 30);
 
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, true, r.erro);
 
   const marca = JSON.parse(amb.propriedades.get('painel_reconciliacao'));
@@ -1557,7 +1563,7 @@ teste('erro do commit com o caminho do documento vira frase fixa — sem project
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  const r = chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
   igual(r.ok, false);
   verdadeiro(/A lista da tela é de antes/.test(r.erro), r.erro);
   igual(r.erro.indexOf('projects/'), -1, r.erro);
@@ -1576,15 +1582,15 @@ teste('reativação é a reimportação: o documento volta sem a marca e a matr�
   // marca sobreviveria à lista nova, e não existe outro caminho de reativar.
   const amb = ambiente();
   const { l1 } = cenario(amb);
-  chamar(amb, 'aplicarRevisao', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
-  igual(amb.api.matriculaConhecida('9110002'), false);
+  chamar(amb, 'aplicarRevisao_', { loteId: l1, turma: 'ADS41', decisoes: [{ matricula: '9110002', acao: 'CANCELAR' }] });
+  igual(amb.api.matriculaConhecida_('9110002'), false);
 
   const l2 = importar(amb, ADS41_2026_2, [ANA, BEATRIZ, DUDA], { nome: 'ads41-terca.csv' }).loteId;
   const doc = documento(amb.falso, 'matriculados', '9110002');
   igual(doc.situacao_cadastro, undefined);
   igual(doc.cancelado_em, undefined);
   igual(doc.lote_id, l2);
-  igual(amb.api.matriculaConhecida('9110002'), true);
+  igual(amb.api.matriculaConhecida_('9110002'), true);
   igual(registrosDoLog(amb.falso).filter((l) => /REATIV/.test(l.acao)), [], 'não existe linha de reativação: a prova é o lote_id');
 });
 

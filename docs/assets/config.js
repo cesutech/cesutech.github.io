@@ -1,12 +1,21 @@
 /**
- * config.js — o ÚNICO arquivo que você precisa editar depois de publicar o
- * Apps Script.
+ * config.js — o endereço do servidor e o client id do botão do Google.
  *
- * Cole aqui a URL /exec que o Google devolveu em
- * Implantar > Nova implantação > Aplicativo da Web.
+ * O `endpoint` é a URL /exec da implantação do web app, e ela NÃO muda quando o
+ * servidor é publicado de novo. Publicar é atualizar a implantação que já
+ * existe, com a conta que já implanta (README, passo 1) — Implantar ›
+ * Gerenciar implantações › editar (o lápis) › Versão: Nova versão, Descrição:
+ * `Cesutech vN <sha>` › Implantar —, e nunca usar Implantar › Nova implantação:
+ * a implantação nova ganha outra URL, e a antiga continua respondendo com o
+ * código antigo. Pelo mesmo motivo, arquive todas as outras implantações que
+ * existirem no projeto, de qualquer tipo. O passo a passo — o envio do código
+ * vem antes da Nova versão — está no README, em "Publicar o servidor".
  *
- * Ela é pública por natureza (é o endereço para onde o formulário envia), então
- * não é segredo — mas veja verificarAntiAbuso_() em 04_Inscricoes.gs para
+ * Esta linha só muda se a implantação de produção for substituída de propósito
+ * (outra conta, outro projeto) — e aí no mesmo dia em que a antiga é arquivada.
+ *
+ * A URL é pública por natureza (é o endereço para onde o formulário envia),
+ * então não é segredo — mas veja verificarAntiAbuso_() em 04_Inscricoes.gs para
  * entender as defesas que existem por trás.
  */
 window.CESUTECH_CONFIG = {
@@ -19,8 +28,9 @@ window.CESUTECH_CONFIG = {
   // Os dois sistemas existem lado a lado justamente para isso não acontecer.
   //
   // Ao criar uma implantação NOVA (e não atualizar esta), o Google emite outra
-  // URL e a antiga continua respondendo a versão velha. Se o site começar a se
-  // comportar como uma versão anterior do código, é aqui que se olha primeiro.
+  // URL e a antiga continua respondendo a versão velha — até ser arquivada. Se o
+  // site começar a se comportar como uma versão anterior do código, é aqui que
+  // se olha primeiro, e depois em Implantar › Gerenciar implantações.
   endpoint: 'https://script.google.com/macros/s/AKfycbyRw4yCZ_gjD_yWDW_TTTWuBjoqu5v3H-871_gDT6-2KoBsMD4iUjXLew3a0rkD4PhXSQ/exec',
 
   // ------------------------------------------------------- Painel de gestão

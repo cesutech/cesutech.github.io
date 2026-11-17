@@ -2,9 +2,9 @@
  * 05_Importacao.gs — a lista oficial de matriculados entra por aqui.
  *
  * Fluxo em dois passos, herdado do sistema sobre Sheets e mantido de propósito:
- *   1. `analisarArquivo()`     lê o arquivo, adivinha as colunas e devolve
+ *   1. `analisarArquivo_()`     lê o arquivo, adivinha as colunas e devolve
  *                              pré-visualização — não grava nada;
- *   2. `confirmarImportacao()` grava, só depois de o professor conferir o
+ *   2. `confirmarImportacao_()` grava, só depois de o professor conferir o
  *                              mapeamento na tela.
  *
  * Importar direto, sem conferência, é como o dado errado entra e nunca mais sai.
@@ -47,7 +47,7 @@
  * arquivo lê uma coleção. Isso não é economia esperta, é consequência do
  * desenho: com o id do documento sendo a matrícula, gravar a lista oficial é
  * escrever em endereço conhecido, e não procurar o que já existe. É o mesmo
- * motivo pelo qual `matriculaConhecida` custa 1 leitura em vez da lista inteira.
+ * motivo pelo qual `matriculaConhecida_` custa 1 leitura em vez da lista inteira.
  *
  * Escrita é a cota apertada aqui: 20.000 por dia no plano Spark, contra 50.000
  * leituras. Uma lista de 2.500 alunos consome 12,5% do dia por importação. Daí
@@ -55,15 +55,15 @@
  * defesas existem para que uma tarde de tentativas não deixe as INSCRIÇÕES sem
  * cota até a meia-noite do Pacífico.
  *
- * Tempo: 3.000 linhas = 6 commits + 2 escritas = 8 idas ao Firestore. Se o custo
- * por chamada do web app anônimo (ver `fsToken_`, 02_Repo.gs) valer também para
- * o `google.script.run` do painel, são ~2 minutos; se o cache de token tiver
- * resolvido, são segundos. Nos dois casos cabe nos 6 minutos por execução, que é
- * o que precisa ser verdade.
+ * Tempo: 3.000 linhas = 6 commits + 2 escritas = 8 idas ao Firestore. O painel
+ * chama pelo web app anônimo, que é onde vale o custo por chamada medido em
+ * `fsToken_` (02_Repo.gs): se o cache de token não tiver resolvido, são ~2
+ * minutos; se tiver, são segundos. Nos dois casos cabe nos 6 minutos por
+ * execução, que é o que precisa ser verdade.
  *
  * ------------------------------------ Por que a reconciliação saiu daqui
  *
- * Até 06/08 `confirmarImportacao` chamava `reconciliar()` antes de responder, para
+ * Até 06/08 `confirmarImportacao_` chamava `reconciliar_()` antes de responder, para
  * o passo 3 já mostrar os quatro números. Parecia atenção com o professor e era
  * uma bomba-relógio: as duas coisas passavam a dividir UMA execução de 6 minutos.
  * A importação de 2.500 linhas emite ~7 idas ao Firestore e a reconciliação
@@ -100,7 +100,7 @@
  *
  * O que FALTAVA era a saída: aceitar que a importação nunca apaga só é honesto
  * se existir um jeito de apagar de propósito. Ele agora existe e se chama
- * `expurgarLote` — botão na aba Importações, um lote por vez, com o número na
+ * `expurgarLote_` — botão na aba Importações, um lote por vez, com o número na
  * confirmação. Sem ele, `matriculados` só crescia até `colecaoCompleta_`
  * (06_Reconciliacao.gs) recusar a reconciliação inteira por passar de 8.000.
  *
@@ -119,15 +119,15 @@
  * > MAIORIA das linhas (só com metade ou mais das linhas E pelo menos cinco —
  * palpite fraco vira pergunta, nunca chave) > '' (sem chave, sem conferência).
  * Custa 0 leituras: a turma sai do texto que o passo 1 já tinha na mão, e vai no
- * MESMO `inserir` do lote. Linha do arquivo SEM turma recebe a do cabeçalho na
+ * MESMO `inserir_` do lote. Linha do arquivo SEM turma recebe a do cabeçalho na
  * gravação — só quando vazia; o ADS31 dentro da lista de ADS41 continua ADS31.
  *
  * Quem consome a chave é a revisão de divergências (a conferência de quem não
  * veio), que compara pela turma do lote. Reimportar o mesmo arquivo REESCREVE o
- * documento inteiro de cada aluno (`escreverEmLote` substitui, não mescla): a
+ * documento inteiro de cada aluno (`escreverEmLote_` substitui, não mescla): a
  * marca de cancelamento que a revisão gravou (`situacao_cadastro` e os três
  * campos ao lado, ver `cadastroCancelado_` em 04_Inscricoes.gs) some junto, e o
- * aluno está de volta em `matriculaConhecida` na hora, com 0 leituras. É por
+ * aluno está de volta em `matriculaConhecida_` na hora, com 0 leituras. É por
  * isso que a reativação não tem função nem deixa linha própria no log: a prova
  * de que o aluno voltou é o `lote_id` novo e a linha IMPORTACAO. O que NÃO
  * volta é a inscrição que a revisão anulou — ela fica em `inscricoes_anuladas`,
@@ -136,8 +136,8 @@
  * ---------------------------------------------------------- O contrato duro
  *
  * `matriculados/{matricula normalizada}` — o ID DO DOCUMENTO É A MATRÍCULA,
- * passada por `normalizarMatricula` (04_Inscricoes.gs). Não é detalhe de
- * armazenamento: `matriculaConhecida` faz `ler('matriculados', matricula)`, uma
+ * passada por `normalizarMatricula_` (04_Inscricoes.gs). Não é detalhe de
+ * armazenamento: `matriculaConhecida_` faz `ler_('matriculados', matricula)`, uma
  * leitura de ponto. Gravar com id sorteado deixaria os testes verdes e faria a
  * validação recusar TODO ALUNO quando `modo_validacao_matricula = BLOQUEAR`.
  *
@@ -147,7 +147,7 @@
  * encontrada por matrícula e ainda assim contaria em `temListaOficial_()` — ou
  * seja, ligaria a validação sobre uma lista que não valida ninguém. O cabeçalho
  * de 04_Inscricoes.gs pede explicitamente que a importação recuse esse arquivo,
- * e é o que `confirmarImportacao` faz: sem coluna de matrícula mapeada, ou sem
+ * e é o que `confirmarImportacao_` faz: sem coluna de matrícula mapeada, ou sem
  * nenhuma matrícula utilizável, a importação inteira é recusada.
  */
 
@@ -172,7 +172,7 @@ var PASTA_TEMP = 'CESUTECH — temporários';
 /**
  * Tamanho do bloco de escrita.
  *
- * É o mesmo 500 de `escreverEmLote` (02_Repo.gs) — limite da API, não escolha
+ * É o mesmo 500 de `escreverEmLote_` (02_Repo.gs) — limite da API, não escolha
  * nossa. O bloco é repartido AQUI, e não delegado, porque a pergunta que
  * importa quando o terceiro commit falha é "quantos entraram?", e essa resposta
  * só existe para quem contou os blocos. Ver `gravarMatriculados_`.
@@ -190,7 +190,7 @@ var IMPORTACAO_BLOCO = 500;
 var IMPORTACAO_MAX_LINHAS = 5000;
 
 /**
- * Faixa de matrícula aceita, igual à de `validarInscricao` (04_Inscricoes.gs).
+ * Faixa de matrícula aceita, igual à de `validarInscricao_` (04_Inscricoes.gs).
  *
  * Tem de ser a MESMA régua nas duas pontas: matrícula que o aluno não consegue
  * digitar sem levar "Matrícula inválida" não tem por que ocupar documento na
@@ -214,9 +214,9 @@ var TEXTO_BRUTO_GUARDADO = 12000;
  * registro de quem importou com o que estivesse na célula — trilha adulterada
  * pelo próprio arquivo que ela deveria testemunhar.
  *
- * São os mesmos oito de CAMPOS_IMPORTACAO (Admin.html:263), mais `telefone`,
- * que o leitor do relatório acadêmico extrai (05b_FormatoAcademico.gs) e que a
- * tela ainda não oferece.
+ * São os mesmos oito de CAMPOS_IMPORTACAO (no painel, docs/painel/index.html),
+ * mais `telefone`, que o leitor do relatório acadêmico extrai
+ * (05b_FormatoAcademico.gs) e que a tela ainda não oferece.
  */
 var IMPORTACAO_CAMPOS = ['nome', 'cpf', 'email', 'matricula', 'telefone',
   'data_nascimento', 'curso', 'turma', 'situacao'];
@@ -250,13 +250,14 @@ var LINHAS_DO_TEXTO_DA_MATRIZ = 30;
  * Recebe o arquivo em base64, extrai a matriz de células e devolve cabeçalhos,
  * amostra e mapeamento sugerido.
  *
- * O arquivo chega inteiro no payload (Admin.html:1150 corta em 5 MB antes de
- * enviar) e NÃO fica no banco: o que sobrevive até o passo 2 é um JSON no Drive.
+ * O arquivo chega inteiro no payload (o painel, docs/painel/index.html, corta
+ * em 5 MB antes de enviar) e NÃO fica no banco: o que sobrevive até o passo 2 é
+ * um JSON no Drive.
  */
-function analisarArquivo(payload) {
+function analisarArquivo_(payload) {
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
 
     if (!payload.dataBase64) return { ok: false, erro: 'Nenhum arquivo recebido.' };
 
@@ -311,7 +312,7 @@ function analisarArquivo(payload) {
       // 2 a conta é refeita sobre os registros que vão mesmo ser gravados.
       var coluna = mapeamento.turma;
       cabecalho.sugestao = turmaMajoritaria_(linhas.map(function (l) {
-        return { turma: coluna === undefined ? '' : normalizarTurma(l[coluna]) };
+        return { turma: coluna === undefined ? '' : normalizarTurma_(l[coluna]) };
       }));
     }
 
@@ -369,8 +370,9 @@ function analisarArquivo(payload) {
 /**
  * As primeiras linhas, completadas até a largura do cabeçalho.
  *
- * A tela percorre os cabeçalhos e imprime `linha[i]` (Admin.html:1215); linha
- * curta — comum em PDF, onde a coluna de telefone falta — imprimiria a palavra
+ * A tela percorre os cabeçalhos e imprime `linha[i]` (no painel,
+ * docs/painel/index.html); linha curta — comum em PDF, onde a coluna de telefone
+ * falta — imprimiria a palavra
  * "undefined" na pré-visualização, que é justamente a tela onde o professor
  * decide se confia no arquivo.
  */
@@ -390,10 +392,10 @@ function amostraDe_(linhas, largura) {
  *
  * Custo: 0 leituras; ceil(N/500) commits + 1 lote + 1 log.
  */
-function confirmarImportacao(payload) {
+function confirmarImportacao_(payload) {
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
 
     var temp = lerTemporario_(payload.tempId);
     if (!temp) return { ok: false, erro: 'A pré-visualização expirou. Envie o arquivo novamente.' };
@@ -403,8 +405,8 @@ function confirmarImportacao(payload) {
     if (recusa) return { ok: false, erro: recusa };
 
     var loteId = loteId_();
-    var quando = agora();
-    var quem = usuarioAtual();
+    var quando = agora_();
+    var quem = usuarioAtual_();
 
     var preparo = prepararRegistros_(temp.linhas, mapeamento, {
       loteId: loteId, quando: quando, quem: quem
@@ -419,7 +421,7 @@ function confirmarImportacao(payload) {
     }
 
     // A turma do relatório, fechada ANTES de gravar: é ela que preenche a linha
-    // sem turma e vai no mesmo `inserir` do lote. Ver o cabeçalho do arquivo.
+    // sem turma e vai no mesmo `inserir_` do lote. Ver o cabeçalho do arquivo.
     var cabecalho = cabecalhoDoLote_(temp.cabecalho, payload.turmaCabecalho, preparo.registros);
     if (cabecalho.turma) {
       preparo.registros.forEach(function (r) {
@@ -454,8 +456,16 @@ function confirmarImportacao(payload) {
       // O temporário SOBREVIVE de propósito: reenviar o mesmo arquivo é o
       // caminho de retomada, e ele é seguro porque a gravação é upsert por
       // matrícula — as linhas que já entraram apenas se reescrevem iguais.
-      registrar('IMPORTACAO_PARCIAL', 'lote', loteId,
-        escrita.gravados + ' de ' + preparo.registros.length + ' gravados; ' + escrita.falha.message);
+      //
+      // A mensagem passa pelas réguas, como nos outros erros do Repo: o texto do
+      // Google que recusa um `:commit` pode nomear o documento inteiro
+      // ('projects/<id do projeto>/.../matriculados/<matrícula>'), e a exceção de
+      // prazo do UrlFetchApp traz o endereço com o id do projeto. Na trilha, a
+      // régua dela (`semIdDeDocumento_`, 04_Log.gs), porque a linha fica um ano no
+      // banco; na tela, a da tela (`semCaminhoDeDocumento_`, 02_Repo.gs).
+      registrar_('IMPORTACAO_PARCIAL', 'lote', loteId,
+        escrita.gravados + ' de ' + preparo.registros.length + ' gravados; ' +
+        semIdDeDocumento_(escrita.falha));
 
       return {
         ok: false,
@@ -465,11 +475,11 @@ function confirmarImportacao(payload) {
         erro: 'A gravação parou no meio: ' + escrita.gravados + ' de ' +
               preparo.registros.length + ' matriculados entraram. Confirme a importação de ' +
               'novo com o mesmo arquivo — quem já entrou não é duplicado, porque a chave é a ' +
-              'matrícula. Detalhe técnico: ' + escrita.falha.message
+              'matrícula. Detalhe técnico: ' + semCaminhoDeDocumento_(escrita.falha)
       };
     }
 
-    registrar('IMPORTACAO', 'lote', loteId,
+    registrar_('IMPORTACAO', 'lote', loteId,
       escrita.gravados + ' matriculados de "' + (temp.arquivo || '') + '"; ' +
       descreverDescartes_(preparo));
 
@@ -492,8 +502,8 @@ function confirmarImportacao(payload) {
       ok: true,
       loteId: loteId,
       importadas: escrita.gravados,
-      // O painel escreve "ignorada(s) por não terem nome" (Admin.html:1267), e
-      // esse número precisa ser exatamente esse — as outras razões de descarte
+      // O painel escreve "ignorada(s) por não terem nome" (docs/painel/index.html),
+      // e esse número precisa ser exatamente esse — as outras razões de descarte
       // vão no `aviso`, no lote e no log, para a frase da tela não mentir.
       ignoradas: preparo.semNome,
       semMatricula: preparo.semMatricula,
@@ -586,7 +596,7 @@ function prepararRegistros_(linhas, mapeamento, contexto) {
 /**
  * Uma linha do arquivo vira um documento.
  *
- * `_id` é a matrícula normalizada — é o campo que `escreverEmLote` usa como nome
+ * `_id` é a matrícula normalizada — é o campo que `escreverEmLote_` usa como nome
  * do documento (02_Repo.gs), e é o contrato inteiro deste arquivo.
  *
  * A matrícula é gravada também como CAMPO, apesar de ser cópia do id. Em
@@ -611,22 +621,22 @@ function montarRegistro_(linha, mapeamento, contexto) {
     reg[campo] = linha[idx];
   });
 
-  reg.nome = formatarNome(reg.nome);
-  reg.cpf = normalizarCpf(reg.cpf);
-  reg.email = normalizarEmail(reg.email);
+  reg.nome = formatarNome_(reg.nome);
+  reg.cpf = normalizarCpf_(reg.cpf);
+  reg.email = normalizarEmail_(reg.email);
   // A forma OFICIAL, como veio do relatório, fica guardada para exibição: é o
   // número que o aluno vê no documento dele, com o zero à esquerda. A chave é a
-  // normalizada, que ignora o zero — ver `normalizarMatricula` em
+  // normalizada, que ignora o zero — ver `normalizarMatricula_` em
   // 04_Inscricoes.gs. Guardar só a chave faria o painel mostrar um número
   // diferente do que a secretaria emitiu.
   reg.matricula_oficial = String(reg.matricula || '').trim();
   reg.matricula = matriculaUtilizavel_(reg.matricula);
   if (reg.matricula_oficial === reg.matricula) reg.matricula_oficial = '';
-  reg.telefone = normalizarTelefone(reg.telefone);
-  reg.data_nascimento = normalizarData(reg.data_nascimento);
+  reg.telefone = normalizarTelefone_(reg.telefone);
+  reg.data_nascimento = normalizarData_(reg.data_nascimento);
   // TURMA É CHAVE DE COMPARAÇÃO, e por isso não basta aparar espaço.
   //
-  // O cruzamento "quem da turma ainda não se inscreveu" (`matriculadosDaDisciplina`,
+  // O cruzamento "quem da turma ainda não se inscreveu" (`matriculadosDaDisciplina_`,
   // 12_Disciplinas.gs) casa `matriculados.turma` com a turma da disciplina por
   // filtro de igualdade do Firestore — que não sabe comparar ignorando a caixa, e
   // ler a coleção inteira para filtrar em JavaScript comeria a cota de leitura de
@@ -639,12 +649,12 @@ function montarRegistro_(linha, mapeamento, contexto) {
   // linha, acontece uma vez por aluno importado, e mantém a consulta sendo uma
   // igualdade simples no índice automático de campo único.
   //
-  // `curso` NÃO sobe para caixa alta — ver `normalizarNomeDeCurso` (01_Utils.gs):
+  // `curso` NÃO sobe para caixa alta — ver `normalizarNomeDeCurso_` (01_Utils.gs):
   // é nome próprio lido por gente, e nenhuma consulta o casa contra outro
   // cadastro. Dele só se colapsa espaço repetido, que é o que faria o mesmo curso
   // virar duas linhas no histograma de "Alunos por curso".
-  reg.curso = normalizarNomeDeCurso(reg.curso);
-  reg.turma = normalizarTurma(reg.turma);
+  reg.curso = normalizarNomeDeCurso_(reg.curso);
+  reg.turma = normalizarTurma_(reg.turma);
   reg.situacao = String(reg.situacao || '').trim();
 
   reg._id = reg.matricula;
@@ -664,7 +674,7 @@ function montarRegistro_(linha, mapeamento, contexto) {
  * quem DIGITA; a larga é para quem IMPORTA o que veio.
  */
 function matriculaUtilizavel_(bruta) {
-  var m = normalizarMatricula(bruta);
+  var m = normalizarMatricula_(bruta);
   if (m.length < MATRICULA_MIN || m.length > MATRICULA_MAX) return '';
   return m;
 }
@@ -764,7 +774,7 @@ function cabecalhoDoLote_(doArquivo, informada, registros) {
 
   if (informada !== undefined && informada !== null) {
     var digitada = String(informada).trim();
-    var chave = normalizarTurma(digitada).slice(0, TURMA_CABECALHO_MAX);
+    var chave = normalizarTurma_(digitada).slice(0, TURMA_CABECALHO_MAX);
     if (!chave) {
       saida.turma = ''; saida.turmaBruta = ''; saida.origem = '';
     } else if (chave !== automatico.turma) {
@@ -796,7 +806,7 @@ function gravarMatriculados_(registros) {
   for (var inicio = 0; inicio < registros.length; inicio += IMPORTACAO_BLOCO) {
     var bloco = registros.slice(inicio, inicio + IMPORTACAO_BLOCO);
     try {
-      gravados += escreverEmLote(MATRICULADOS_COLECAO, bloco);
+      gravados += escreverEmLote_(MATRICULADOS_COLECAO, bloco);
     } catch (e) {
       return { gravados: gravados, falha: e };
     }
@@ -810,8 +820,8 @@ function gravarMatriculados_(registros) {
 /**
  * O registro da importação.
  *
- * `status` é o que a aba "Importações" mostra (Admin.html:1329), então ele
- * precisa contar a verdade em uma palavra. 'SUBSTITUIU' não é uma delas: nada
+ * `status` é o que a aba "Importações" mostra (docs/painel/index.html), então
+ * ele precisa contar a verdade em uma palavra. 'SUBSTITUIU' não é uma delas: nada
  * foi apagado. O que foi PEDIDO fica em `substituir_pedido`, separado do que foi
  * FEITO — é a diferença que alguém vai querer conferir no dia em que uma
  * matrícula antiga aparecer numa lista que deveria ter sido substituída.
@@ -819,14 +829,14 @@ function gravarMatriculados_(registros) {
 function registrarLote_(dados) {
   try {
     // A turma do relatório, nos SETE campos abaixo de `status`. Vai no mesmo
-    // `inserir`, e por isso custa zero a mais. Quem chama sem cabeçalho (o teste
+    // `inserir_`, e por isso custa zero a mais. Quem chama sem cabeçalho (o teste
     // do painel, um lote reconstituído à mão) grava os campos vazios — vazio é
     // "sem chave", que é o que um lote sem cabeçalho é.
     var cab = dados.cabecalho || {};
     var lote = {
       // `criado_em` é UTC de largura fixa, como no log: quem for listar lotes
       // ordena por ele, e nunca por `__name__` DESCENDING — que exigiria índice
-      // (ver `ultimosRegistros`, 04_Log.gs). Sai do próprio id, e não de um
+      // (ver `ultimosRegistros_`, 04_Log.gs). Sai do próprio id, e não de um
       // segundo relógio, para os dois contarem a mesma hora por construção.
       criado_em: String(dados.loteId).split('_')[0],
       arquivo: dados.arquivo,
@@ -849,7 +859,7 @@ function registrarLote_(dados) {
     // arquivo é o motivo mais provável de a chave ter ficado vazia.
     if (cab.turmas && cab.turmas.length > 1) lote.turmas_no_arquivo = JSON.stringify(cab.turmas);
 
-    inserir(LOTES_COLECAO, lote, dados.loteId);
+    inserir_(LOTES_COLECAO, lote, dados.loteId);
   } catch (e) {
     // Mesma regra do log: a trilha não pode derrubar quem a chamou. A
     // importação já gravou os alunos; perder o registro do lote é ruim, virar
@@ -873,7 +883,7 @@ var EXPURGO_MAX = 5000;
  * Apaga os matriculados de UMA importação. É a saída de emergência que faltava.
  *
  * O problema que ela resolve: `matriculados` só crescia. A caixa "substituir" do
- * passo 2 sempre foi upsert (ver o cabeçalho), `excluir` nunca era chamada nesta
+ * passo 2 sempre foi upsert (ver o cabeçalho), `excluir_` nunca era chamada nesta
  * coleção, e não havia botão, função nem caminho para reduzi-la. Como
  * `colecaoCompleta_` (06_Reconciliacao.gs) recusa acima de 8.000 documentos por
  * coleção, no quarto semestre a reconciliação pararia de rodar — e a mensagem de
@@ -893,14 +903,14 @@ var EXPURGO_MAX = 5000;
  *   expurgo         1 agregação + N leituras (blocos de 500) + N escritas
  *                   (blocos de 500), mais 1 patch no lote e 1 log.
  *
- * A consulta filtra por `lote_id` e não declara ordenação: `listar` cai em
+ * A consulta filtra por `lote_id` e não declara ordenação: `listar_` cai em
  * `__name__` ASCENDENTE, que todo índice automático de campo único já cobre.
  * Filtrar por um campo e ordenar por outro pediria índice composto.
  */
-function expurgarLote(payload) {
+function expurgarLote_(payload) {
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
 
     var loteId = String(payload.loteId || '').trim();
     if (!loteId) return { ok: false, erro: 'Informe qual importação deve ser apagada.' };
@@ -909,7 +919,7 @@ function expurgarLote(payload) {
     // custa 1 leitura e responde "quanto isto vai custar e quanto vai sumir"
     // sem trazer um documento. A tela pergunta com `contarApenas` e só então
     // pede confirmação, com o número na frase.
-    var total = contar(MATRICULADOS_COLECAO, { campo: 'lote_id', valor: loteId });
+    var total = contar_(MATRICULADOS_COLECAO, { campo: 'lote_id', valor: loteId });
 
     if (payload.contarApenas) return { ok: true, total: total, apagados: 0 };
 
@@ -939,29 +949,29 @@ function expurgarLote(payload) {
     var ids = [];
     var cursor = null;
     do {
-      var pagina = listar(MATRICULADOS_COLECAO, {
+      var pagina = listar_(MATRICULADOS_COLECAO, {
         campo: 'lote_id', valor: loteId, limite: IMPORTACAO_BLOCO, cursor: cursor
       });
       pagina.itens.forEach(function (m) { if (m._id) ids.push(m._id); });
       cursor = pagina.cursor;
     } while (cursor && ids.length < EXPURGO_MAX);
 
-    var apagados = excluirEmLote(MATRICULADOS_COLECAO, ids);
+    var apagados = excluirEmLote_(MATRICULADOS_COLECAO, ids);
 
     // O lote não some junto: ele é a trilha de "quem importou o quê", e apagar a
     // trilha do expurgo seria apagar a resposta da única pergunta que alguém vai
     // fazer depois. Ele muda de estado.
     try {
-      atualizar(LOTES_COLECAO, loteId, {
+      atualizar_(LOTES_COLECAO, loteId, {
         status: 'EXPURGADO',
-        expurgado_em: agora(),
-        expurgado_por: usuarioAtual()
+        expurgado_em: agora_(),
+        expurgado_por: usuarioAtual_()
       });
     } catch (e) {
       console.error('expurgarLote (marca do lote): ' + e.message);
     }
 
-    registrar('LOTE_EXPURGADO', 'lote', loteId, apagados + ' matriculado(s) apagado(s)');
+    registrar_('LOTE_EXPURGADO', 'lote', loteId, apagados + ' matriculado(s) apagado(s)');
 
     return {
       ok: true,
@@ -981,7 +991,7 @@ function expurgarLote(payload) {
  *
  * Mesma forma do id do log (04_Log.gs), e pelo mesmo motivo: id e ordem contam a
  * mesma hora. O sufixo aleatório existe porque milissegundo não é chave, e
- * colisão aqui não é lote duplicado — é lote PERDIDO, já que `inserir` recusa id
+ * colisão aqui não é lote duplicado — é lote PERDIDO, já que `inserir_` recusa id
  * ocupado.
  */
 function loteId_() {
@@ -1150,7 +1160,7 @@ function extrairDePdf_(blob, nome) {
 // XmlService. Comparar o nome local funciona também quando o gerador usa prefixo
 // (`x:row`), que acontece com arquivos que passaram por outras ferramentas.
 
-/** Serial 0 do Excel é 30/12/1899, a mesma âncora que `normalizarData` usa. */
+/** Serial 0 do Excel é 30/12/1899, a mesma âncora que `normalizarData_` usa. */
 var XLSX_EPOCA_MS = Date.UTC(1899, 11, 30);
 
 /**
@@ -1245,7 +1255,7 @@ function textoDoSi_(si) {
  *
  * O .xlsx não guarda "isto é uma data": guarda um número e um formato. Sem olhar
  * o formato, a data de nascimento chegaria à tela como 45678 — e
- * `normalizarData` devolveria vazio, porque ela só reconhece serial quando ele
+ * `normalizarData_` devolveria vazio, porque ela só reconhece serial quando ele
  * vem como número, e aqui tudo já virou texto. O antigo caminho pelo Sheets
  * resolvia isso sozinho (devolvia Date); este precisa resolver na mão.
  */
@@ -1413,8 +1423,9 @@ function colunaDaCelula_(referencia, padrao) {
 /**
  * O valor de uma célula, sempre como texto.
  *
- * Texto porque a pré-visualização volta ao cliente por `google.script.run`, que
- * não serializa Date, e porque é como o dado vai ser gravado de qualquer forma.
+ * Texto porque a pré-visualização volta ao cliente no JSON da resposta, onde um
+ * Date chegaria como texto ISO em UTC, e não como a célula mostra; e porque é
+ * como o dado vai ser gravado de qualquer forma.
  */
 function valorDaCelula_(c, textos, estilos) {
   var tipo = xmlAtributo_(c, 't') || 'n';
@@ -1450,7 +1461,7 @@ function valorDaCelula_(c, textos, estilos) {
 /**
  * Serial do Excel -> texto, do mesmo jeito que o caminho pelo Sheets devolvia.
  *
- * Data vira 'aaaa-mm-dd' (o formato que `normalizarData` produz e que o sistema
+ * Data vira 'aaaa-mm-dd' (o formato que `normalizarData_` produz e que o sistema
  * inteiro usa); hora pura, que é ancorada em 30/12/1899, viraria uma data
  * absurda e por isso sai só como hora.
  *
@@ -1476,7 +1487,7 @@ function sugerirMapeamento_(cabecalhos) {
   var scores = {};
 
   cabecalhos.forEach(function (c, i) {
-    var palpite = adivinharCampo(c);
+    var palpite = adivinharCampo_(c);
     if (!palpite) return;
     // Se duas colunas disputam o mesmo campo, fica a de maior score.
     if (scores[palpite.campo] === undefined || palpite.score > scores[palpite.campo]) {
@@ -1501,13 +1512,13 @@ function sugerirMapeamento_(cabecalhos) {
 function salvarTemporario_(nomeArquivo, dados) {
   var conteudo = JSON.stringify({
     arquivo: nomeArquivo,
-    criado_em: agora(),
+    criado_em: agora_(),
     cabecalhos: dados.cabecalhos,
     linhas: dados.linhas,
     texto_bruto: dados.texto_bruto || '',
     cabecalho: dados.cabecalho || null
   });
-  var blob = Utilities.newBlob(conteudo, MimeType.PLAIN_TEXT, uid('tmp') + '.json');
+  var blob = Utilities.newBlob(conteudo, MimeType.PLAIN_TEXT, uid_('tmp') + '.json');
   return driveCriarArquivo_(pastaTemp_(), blob).id;
 }
 
@@ -1540,14 +1551,25 @@ function pastaTemp_() {
  *
  * Os arquivos guardam a lista de alunos inteira; deixá-los acumulando no Drive é
  * dado pessoal parado sem prazo.
+ *
+ * O NOME É FIXO pelo mesmo motivo dos GATILHO_* do projeto: se o acionador foi
+ * instalado pela tela, ele chama por este nome. E a primeira linha confere quem
+ * chama (`exigirGatilhoOuDono_`, 07_Auth.gs) — o acionador deste projeto, ou o
+ * dono rodando no editor.
  */
-function limparTemporariosAntigos() {
+function limparTemporariosAntigos(e) {
+  exigirGatilhoOuDono_(e);
+  return limparTemporariosAntigos_();
+}
+
+/** O trabalho de `limparTemporariosAntigos`, depois da guarda. É esta que o código chama por dentro. */
+function limparTemporariosAntigos_() {
   var limite = new Date().getTime() - 24 * 60 * 60 * 1000;
   var n = 0;
   driveListar_(pastaTemp_()).forEach(function (f) {
     if (new Date(f.createdTime).getTime() < limite) { driveDescartar_(f.id); n++; }
   });
-  if (n) registrar('LIMPEZA', 'temporarios', '', n + ' arquivos removidos');
+  if (n) registrar_('LIMPEZA', 'temporarios', '', n + ' arquivos removidos');
   return n;
 }
 
@@ -1562,7 +1584,7 @@ function limparTemporariosAntigos() {
  * diferença mora no OCR do Drive, que só roda dentro do Apps Script — não há
  * como reproduzi-la fora, e adivinhar já custou três hipóteses erradas.
  *
- * Esta função refaz, PASSO A PASSO, o que `confirmarImportacao` faria com o
+ * Esta função refaz, PASSO A PASSO, o que `confirmarImportacao_` faria com o
  * último arquivo analisado, e imprime o que encontra em cada etapa. Quando o
  * número cai — 39 linhas viram 1 registro —, o log diz exatamente entre quais
  * duas etapas isso aconteceu.
@@ -1580,6 +1602,12 @@ function limparTemporariosAntigos() {
  * é a mesma cicatriz de `liberarMeuAcesso` (07b_LinkPorEmail.gs).
  */
 function diagnosticarImportacao() {
+  exigirDono_();
+  return diagnosticarImportacao_();
+}
+
+/** O trabalho de `diagnosticarImportacao`, depois da guarda. É esta que o código chama por dentro. */
+function diagnosticarImportacao_() {
   Logger.log('=== diagnosticarImportacao ===');
 
   var temporarios;
@@ -1668,7 +1696,7 @@ function diagnosticarImportacao() {
   Logger.log('');
 
   // ----------------------------------------------------------- 3. os registros
-  var contexto = { loteId: 'diagnostico', quando: agora(), quem: 'diagnostico' };
+  var contexto = { loteId: 'diagnostico', quando: agora_(), quem: 'diagnostico' };
   var preparo = prepararRegistros_(linhas, mapeamento, contexto);
 
   Logger.log('--- 3. o que sobreviveria ao preparo ---');

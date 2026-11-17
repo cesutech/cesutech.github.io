@@ -14,7 +14,7 @@
  *   3. O CONTRATO COM O PAINEL. `matricula_id` e `inscricao_id` são endereços de
  *      verdade (leitura de ponto), `cpf` e `email` existem mesmo vazios, e não há
  *      campo `id`. Quando 10_Painel.gs está presente, o teste exercita
- *      `resolverAluno` e `detalheAluno` de verdade sobre o que este arquivo grava.
+ *      `resolverAluno_` e `detalheAluno_` de verdade sobre o que este arquivo grava.
  *   4. A cascata, degrau por degrau, com os limiares que vieram da produção.
  *   5. A sincronização do Forms, inclusive o que ela NÃO faz sem `form_id`.
  *
@@ -46,7 +46,7 @@ const TEM_PAINEL = fs.existsSync(path.join(PASTA_GS, '10_Painel.gs'));
 /**
  * Ambiente com sessão de administrador já aberta.
  *
- * O relógio é sempre controlado: `agora()` carimba `atualizado_em`, e provar que
+ * O relógio é sempre controlado: `agora_()` carimba `atualizado_em`, e provar que
  * ele NÃO mudou quando nada mudou exige poder fazer o tempo andar de propósito.
  */
 function ambiente(opcoes) {
@@ -74,15 +74,15 @@ function semearMatriculado(amb, dados) {
     data_nascimento: '', curso: '', turma: '', situacao: '', raw_json: '[]'
   }, dados);
 
-  reg.matricula = amb.api.normalizarMatricula(reg.matricula);
+  reg.matricula = amb.api.normalizarMatricula_(reg.matricula);
   reg._id = reg.matricula;
-  amb.api.escreverEmLote('matriculados', [reg]);
+  amb.api.escreverEmLote_('matriculados', [reg]);
   return reg;
 }
 
 /** Grava uma inscrição pelo caminho de verdade — a chave de dedup é a real. */
 function semearInscricao(amb, dados) {
-  return amb.api.gravarInscricao(dados);
+  return amb.api.gravarInscricao_(dados);
 }
 
 /**
@@ -108,7 +108,7 @@ function requisicoesDesde(amb, marca) {
 
 /** Os alunos gravados, como o painel os leria. */
 function alunosGravados(amb) {
-  return amb.api.listar('alunos', {}).itens;
+  return amb.api.listar_('alunos', {}).itens;
 }
 
 function alunoPorNome(amb, nome) {
@@ -197,11 +197,11 @@ teste('a segunda rodada com o mesmo dado não faz NENHUMA escrita', () => {
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADM' });
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1', projeto_nome: 'R+ CIDADES' });
 
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const marca = amb.falso.requisicoes.length;
   amb.relogio.avancar(3600 * 1000);
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   igual(escritasDesde(amb, marca).length, 0, 'a segunda rodada escreveu');
   igual(resumo.escritos, 0);
@@ -213,11 +213,11 @@ teste('nem o log é escrito quando nada mudou', () => {
   // O log é uma escrita como qualquer outra, e sai da mesma cota das inscrições.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  const antes = amb.api.contar('log');
-  amb.api.reconciliar();
-  igual(amb.api.contar('log'), antes, 'rodada sem mudança anotou no log');
+  const antes = amb.api.contar_('log');
+  amb.api.reconciliar_();
+  igual(amb.api.contar_('log'), antes, 'rodada sem mudança anotou no log');
 });
 
 teste('a primeira rodada grava em bloco, não um documento por vez', () => {
@@ -227,7 +227,7 @@ teste('a primeira rodada grava em bloco, não um documento por vez', () => {
   }
 
   const marca = amb.falso.requisicoes.length;
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   igual(resumo.total, 30);
   igual(resumo.escritos, 30);
@@ -241,15 +241,15 @@ teste('atualizado_em só muda quando o conteúdo muda', () => {
   // na comparação, todo documento seria diferente em toda rodada.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const primeiro = alunoPorNome(amb, 'Ana Paula Souza').atualizado_em;
 
   amb.relogio.avancar(2 * 3600 * 1000);
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').atualizado_em, primeiro, 'carimbo mexeu à toa');
 
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', turma: 'ADS21' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const depois = alunoPorNome(amb, 'Ana Paula Souza');
   igual(depois.turma, 'ADS21');
   verdadeiro(depois.atualizado_em !== primeiro, 'mudou o dado e o carimbo ficou parado');
@@ -259,14 +259,14 @@ teste('mudar um aluno reescreve só ele', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADS' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   // Turma, e não curso: mexer no curso mexeria também no agregado, e o teste
   // deixaria de medir só a diferença de alunos.
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADS', turma: 'B' });
 
   const marca = amb.falso.requisicoes.length;
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   igual(resumo.escritos, 1);
   igual(resumo.inalterados, 1);
@@ -282,12 +282,12 @@ grupo('id determinístico, derivado da matrícula');
 teste('o id do aluno é o mesmo em rodadas diferentes', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const primeiro = alunoPorNome(amb, 'Ana Paula Souza')._id;
 
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza')._id, primeiro);
-  igual(amb.api.contar('alunos'), 1, 'a segunda rodada criou documento novo');
+  igual(amb.api.contar_('alunos'), 1, 'a segunda rodada criou documento novo');
 });
 
 teste('o id sai da matrícula: os dois lados da mesma pessoa são um documento só', () => {
@@ -296,9 +296,9 @@ teste('o id sai da matrícula: os dois lados da mesma pessoa são um documento s
 
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  igual(amb.api.contar('alunos'), 1);
+  igual(amb.api.contar_('alunos'), 1);
   igual(alunoPorNome(amb, 'Ana Paula Souza')._id, chave, 'o id não veio da matrícula');
 });
 
@@ -307,7 +307,7 @@ teste('quem estava só na lista oficial vira confirmado no MESMO documento', () 
   // aluno. No dia do auditório são centenas de alunos fazendo isso de uma vez.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const antes = alunoPorNome(amb, 'Ana Paula Souza');
   igual(antes.status, 'SO_MATRICULADO');
@@ -315,7 +315,7 @@ teste('quem estava só na lista oficial vira confirmado no MESMO documento', () 
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1', projeto_nome: 'R+ CIDADES' });
 
   const marca = amb.falso.requisicoes.length;
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   const depois = alunoPorNome(amb, 'Ana Paula Souza');
 
   igual(depois._id, antes._id, 'o documento trocou de endereço');
@@ -337,7 +337,7 @@ teste('a mesma pessoa em dois projetos é uma linha com os dois projetos', () =>
   amb.relogio.avancar(60 * 1000);
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p2', projeto_nome: 'CESUTECH DIGITAL' });
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   const aluno = alunoPorNome(amb, 'Ana Paula Souza');
 
   igual(resumo.total, 1);
@@ -359,7 +359,7 @@ teste('a segunda inscrição da mesma pessoa não rouba o matriculado de outra',
   amb.relogio.avancar(60 * 1000);
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'familia@exemplo.com', matricula: '09110001', projeto_id: 'p2', projeto_nome: 'Segundo' });
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   igual(resumo.total, 2);
   igual(alunoPorNome(amb, 'Pedro Souza').status, 'SO_MATRICULADO');
   igual(alunoPorNome(amb, 'Ana Paula Souza').projeto, 'Primeiro | Segundo');
@@ -371,7 +371,7 @@ teste('a inscrição mais antiga é a que manda no resto da linha', () => {
   amb.relogio.avancar(24 * 3600 * 1000);
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'nova@exemplo.com', matricula: '09110001', projeto_id: 'p2', projeto_nome: 'Segundo' });
 
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const aluno = alunoPorNome(amb, 'Ana Paula Souza');
   igual(aluno.email, 'antiga@exemplo.com');
   igual(aluno.projeto, 'Primeiro | Segundo');
@@ -381,10 +381,10 @@ teste('inscrição sem nada que identifique ainda ganha linha própria', () => {
   // Sem chave de pessoa, duas linhas em branco cairiam no mesmo documento e uma
   // sumiria calada. O id de origem garante que cada uma apareça para revisão.
   const amb = ambiente();
-  amb.api.inserir('inscricoes', { criado_em: '2026-08-01 09:00:00', nome: '', email: '', cpf: '', matricula: '' }, 'sem_um');
-  amb.api.inserir('inscricoes', { criado_em: '2026-08-01 09:01:00', nome: '', email: '', cpf: '', matricula: '' }, 'sem_dois');
+  amb.api.inserir_('inscricoes', { criado_em: '2026-08-01 09:00:00', nome: '', email: '', cpf: '', matricula: '' }, 'sem_um');
+  amb.api.inserir_('inscricoes', { criado_em: '2026-08-01 09:01:00', nome: '', email: '', cpf: '', matricula: '' }, 'sem_dois');
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   igual(resumo.total, 2);
   igual(resumo.so_inscrito, 2);
 });
@@ -404,7 +404,7 @@ function comLista(amb) {
 teste('0. matrícula igual confirma', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana P Souza', email: 'outro@exemplo.com', matricula: '091.100-01' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.status, 'CONFIRMADO');
@@ -416,7 +416,7 @@ teste('0. matrícula igual confirma', () => {
 teste('0b. matrícula igual com nome de outra pessoa vira divergência', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Joao Carlos Pereira', email: 'joao@exemplo.com', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.status, 'DIVERGENCIA');
@@ -426,21 +426,21 @@ teste('0b. matrícula igual com nome de outra pessoa vira divergência', () => {
 teste('1. CPF igual confirma', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@provedor.com', cpf: '529.982.247-25' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').metodo_match, 'CPF');
 });
 
 teste('1b. CPF igual com nome de outra pessoa vira divergência', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Joao Carlos Pereira', email: 'joao@exemplo.com', cpf: '52998224725' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'DIVERGENCIA');
 });
 
 teste('2. e-mail igual confirma, com score 0.9', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ANA@unicesusc.br' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.metodo_match, 'E-mail');
@@ -450,7 +450,7 @@ teste('2. e-mail igual confirma, com score 0.9', () => {
 teste('2b. e-mail igual com CPFs diferentes vira divergência', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@unicesusc.br', cpf: '11144477735' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.status, 'DIVERGENCIA');
@@ -460,14 +460,14 @@ teste('2b. e-mail igual com CPFs diferentes vira divergência', () => {
 teste('3. nome mais data de nascimento confirma', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'ana paula souza', email: 'outra@exemplo.com', data_nascimento: '15/04/2003' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').metodo_match, 'Nome + nascimento');
 });
 
 teste('4. nome exato e único NÃO confirma sozinho', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.status, 'DIVERGENCIA');
@@ -480,7 +480,7 @@ teste('4b. homônimos na lista oficial não escolhem ninguém', () => {
   semearMatriculado(amb, { nome: 'Maria Silva', matricula: '09110002' });
   semearInscricao(amb, { nome: 'Maria Silva', email: 'maria@exemplo.com' });
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   igual(resumo.divergencia, 1);
   igual(resumo.so_matriculado, 2, 'os dois homônimos continuam sem dono');
 
@@ -496,7 +496,7 @@ teste('5. nome parecido sugere, e nunca confirma', () => {
   // apertado de propósito, e trocar o teste por um nome mais distante
   // esconderia isso.
   semearInscricao(amb, { nome: 'Anna Paula Souza', email: 'outra@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const a = alunoPorNome(amb, 'Ana Paula Souza');
   igual(a.status, 'DIVERGENCIA');
@@ -506,7 +506,7 @@ teste('5. nome parecido sugere, e nunca confirma', () => {
 teste('quem não casa com nada fica SO_INSCRITO', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Carlos Eduardo Mendes', email: 'carlos@exemplo.com', matricula: '09999999' });
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   igual(resumo.so_inscrito, 1);
   igual(resumo.so_matriculado, 1);
@@ -519,7 +519,7 @@ teste('um matriculado não é usado por duas inscrições', () => {
   amb.relogio.avancar(60 * 1000);
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'sosia@exemplo.com', cpf: '11144477735' });
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   igual(resumo.total, 2, 'as duas inscrições têm chave de pessoa diferente');
   igual(resumo.confirmado, 1, 'o mesmo matriculado casou duas vezes');
 });
@@ -529,7 +529,7 @@ teste('o telefone da lista oficial socorre quem nunca se inscreveu', () => {
   // justamente o aluno que a coordenação precisa procurar.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', telefone: '(48) 99999-1111' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').telefone, '48999991111');
 });
 
@@ -538,7 +538,7 @@ teste('o telefone da lista oficial socorre quem nunca se inscreveu', () => {
 grupo('a decisão da coordenação sobrevive à rodada seguinte');
 
 function revisar(amb, id, status) {
-  amb.api.atualizar('alunos', id, {
+  amb.api.atualizar_('alunos', id, {
     status: status,
     observacoes: 'conferido na secretaria',
     revisado_por: 'coordenacao@exemplo.com',
@@ -550,13 +550,13 @@ function revisar(amb, id, status) {
 teste('status revisado à mão não volta ao que a cascata calculou', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
   igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'DIVERGENCIA');
   revisar(amb, id, 'CONFIRMADO');
 
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const depois = alunoPorNome(amb, 'Ana Paula Souza');
   igual(depois.status, 'CONFIRMADO');
   igual(depois.observacoes, 'conferido na secretaria');
@@ -566,25 +566,25 @@ teste('status revisado à mão não volta ao que a cascata calculou', () => {
 teste('e a rodada que a preserva não escreve nada', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   revisar(amb, alunoPorNome(amb, 'Ana Paula Souza')._id, 'CONFIRMADO');
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(escritasDesde(amb, marca).length, 0);
 });
 
 teste('dado novo na lista oficial entra sem apagar a revisão', () => {
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   revisar(amb, alunoPorNome(amb, 'Ana Paula Souza')._id, 'CONFIRMADO');
 
   semearMatriculado(amb, {
     nome: 'Ana Paula Souza', matricula: '09110001', cpf: '52998224725',
     email: 'ana@unicesusc.br', data_nascimento: '2003-04-15', curso: 'ADS', turma: 'ADS31'
   });
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   const depois = alunoPorNome(amb, 'Ana Paula Souza');
   igual(resumo.escritos, 1);
@@ -600,12 +600,12 @@ teste('a revisão é casada por documento, não por nome parecido', () => {
   const amb = ambiente();
   semearInscricao(amb, { nome: 'Maria Silva', email: 'maria1@exemplo.com', matricula: '09110001' });
   semearInscricao(amb, { nome: 'Maria Silva', email: 'maria2@exemplo.com', matricula: '09110002' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const alunos = alunosGravados(amb);
   igual(alunos.length, 2);
   revisar(amb, alunos[0]._id, 'CONFIRMADO');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const depois = alunosGravados(amb);
   igual(depois.filter((a) => a.revisado_por).length, 1, 'a decisão vazou para a homônima');
@@ -615,10 +615,10 @@ teste('a revisão é casada por documento, não por nome parecido', () => {
 
 grupo('o cancelado da lista oficial — status próprio, e só sem inscrição');
 
-/** A marca como `aplicarRevisao` (05c_Revisao.gs) a grava: PATCH dos 4 campos. */
+/** A marca como `aplicarRevisao_` (05c_Revisao.gs) a grava: PATCH dos 4 campos. */
 function cancelarNaLista(amb, matricula) {
-  amb.api.atualizarEmLote('matriculados', [{
-    _id: amb.api.normalizarMatricula(matricula),
+  amb.api.atualizarEmLote_('matriculados', [{
+    _id: amb.api.normalizarMatricula_(matricula),
     situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'coordenacao@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
   }]);
@@ -630,7 +630,7 @@ teste('cancelado SEM inscrição vira CANCELADO, com a marca e a data copiadas',
   // faltasse se inscrever.
   const amb = comLista(ambiente());
   cancelarNaLista(amb, '09110001');
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   const ana = alunoPorNome(amb, 'Ana Paula Souza');
   igual(ana.status, 'CANCELADO');
@@ -648,7 +648,7 @@ teste('cancelado COM inscrição fica com o status da cascata — ocupa vaga —
   const amb = comLista(ambiente());
   cancelarNaLista(amb, '09110001');
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
 
   const ana = alunoPorNome(amb, 'Ana Paula Souza');
   igual(ana.status, 'CONFIRMADO');
@@ -662,10 +662,10 @@ teste('cancelado COM inscrição fica com o status da cascata — ocupa vaga —
 teste('a segunda rodada sobre o cancelado não escreve nada', () => {
   const amb = comLista(ambiente());
   cancelarNaLista(amb, '09110001');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(escritasDesde(amb, marca).length, 0);
 });
 
@@ -674,7 +674,7 @@ teste('fichas anteriores à marca NÃO são reescritas por causa dos dois campos
   // `situacao_cadastro` como algo diferente de '' para o ativo — os 2.500
   // existentes seriam regravados na primeira rodada depois do deploy.
   const amb = comLista(ambiente());
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
 
   // Uma ficha "de antes": sem as duas chaves, como a rodada anterior gravava.
@@ -683,7 +683,7 @@ teste('fichas anteriores à marca NÃO são reescritas por causa dos dois campos
   delete bruto.cancelado_em;
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(escritasDesde(amb, marca).length, 0, 'a ficha antiga foi reescrita só para ganhar as chaves vazias');
 });
 
@@ -697,16 +697,16 @@ teste('a revisão humana não segura o cancelado, e as observações ficam', () 
   // ficha de depois seria OUTRO documento, e não haveria o que preservar.
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
   revisar(amb, id, 'DIVERGENCIA');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'DIVERGENCIA', 'a decisão humana vale enquanto a pessoa está na lista');
 
   // A inscrição some (anulada pela revisão) e a lista cancela a pessoa.
-  amb.api.excluir('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
+  amb.api.excluir_('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
   cancelarNaLista(amb, '09110001');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const cancelada = alunoPorNome(amb, 'Ana Paula Souza');
   igual(cancelada._id, id, 'a ficha tem de ser a mesma');
@@ -721,17 +721,17 @@ teste('reativada pela reimportação, a ficha sai de CANCELADO (não fica presa)
   // que derruba: tirar `atual.status !== CANCELADO` de `preservarRevisao_`.
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunoPorNome(amb, 'Ana Paula Souza')._id;
   revisar(amb, id, 'DIVERGENCIA');
-  amb.api.excluir('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
+  amb.api.excluir_('inscricoes', alunoPorNome(amb, 'Ana Paula Souza').inscricao_id);
   cancelarNaLista(amb, '09110001');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'CANCELADO');
 
   // A reimportação: o documento da lista volta inteiro, sem a marca.
   comLista(amb);
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const voltou = alunoPorNome(amb, 'Ana Paula Souza');
   igual(voltou.status, 'SO_MATRICULADO', 'o status recalculado tem de vencer o CANCELADO gravado');
@@ -748,9 +748,9 @@ teste('o histograma de cursos não conta o cancelado', () => {
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADS' });
   cancelarNaLista(amb, '09110002');
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  igual(amb.api.ler('agregados', 'cursos').ADS, '1');
+  igual(amb.api.ler_('agregados', 'cursos').ADS, '1');
 });
 
 // ------------------------------------------------------------ Remoções
@@ -761,15 +761,15 @@ teste('linha que perdeu as duas origens é apagada', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002' });
-  amb.api.reconciliar();
-  igual(amb.api.contar('alunos'), 2);
+  amb.api.reconciliar_();
+  igual(amb.api.contar_('alunos'), 2);
 
-  amb.api.excluir('matriculados', amb.api.normalizarMatricula('09110002'));
-  const resumo = amb.api.reconciliar();
+  amb.api.excluir_('matriculados', amb.api.normalizarMatricula_('09110002'));
+  const resumo = amb.api.reconciliar_();
 
   igual(resumo.removidos, 1);
   igual(resumo.aviso, '');
-  igual(amb.api.contar('alunos'), 1);
+  igual(amb.api.contar_('alunos'), 1);
   igual(alunosGravados(amb)[0].nome, 'Ana Paula Souza');
 });
 
@@ -779,13 +779,13 @@ teste('cadastro calculado vazio NÃO apaga o que está gravado', () => {
   // divergências já resolvidas.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  amb.api.excluir('matriculados', amb.api.normalizarMatricula('09110001'));
-  const resumo = amb.api.reconciliar();
+  amb.api.excluir_('matriculados', amb.api.normalizarMatricula_('09110001'));
+  const resumo = amb.api.reconciliar_();
 
   igual(resumo.removidos, 0);
-  igual(amb.api.contar('alunos'), 1);
+  igual(amb.api.contar_('alunos'), 1);
   verdadeiro(resumo.aviso.indexOf('Não apaguei nada') === 0, resumo.aviso);
 });
 
@@ -794,17 +794,17 @@ teste('remoção em massa é recusada, e a rodada continua atualizando', () => {
   for (let i = 0; i < 4; i++) {
     semearMatriculado(amb, { nome: 'Aluno Numero ' + i, matricula: '0911050' + i });
   }
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   amb.api.RECONCILIACAO_MAX_REMOCOES = 1;
-  for (let i = 1; i < 4; i++) amb.api.excluir('matriculados', amb.api.normalizarMatricula('0911050' + i));
+  for (let i = 1; i < 4; i++) amb.api.excluir_('matriculados', amb.api.normalizarMatricula_('0911050' + i));
   semearMatriculado(amb, { nome: 'Aluno Numero 0', matricula: '09110500', turma: 'NOVA' });
 
-  const resumo = amb.api.reconciliar();
+  const resumo = amb.api.reconciliar_();
   igual(resumo.removidos, 0);
   igual(resumo.escritos, 1, 'recusar a remoção não pode recusar a atualização');
   verdadeiro(resumo.aviso.indexOf('3 linhas') === 0, resumo.aviso);
-  igual(amb.api.contar('alunos'), 4);
+  igual(amb.api.contar_('alunos'), 4);
 });
 
 // ------------------------------------------------- O incremental de uma pessoa
@@ -813,7 +813,7 @@ grupo('reconciliarPessoa_ — a mesma ficha da rodada, por 2 a 4 requisições')
 
 /** A ficha, sem o carimbo do banco: `_versao` conta escritas, não conteúdo. */
 function fichaDaMatricula(amb, matricula) {
-  const ficha = amb.api.ler('alunos', amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula(matricula)));
+  const ficha = amb.api.ler_('alunos', amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula_(matricula)));
   if (!ficha) return null;
 
   // Chaves ordenadas: o que se compara é CAMPO A CAMPO, e não a ordem em que
@@ -839,11 +839,11 @@ function doisCaminhos(caso) {
 
   [rodada, incremental].forEach((amb) => {
     caso.semear(amb);
-    if (caso.cruzarAntes) amb.api.reconciliar();
+    if (caso.cruzarAntes) amb.api.reconciliar_();
     caso.novidade(amb);
   });
 
-  rodada.api.reconciliar();
+  rodada.api.reconciliar_();
   const r = incremental.api.reconciliarPessoa_(caso.matricula);
   return { rodada: rodada, incremental: incremental, resultado: r };
 }
@@ -913,7 +913,7 @@ CASOS_SEGUROS.forEach((caso) => {
     igual(resultado.feito, true, resultado.motivo);
     igual(resultado.escreveu, true, 'a ficha mudou e o incremental não gravou');
     igual(fichaDaMatricula(incremental, caso.matricula), fichaDaMatricula(rodada, caso.matricula));
-    igual(incremental.api.contar('alunos'), rodada.api.contar('alunos'),
+    igual(incremental.api.contar_('alunos'), rodada.api.contar_('alunos'),
       'o incremental criou ou deixou de criar documento');
   });
 });
@@ -922,7 +922,7 @@ teste('e a rodada seguinte, sobre o que o incremental gravou, não escreve nada'
   // A prova de que os dois caminhos convergem no BANCO, e não só na memória: se o
   // incremental gravasse um campo diferente, a rodada de auditoria reescreveria a
   // ficha e `escritos` seria 1. Mutação que derruba: qualquer divergência de
-  // conteúdo entre `reconciliarPessoa_` e `reconciliar`.
+  // conteúdo entre `reconciliarPessoa_` e `reconciliar_`.
   const amb = comLista(ambiente());
   semearInscricao(amb, {
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
@@ -930,7 +930,7 @@ teste('e a rodada seguinte, sobre o que o incremental gravou, não escreve nada'
   });
 
   igual(amb.api.reconciliarPessoa_('09110001').escreveu, true);
-  igual(amb.api.reconciliar().escritos, 0, 'a rodada discordou do incremental');
+  igual(amb.api.reconciliar_().escritos, 0, 'a rodada discordou do incremental');
 });
 
 teste('o incremental duas vezes seguidas é UMA escrita', () => {
@@ -961,7 +961,7 @@ teste('depois da rodada completa, com o mesmo dado, o incremental não escreve',
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
   });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const marca = amb.falso.requisicoes.length;
   igual(amb.api.reconciliarPessoa_('09110001').escreveu, false);
@@ -970,12 +970,12 @@ teste('depois da rodada completa, com o mesmo dado, o incremental não escreve',
 
 teste('o custo é o do cabeçalho: 2 consultas, 1 leitura de ponto e 1 escrita', () => {
   // O número que justifica a peça inteira: a rodada custa três coleções, este
-  // custa quatro requisições. Mutação que derruba: chamar `reconciliar()` daqui,
+  // custa quatro requisições. Mutação que derruba: chamar `reconciliar_()` daqui,
   // ou reler o matriculado que o chamador já leu.
   const amb = comLista(ambiente());
   // O id do documento na lista oficial é a matrícula NORMALIZADA — o zero à
-  // esquerda é formatação, e `normalizarMatricula` o tira (04_Inscricoes.gs).
-  const oficial = amb.api.ler('matriculados', '9110001');
+  // esquerda é formatação, e `normalizarMatricula_` o tira (04_Inscricoes.gs).
+  const oficial = amb.api.ler_('matriculados', '9110001');
   semearInscricao(amb, {
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
@@ -1004,10 +1004,10 @@ teste('a ficha JÁ CASADA vem da consulta, e não custa leitura de ponto nenhuma
   // trouxe a ficha atual — com o `_versao` junto. Mutação que derruba: ler sempre
   // por id (uma leitura por inclusão, todo dia, para reler o que já está na mão).
   const amb = comLista(ambiente());
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   // O id do documento na lista oficial é a matrícula NORMALIZADA — o zero à
-  // esquerda é formatação, e `normalizarMatricula` o tira (04_Inscricoes.gs).
-  const oficial = amb.api.ler('matriculados', '9110001');
+  // esquerda é formatação, e `normalizarMatricula_` o tira (04_Inscricoes.gs).
+  const oficial = amb.api.ler_('matriculados', '9110001');
   semearInscricao(amb, {
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
@@ -1025,7 +1025,7 @@ teste('a decisão da coordenação sobrevive ao incremental, e ele não grava po
   // observações e o "revisado por" sumiriam em silêncio, e `escreveu` viraria true.
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Joao Carlos Pereira', email: 'joao@exemplo.com', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const id = alunosGravados(amb)[0]._id;
   igual(alunosGravados(amb)[0].status, 'DIVERGENCIA', 'o cenário precisa nascer em divergência');
@@ -1038,7 +1038,7 @@ teste('a decisão da coordenação sobrevive ao incremental, e ele não grava po
   igual(r.escreveu, false, 'a decisão humana não muda nada, logo não há o que gravar');
   igual(escritasDesde(amb, marca).length, 0);
 
-  const ficha = amb.api.ler('alunos', id);
+  const ficha = amb.api.ler_('alunos', id);
   igual(ficha.status, 'CONFIRMADO');
   igual(ficha.observacoes, 'conferido na secretaria');
   igual(ficha.revisado_por, 'coordenacao@exemplo.com');
@@ -1051,19 +1051,19 @@ teste('o CANCELADO da lista oficial passa por cima do status humano — e some q
   // tela, ou a reimportada ficaria presa em CANCELADO para sempre.
   const amb = comLista(ambiente());
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'outra@exemplo.com', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunosGravados(amb)[0]._id;
   revisar(amb, id, 'DIVERGENCIA');
 
-  amb.api.excluir('inscricoes', amb.api.ler('alunos', id).inscricao_id);
+  amb.api.excluir_('inscricoes', amb.api.ler_('alunos', id).inscricao_id);
   cancelarNaLista(amb, '09110001');
   igual(amb.api.reconciliarPessoa_('09110001').status, 'CANCELADO');
-  igual(amb.api.ler('alunos', id).observacoes, 'conferido na secretaria', 'a observação some junto com o status');
+  igual(amb.api.ler_('alunos', id).observacoes, 'conferido na secretaria', 'a observação some junto com o status');
 
   // A reimportação devolve o documento da lista sem a marca.
   comLista(amb);
   igual(amb.api.reconciliarPessoa_('09110001').status, 'SO_MATRICULADO');
-  igual(amb.api.ler('alunos', id).revisado_por, 'coordenacao@exemplo.com');
+  igual(amb.api.ler_('alunos', id).revisado_por, 'coordenacao@exemplo.com');
 });
 
 teste('G1 — sem matrícula, declina com ZERO requisições', () => {
@@ -1106,7 +1106,7 @@ teste('G3 — outra ficha já usa esta matrícula: declina sem escrever', () => 
   // nasceria a SEGUNDA ficha da mesma pessoa, que é o defeito que o id
   // determinístico existe para não ter.
   const amb = comLista(ambiente());
-  amb.api.inserir('alunos', {
+  amb.api.inserir_('alunos', {
     nome: 'Ana Paula Souza', cpf: '', email: '', telefone: '', data_nascimento: '',
     matricula: '09110001', matricula_conferida: 'SIM', projeto: '', curso: '', turma: '',
     situacao: '', status: 'CONFIRMADO', metodo_match: 'CPF', score_match: '1',
@@ -1120,7 +1120,7 @@ teste('G3 — outra ficha já usa esta matrícula: declina sem escrever', () => 
   igual(r.feito, false);
   igual(r.motivo, 'outra ficha do cadastro já usa esta matrícula');
   igual(escritasDesde(amb, marca).length, 0);
-  igual(amb.api.contar('alunos'), 1, 'nasceu uma segunda ficha para a mesma pessoa');
+  igual(amb.api.contar_('alunos'), 1, 'nasceu uma segunda ficha para a mesma pessoa');
 });
 
 teste('G4 — cruzamento que não é do degrau 0 declina, em vez de gravar um palpite', () => {
@@ -1212,7 +1212,7 @@ teste('inscrição SEM projeto entra na conta, como na rodada', () => {
   igual(ficha.inscricao_id, interna.id, 'a inscrição sem projeto é a mais antiga: é dela que a ficha sai');
   igual(ficha.email, 'interna@exemplo.com');
   igual(ficha.projeto, 'R+ CIDADES');
-  igual(amb.api.reconciliar().escritos, 0, 'a rodada discordou do incremental');
+  igual(amb.api.reconciliar_().escritos, 0, 'a rodada discordou do incremental');
 });
 
 teste('o incremental NÃO escreve o histograma de cursos', () => {
@@ -1231,7 +1231,7 @@ teste('o incremental NÃO escreve o histograma de cursos', () => {
   // mesmo, uma requisição.
   const feitas = requisicoesDesde(amb, marca);
 
-  igual(amb.api.ler('agregados', 'cursos'), null, 'o incremental escreveu o agregado');
+  igual(amb.api.ler_('agregados', 'cursos'), null, 'o incremental escreveu o agregado');
   igual(feitas.filter((r) => JSON.stringify(r).indexOf('agregados') !== -1).length, 0,
     'o incremental nem leu o agregado');
 });
@@ -1241,11 +1241,11 @@ teste('o incremental NUNCA apaga ficha', () => {
   // de `planejarRemocoes_` existe para não levar junto decisão humana. Mutação que
   // derruba: mandar apagar a ficha órfã que este cenário deixa para trás.
   const amb = comLista(ambiente());
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunosGravados(amb)[0]._id;
 
   // A pessoa sai da lista oficial e não tem inscrição: a rodada apagaria a ficha.
-  amb.api.excluir('matriculados', '9110001');
+  amb.api.excluir_('matriculados', '9110001');
 
   const marca = amb.falso.requisicoes.length;
   const r = amb.api.reconciliarPessoa_('09110001');
@@ -1253,19 +1253,19 @@ teste('o incremental NUNCA apaga ficha', () => {
   igual(r.feito, false);
   igual(r.motivo, 'a matrícula não está na lista oficial importada');
   igual(requisicoesDesde(amb, marca).filter((q) => q.metodo === 'DELETE').length, 0);
-  verdadeiro(amb.api.ler('alunos', id), 'a ficha foi apagada pelo incremental');
+  verdadeiro(amb.api.ler_('alunos', id), 'a ficha foi apagada pelo incremental');
 });
 
 teste('a ficha mudou entre a leitura e a escrita: declina, e o documento gravado é o do OUTRO', () => {
-  // A precondição de versão, que é a diferença entre `escreverAtomico` e o upsert
-  // cego. Mutação que derruba: trocar por `escreverEmLote` — a escrita passaria
+  // A precondição de versão, que é a diferença entre `escreverAtomico_` e o upsert
+  // cego. Mutação que derruba: trocar por `escreverEmLote_` — a escrita passaria
   // por cima do que a outra aba gravou, sem ninguém saber.
   const amb = comLista(ambiente());
   semearInscricao(amb, {
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
   });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   const id = alunosGravados(amb)[0]._id;
 
   // Alguém grava DEPOIS da leitura da ficha e ANTES da escrita: `preservarRevisao_`
@@ -1274,7 +1274,7 @@ teste('a ficha mudou entre a leitura e a escrita: declina, e o documento gravado
   amb.api.preservarRevisao_ = function (novo, atual) {
     amb.api.preservarRevisao_ = original;
     original(novo, atual);
-    amb.api.atualizar('alunos', id, { observacoes: 'escrito por outra aba' });
+    amb.api.atualizar_('alunos', id, { observacoes: 'escrito por outra aba' });
   };
 
   // Alguma mudança, para o incremental querer gravar.
@@ -1283,7 +1283,7 @@ teste('a ficha mudou entre a leitura e a escrita: declina, e o documento gravado
 
   igual(r.feito, false);
   igual(r.motivo, 'a ficha mudou enquanto eu recalculava');
-  igual(amb.api.ler('alunos', id).observacoes, 'escrito por outra aba', 'a escrita do outro foi sobrescrita');
+  igual(amb.api.ler_('alunos', id).observacoes, 'escrito por outra aba', 'a escrita do outro foi sobrescrita');
 });
 
 teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento do OUTRO fica intacto', () => {
@@ -1293,7 +1293,7 @@ teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento
   //
   // Duas mutações caem aqui, e as duas deixavam a suíte inteira verde:
   //   1. trocar o `criar` por um `gravar` com `versao: atual ? atual._versao : ''`
-  //      — `escreverAtomico` sem versão não põe precondição, vira upsert cego e
+  //      — `escreverAtomico_` sem versão não põe precondição, vira upsert cego e
   //      APAGA a decisão humana que o outro acabou de gravar;
   //   2. ignorar o `jaExistia` da resposta — o `criar` recusado NÃO lança (volta
   //      `{ jaExistia: true }`), então o incremental diria `feito: true` sobre uma
@@ -1304,8 +1304,8 @@ teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
   });
-  const id = amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula('09110001'));
-  igual(amb.api.ler('alunos', id), null, 'o cenário exige a ficha AINDA não existindo: é o ramo do `criar`');
+  const id = amb.api.chaveAluno_('mat:' + amb.api.normalizarMatricula_('09110001'));
+  igual(amb.api.ler_('alunos', id), null, 'o cenário exige a ficha AINDA não existindo: é o ramo do `criar`');
 
   // Outro escritor — a rodada das 5h, o Atualizar de outra aba, uma importação —
   // cria a ficha no mesmo endereço depois da leitura. `preservarRevisao_` é o
@@ -1314,7 +1314,7 @@ teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento
   amb.api.preservarRevisao_ = function (calculado, atual) {
     amb.api.preservarRevisao_ = original;
     original(calculado, atual);
-    amb.api.escreverEmLote('alunos', [{
+    amb.api.escreverEmLote_('alunos', [{
       _id: id, nome: 'Ana Paula Souza', matricula_id: '9110001', matricula: '09110001',
       status: 'DIVERGENCIA', observacoes: 'conferir a matrícula na secretaria',
       revisado_por: 'coordenacao@exemplo.com', revisado_em: '2026-09-22 10:00:00'
@@ -1327,7 +1327,7 @@ teste('a ficha NOVA apareceu entre a leitura e a escrita: declina, e o documento
   igual(r.escreveu, false);
   igual(r.motivo, 'a ficha mudou enquanto eu recalculava');
 
-  const ficha = amb.api.ler('alunos', id);
+  const ficha = amb.api.ler_('alunos', id);
   igual(ficha.status, 'DIVERGENCIA', 'a escrita passou POR CIMA do documento do outro');
   igual(ficha.observacoes, 'conferir a matrícula na secretaria');
   igual(ficha.revisado_por, 'coordenacao@exemplo.com');
@@ -1352,7 +1352,7 @@ teste('`criar` recusado DEPOIS de uma retentativa não afirma que foi outro: ali
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
   });
-  amb.api.escreverAtomico = () => ({ aplicado: false, jaExistia: true, retentou: true, id: '', escritas: 1 });
+  amb.api.escreverAtomico_ = () => ({ aplicado: false, jaExistia: true, retentou: true, id: '', escritas: 1 });
 
   const r = amb.api.reconciliarPessoa_('09110001');
 
@@ -1370,7 +1370,7 @@ teste('erro na escrita vira declínio, e não estouro', () => {
     nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001',
     projeto_id: 'p1', projeto_nome: 'R+ CIDADES'
   });
-  amb.api.escreverAtomico = () => { throw new Error('a rede caiu no meio'); };
+  amb.api.escreverAtomico_ = () => { throw new Error('a rede caiu no meio'); };
 
   const r = amb.api.reconciliarPessoa_('09110001');
 
@@ -1386,7 +1386,7 @@ teste('erro na LEITURA também vira declínio, com o motivo certo', () => {
   // por rede e por cota, e a tela precisa de uma frase verdadeira — nada foi
   // gravado. Mutação que derruba: cobrir só a escrita.
   const amb = comLista(ambiente());
-  amb.api.listar = () => { throw new Error('cota diária de leitura esgotada'); };
+  amb.api.listar_ = () => { throw new Error('cota diária de leitura esgotada'); };
 
   const r = amb.api.reconciliarPessoa_('09110001');
 
@@ -1402,37 +1402,37 @@ teste('os três endereços do detalhe do aluno são leituras de ponto', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
   const inscricao = semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const aluno = alunoPorNome(amb, 'Ana Paula Souza');
-  verdadeiro(amb.api.ler('alunos', aluno._id) !== null, 'o id do aluno não endereça o documento');
+  verdadeiro(amb.api.ler_('alunos', aluno._id) !== null, 'o id do aluno não endereça o documento');
   // O endereço é a matrícula NORMALIZADA — sem o zero à esquerda, que é
   // formatação e não identidade (ver normalizarMatricula em 04_Inscricoes.gs).
   igual(aluno.matricula_id, '9110001');
   igual(aluno.inscricao_id, inscricao.id);
-  verdadeiro(amb.api.ler('matriculados', aluno.matricula_id) !== null, 'matricula_id não é endereço');
-  verdadeiro(amb.api.ler('inscricoes', aluno.inscricao_id) !== null, 'inscricao_id não é endereço');
+  verdadeiro(amb.api.ler_('matriculados', aluno.matricula_id) !== null, 'matricula_id não é endereço');
+  verdadeiro(amb.api.ler_('inscricoes', aluno.inscricao_id) !== null, 'inscricao_id não é endereço');
 });
 
 teste('cpf e email existem em todo documento, mesmo vazios', () => {
-  // `painelEstatisticas` conta "com CPF" como total menos os que têm `cpf`
+  // `painelEstatisticas_` conta "com CPF" como total menos os que têm `cpf`
   // igual a vazio, e no Firestore campo AUSENTE não casa com igualdade. Omitir a
   // chave faria o painel anunciar 100% de CPF em silêncio.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const bruto = amb.falso.documentos.get('alunos/' + alunoPorNome(amb, 'Ana Paula Souza')._id);
   verdadeiro(bruto.cpf !== undefined, 'o campo cpf não foi gravado');
   verdadeiro(bruto.email !== undefined, 'o campo email não foi gravado');
   igual(bruto.cpf.stringValue, '');
-  igual(amb.api.contar('alunos', { campo: 'cpf', valor: '' }), 1);
+  igual(amb.api.contar_('alunos', { campo: 'cpf', valor: '' }), 1);
 });
 
 teste('não existe campo id — o id é o nome do documento', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const bruto = amb.falso.documentos.get('alunos/' + alunoPorNome(amb, 'Ana Paula Souza')._id);
   igual(bruto.id, undefined, 'campo id gravado é uma cópia livre para divergir');
@@ -1464,24 +1464,24 @@ if (TEM_PAINEL) {
     });
     semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
     semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
-    amb.api.reconciliar();
+    amb.api.reconciliar_();
 
-    const lista = amb.api.listarAlunos({ token: amb.token });
+    const lista = amb.api.listarAlunos_({ token: amb.token });
     igual(lista.ok, true);
     igual(lista.itens.length, 1);
     igual(lista.cursos, ['ADS'], 'o filtro de curso saiu do agregado que a reconciliação grava');
 
     const id = lista.itens[0].id;
-    const detalhe = amb.api.detalheAluno({ token: amb.token, id: id });
+    const detalhe = amb.api.detalheAluno_({ token: amb.token, id: id });
     igual(detalhe.ok, true);
     verdadeiro(detalhe.inscricao !== null && detalhe.inscricao !== undefined, 'a inscrição não foi achada');
     verdadeiro(detalhe.matriculado !== null && detalhe.matriculado !== undefined, 'o matriculado não foi achado');
 
-    igual(amb.api.resolverAluno({ token: amb.token, id: id, status: 'DIVERGENCIA', observacoes: 'ver' }).ok, true);
-    amb.api.reconciliar();
+    igual(amb.api.resolverAluno_({ token: amb.token, id: id, status: 'DIVERGENCIA', observacoes: 'ver' }).ok, true);
+    amb.api.reconciliar_();
     igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'DIVERGENCIA', 'a rodada desfez a revisão do painel');
 
-    const stats = amb.api.painelEstatisticas({ token: amb.token });
+    const stats = amb.api.painelEstatisticas_({ token: amb.token });
     igual(stats.dados.total, 1);
     igual(stats.dados.qualidade.percMatricula, 100, 'a inscrição trouxe matrícula, e é ela a chave medida');
     igual(stats.dados.porCurso, [{ curso: 'ADS', total: 1 }]);
@@ -1497,9 +1497,9 @@ teste('um campo por curso, e o rótulo de quem não tem curso é um nome de verd
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', curso: 'ADS' });
   semearMatriculado(amb, { nome: 'Carla Dias', matricula: '09110003' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  const doc = amb.api.ler('agregados', 'cursos');
+  const doc = amb.api.ler_('agregados', 'cursos');
   igual(doc.ADS, '2');
   igual(doc['(sem curso)'], '1', 'nome de campo vazio não é endereçável no Firestore');
 });
@@ -1507,23 +1507,23 @@ teste('um campo por curso, e o rótulo de quem não tem curso é um nome de verd
 teste('histograma igual não custa escrita', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
   igual(requisicoesDesde(amb, marca).filter((r) => /:commit/.test(r.url)).length, 0);
 });
 
 teste('curso que sumiu some do documento', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADS' });
-  amb.api.reconciliar();
-  verdadeiro(amb.api.ler('agregados', 'cursos').ADS !== undefined);
+  amb.api.reconciliar_();
+  verdadeiro(amb.api.ler_('agregados', 'cursos').ADS !== undefined);
 
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', curso: 'ADM' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  const doc = amb.api.ler('agregados', 'cursos');
+  const doc = amb.api.ler_('agregados', 'cursos');
   igual(doc.ADM, '1');
   igual(doc.ADS, undefined, 'o update sem máscara tinha de substituir o documento inteiro');
 });
@@ -1534,9 +1534,9 @@ teste('o teto de cursos protege o documento de um mapeamento errado', () => {
   for (let i = 0; i < 6; i++) {
     semearMatriculado(amb, { nome: 'Aluno Numero ' + i, matricula: '0911050' + i, curso: 'CURSO ' + i });
   }
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
-  const doc = amb.api.ler('agregados', 'cursos');
+  const doc = amb.api.ler_('agregados', 'cursos');
   const cursos = Object.keys(doc).filter((k) => k.charAt(0) !== '_' && k !== 'atualizado_em');
   igual(cursos.length, 3);
 });
@@ -1549,10 +1549,10 @@ teste('a rodada lê as três coleções e o agregado, e nada mais', () => {
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const leituras = requisicoesDesde(amb, marca);
   igual(leituras.length, 4, leituras.map((r) => r.metodo + ' ' + r.url.split('/documents')[1]).join(' | '));
@@ -1566,7 +1566,7 @@ teste('nenhuma consulta declara ordenação por campo — só __name__', () => {
   // da página. A ordem cronológica é feita na memória.
   const amb = ambiente();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   amb.falso.requisicoes.filter((r) => /:runQuery/.test(r.url)).forEach((r) => {
     igual(r.corpo.structuredQuery.orderBy[0].field.fieldPath, '__name__');
@@ -1582,10 +1582,10 @@ teste('coleção acima do teto recusa a rodada inteira, em vez de reconciliar pe
     semearMatriculado(amb, { nome: 'Aluno Numero ' + i, matricula: '0911050' + i });
   }
 
-  const r = amb.api.rodarReconciliacao({ token: amb.token });
+  const r = amb.api.rodarReconciliacao_({ token: amb.token });
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('matriculados') !== -1, r.erro);
-  igual(amb.api.contar('alunos'), 0, 'gravou com dado pela metade');
+  igual(amb.api.contar_('alunos'), 0, 'gravou com dado pela metade');
 });
 
 // ------------------------------------------------------------ Painel
@@ -1594,7 +1594,7 @@ grupo('rodarReconciliacao — o botão do painel');
 
 teste('sem token, não roda', () => {
   const amb = ambiente();
-  const r = amb.api.rodarReconciliacao({});
+  const r = amb.api.rodarReconciliacao_({});
   igual(r.ok, false);
   verdadeiro(/Sess.o expirada/.test(r.erro), r.erro);
 });
@@ -1606,7 +1606,7 @@ teste('devolve os quatro números que a tela mostra (Admin.html:554)', () => {
   semearInscricao(amb, { nome: 'Ana Paula Souza', email: 'ana@exemplo.com', matricula: '09110001', projeto_id: 'p1' });
   semearInscricao(amb, { nome: 'Carla Dias', email: 'carla@exemplo.com', matricula: '09999999', projeto_id: 'p1' });
 
-  const r = amb.api.rodarReconciliacao({ token: amb.token });
+  const r = amb.api.rodarReconciliacao_({ token: amb.token });
   igual(r.ok, true);
   igual(r.resumo.confirmado, 1);
   igual(r.resumo.so_matriculado, 1);
@@ -1617,13 +1617,13 @@ teste('devolve os quatro números que a tela mostra (Admin.html:554)', () => {
 
 teste('com os dois arquivos carregados, a importação NÃO chama a reconciliação', () => {
   // Este teste provava o contrário até 06/08: que `resumoReconciliacao_`
-  // (05_Importacao.gs) rodava `reconciliar()` no fim de toda importação para
+  // (05_Importacao.gs) rodava `reconciliar_()` no fim de toda importação para
   // desenhar quatro cartões. Era o acoplamento perigoso — importar 2.500 linhas e
   // reconciliar 5.500 documentos na MESMA execução de 6 minutos, ~23 idas ao
   // Firestore, com os dados já gravados quando a tela dissesse "falhou".
   //
   // O que se prova agora é a separação: os dois arquivos convivem, a
-  // reconciliação continua alcançável por `rodarReconciliacao` — que é o que o
+  // reconciliação continua alcançável por `rodarReconciliacao_` — que é o que o
   // botão do passo 3 chama —, e a função de costura não existe mais.
   const amb = ambiente({
     arquivos: ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs', '03_Config.gs',
@@ -1633,10 +1633,10 @@ teste('com os dois arquivos carregados, a importação NÃO chama a reconciliaç
 
   igual(typeof amb.api.resumoReconciliacao_, 'undefined',
     'a costura entre importação e reconciliação foi desfeita de propósito');
-  igual(typeof amb.api.rodarReconciliacao, 'function',
+  igual(typeof amb.api.rodarReconciliacao_, 'function',
     'e o botão do passo 3 precisa continuar tendo o que chamar');
 
-  const r = amb.api.rodarReconciliacao({ token: amb.token });
+  const r = amb.api.rodarReconciliacao_({ token: amb.token });
   igual(r.ok, true, r.erro);
   igual(r.resumo.so_matriculado, 1);
 });
@@ -1653,13 +1653,13 @@ teste('expurgarLote e reconciliar convivem: apagar a lista velha muda os número
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001', lote_id: 'L_VELHO' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002', lote_id: 'L_VELHO' });
 
-  igual(amb.api.rodarReconciliacao({ token: amb.token }).resumo.so_matriculado, 2);
+  igual(amb.api.rodarReconciliacao_({ token: amb.token }).resumo.so_matriculado, 2);
 
-  const e = amb.api.expurgarLote({ token: amb.token, loteId: 'L_VELHO' });
+  const e = amb.api.expurgarLote_({ token: amb.token, loteId: 'L_VELHO' });
   igual(e.ok, true, e.erro);
   igual(e.apagados, 2);
 
-  igual(amb.api.rodarReconciliacao({ token: amb.token }).resumo.total, 0,
+  igual(amb.api.rodarReconciliacao_({ token: amb.token }).resumo.total, 0,
     'sem lista oficial e sem inscrições, não sobra aluno nenhum');
 });
 
@@ -1668,7 +1668,7 @@ teste('expurgarLote e reconciliar convivem: apagar a lista velha muda os número
 grupo('reconciliarAutomatico — a conferência diária');
 
 teste('a linha do log diz quantos foram gravados, e não "undefined"', () => {
-  // `reconciliar()` devolve `escritos` (o resumo lá embaixo), e esta linha lia
+  // `reconciliar_()` devolve `escritos` (o resumo lá embaixo), e esta linha lia
   // `gravados` — um campo que nunca existiu. A rodada das 5h vinha anotando
   // "gravados: undefined" todo dia desde que o gatilho nasceu, justamente na
   // única linha que diz se a madrugada fez alguma coisa.
@@ -1678,22 +1678,45 @@ teste('a linha do log diz quantos foram gravados, e não "undefined"', () => {
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
   semearMatriculado(amb, { nome: 'Bruno Lima', matricula: '09110002' });
 
-  amb.api.reconciliarAutomatico();
+  amb.api.reconciliarAutomatico_();
 
-  const linhas = amb.api.listar('log', {}).itens.filter((l) => l.acao === 'RECONCILIACAO_AUTOMATICA');
+  const linhas = amb.api.listar_('log', {}).itens.filter((l) => l.acao === 'RECONCILIACAO_AUTOMATICA');
   igual(linhas.length, 1, 'a rodada automática não deixou trilha');
   igual(linhas[0].detalhe, 'alunos: 2, gravados: 2');
 });
 
 teste('a rodada que falha vira linha de ERRO, e não e-mail diário para o dono do script', () => {
   const amb = ambiente();
-  amb.api.reconciliar = () => { throw new Error('a coleção "matriculados" passou de 8000 documentos'); };
+  amb.api.reconciliar_ = () => { throw new Error('a coleção "matriculados" passou de 8000 documentos'); };
 
-  amb.api.reconciliarAutomatico();
+  amb.api.reconciliarAutomatico_();
 
-  const erros = amb.api.listar('log', {}).itens.filter((l) => l.acao === 'ERRO');
+  const erros = amb.api.listar_('log', {}).itens.filter((l) => l.acao === 'ERRO');
   igual(erros.length, 1);
   verdadeiro(/passou de 8000/.test(erros[0].detalhe), erros[0].detalhe);
+});
+
+teste('a linha de ERRO da rodada não leva id de documento — com o erro do Repo de verdade', () => {
+  // O erro como `fsErro_` (02_Repo.gs) o monta: o caminho relativo do documento
+  // depois do método, e o texto do Google com o nome inteiro dele. O id ali é a
+  // matrícula, e a linha fica um ano no banco e vai para o backup. A régua é a
+  // da trilha (`semIdDeDocumento_`, 04_Log.gs). Matrícula só na forma.
+  //
+  // Mutação que derruba: a linha voltar a gravar `e.message`.
+  const amb = ambiente();
+  const corpo = { error: { code: 503, status: 'UNAVAILABLE',
+    message: 'The service is currently unavailable for projects/projeto-de-teste/databases/(default)/' +
+      'documents/matriculados/9110001' } };
+  amb.api.reconciliar_ = () => { throw amb.api.fsErro_(503, JSON.stringify(corpo), 'get', '/matriculados/9110001'); };
+
+  amb.api.reconciliarAutomatico_();
+
+  const erros = amb.api.listar_('log', {}).itens.filter((l) => l.acao === 'ERRO');
+  igual(erros.length, 1);
+  igual(erros[0].detalhe.indexOf('reconciliação automática: Firestore 503 UNAVAILABLE em GET /(documento): '), 0,
+    erros[0].detalhe);
+  igual(JSON.stringify(erros[0]).indexOf('9110001'), -1, 'a matrícula foi para a trilha: ' + erros[0].detalhe);
+  igual(erros[0].detalhe.indexOf('projects/'), -1, 'o nome do documento foi para a trilha: ' + erros[0].detalhe);
 });
 
 // ------------------------------------------------------------ Forms
@@ -1702,7 +1725,7 @@ grupo('sincronizarForms — o que dá para fazer sem planilha-container');
 
 function comForms(respostas) {
   const amb = ambiente();
-  amb.api.gravarConfig('form_id', 'form-ok');
+  amb.api.gravarConfig_('form_id', 'form-ok');
   amb.api.FormApp = criarFormsFalso(respostas || RESPOSTAS_FORMS);
   return amb;
 }
@@ -1712,7 +1735,7 @@ teste('sem form_id, diz que não há de onde ler — e não finge que procurou',
   // Aqui não existe planilha nenhuma por baixo: o caminho não é difícil, é
   // impossível, e devolver "0 novas" seria mentira.
   const amb = ambiente();
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
 
   igual(r.ok, true);
   igual(r.resultado.novas, 0);
@@ -1722,13 +1745,13 @@ teste('sem form_id, diz que não há de onde ler — e não finge que procurou',
 
 teste('com form_id, traz as respostas e adivinha as perguntas', () => {
   const amb = comForms();
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
 
   igual(r.ok, true);
   igual(r.resultado.novas, 2);
   igual(r.resultado.duplicadas, 0);
 
-  const inscricoes = amb.api.listar('inscricoes', {}).itens;
+  const inscricoes = amb.api.listar_('inscricoes', {}).itens;
   igual(inscricoes.length, 2);
   const ana = inscricoes.filter((i) => i.matricula === '9110001')[0];
   igual(ana.nome, 'Ana Paula Souza');
@@ -1740,11 +1763,11 @@ teste('com form_id, traz as respostas e adivinha as perguntas', () => {
 
 teste('a pergunta que casa melhor vence, mesmo chegando depois', () => {
   // Regra trocada em relação ao sistema sobre Sheets, que ficava com a primeira
-  // pergunta a casar. Ver o comentário em `mapearParaInscricao`.
+  // pergunta a casar. Ver o comentário em `mapearParaInscricao_`.
   const amb = comForms();
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
 
-  const ana = amb.api.listar('inscricoes', {}).itens.filter((i) => i.nome === 'Ana Paula Souza')[0];
+  const ana = amb.api.listar_('inscricoes', {}).itens.filter((i) => i.nome === 'Ana Paula Souza')[0];
   // '091.100-01' no formulário -> normalizada para '9110001': a pontuação sai
   // e o zero à esquerda também, porque é formatação e não identidade.
   igual(ana.matricula, '9110001', 'o carimbo de data/hora tomou o lugar da matrícula');
@@ -1754,10 +1777,10 @@ teste('a segunda sincronização não tenta gravar as mesmas respostas', () => {
   // Sem a marca d'água, cada clique custaria uma tentativa de escrita por
   // resposta já conhecida — e o botão fica ao lado do de reconciliar.
   const amb = comForms();
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
 
   const marca = amb.falso.requisicoes.length;
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
 
   igual(r.resultado.novas, 0);
   igual(r.resultado.duplicadas, 0);
@@ -1766,9 +1789,9 @@ teste('a segunda sincronização não tenta gravar as mesmas respostas', () => {
 
 teste('completo=true ignora a marca e refaz o histórico', () => {
   const amb = comForms();
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
 
-  const r = amb.api.sincronizarForms({ token: amb.token, completo: true });
+  const r = amb.api.sincronizarForms_({ token: amb.token, completo: true });
   igual(r.resultado.novas, 0);
   igual(r.resultado.duplicadas, 2, 'a varredura completa não releu as respostas');
 });
@@ -1776,14 +1799,14 @@ teste('completo=true ignora a marca e refaz o histórico', () => {
 teste('resposta nova entra e a marca avança para o carimbo dela', () => {
   const respostas = RESPOSTAS_FORMS.slice();
   const amb = comForms(respostas);
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
 
   respostas.push({
     quando: '2026-08-05T12:00:00.000Z',
     campos: { 'Nome completo': 'Carla Dias', 'E-mail': 'carla@exemplo.com', 'Matrícula': '09110003' }
   });
 
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
   igual(r.resultado.novas, 1);
   igual(r.resultado.duplicadas, 0);
   igual(amb.propriedades.get('sync_forms_ate'), '2026-08-05T12:00:00.000Z');
@@ -1792,10 +1815,10 @@ teste('resposta nova entra e a marca avança para o carimbo dela', () => {
 teste('nada novo não dispara a reconciliação', () => {
   // A reconciliação custa milhares de leituras e não tem o que recalcular.
   const amb = comForms();
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
 
   const marca = amb.falso.requisicoes.length;
-  amb.api.sincronizarForms({ token: amb.token });
+  amb.api.sincronizarForms_({ token: amb.token });
   igual(requisicoesDesde(amb, marca).filter((r) => /alunos/.test(r.url)).length, 0);
 });
 
@@ -1807,7 +1830,7 @@ teste('resposta que não identifica ninguém é contada à parte, não como dupl
     { quando: '2026-08-02T12:00:00.000Z', campos: { 'Observações': 'tchau' } }
   ]);
 
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
   igual(r.resultado.ignoradas, 2);
   igual(r.resultado.novas, 0);
   igual(r.resultado.duplicadas, 0);
@@ -1823,9 +1846,9 @@ teste('form_id errado devolve aviso que ensina o caminho, e cita o escopo CERTO'
   // instrução acrescentaria um escopo que não destrava nada — e concluiria, com
   // razão para o que estava vendo, que o problema era outro.
   const amb = comForms();
-  amb.api.gravarConfig('form_id', 'form-que-nao-existe');
+  amb.api.gravarConfig_('form_id', 'form-que-nao-existe');
 
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
   igual(r.ok, true);
   verdadeiro(r.resultado.aviso.indexOf('https://www.googleapis.com/auth/forms') !== -1,
     r.resultado.aviso);
@@ -1835,9 +1858,9 @@ teste('form_id errado devolve aviso que ensina o caminho, e cita o escopo CERTO'
 
 teste('sem FormApp disponível, avisa em vez de estourar', () => {
   const amb = ambiente();
-  amb.api.gravarConfig('form_id', 'form-ok');
+  amb.api.gravarConfig_('form_id', 'form-ok');
 
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
   igual(r.ok, true);
   verdadeiro(r.resultado.aviso.indexOf('appsscript.json') !== -1, r.resultado.aviso);
 });
@@ -1846,15 +1869,15 @@ teste('a sincronização reconcilia quando entrou resposta nova', () => {
   const amb = comForms();
   semearMatriculado(amb, { nome: 'Ana Paula Souza', matricula: '09110001' });
 
-  const r = amb.api.sincronizarForms({ token: amb.token });
+  const r = amb.api.sincronizarForms_({ token: amb.token });
   igual(r.resultado.novas, 2);
-  igual(amb.api.contar('alunos'), 2, 'a reconciliação não rodou depois da sincronização');
+  igual(amb.api.contar_('alunos'), 2, 'a reconciliação não rodou depois da sincronização');
   igual(alunoPorNome(amb, 'Ana Paula Souza').status, 'CONFIRMADO');
 });
 
 teste('sem token, não sincroniza', () => {
   const amb = comForms();
-  const r = amb.api.sincronizarForms({});
+  const r = amb.api.sincronizarForms_({});
   igual(r.ok, false);
   verdadeiro(/Sess.o expirada/.test(r.erro), r.erro);
 });

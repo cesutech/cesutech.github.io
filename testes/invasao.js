@@ -25,7 +25,7 @@
  *   5. a recusa vaza? "Este e-mail não está autorizado" é uma frase; "este
  *      e-mail EXISTE na lista" é outra, e a segunda transforma o endereço num
  *      oráculo de quem manda no sistema. Desde que o PIN saiu, esta pergunta tem
- *      um alvo novo e mais exposto: `pedirLinkDeAcesso` é anônima, recebe um
+ *      um alvo novo e mais exposto: `pedirLinkDeAcesso_` é anônima, recebe um
  *      e-mail escolhido por quem chama e sabe responder se ele está na
  *      allowlist. Ela só não vira o oráculo porque devolve a MESMA coisa nos dois
  *      casos — e é isso que os testes desta seção seguram;
@@ -149,11 +149,11 @@ function montar(opcoes) {
 
   amb.api.semearConfigPadrao_();
   if (o.clientId !== null) amb.propriedades.set('GOOGLE_CLIENT_ID', o.clientId || NOSSO_CLIENT_ID);
-  amb.api.gravarConfig('admin_emails', o.allowlist === undefined ? ADMIN : o.allowlist);
+  amb.api.gravarConfig_('admin_emails', o.allowlist === undefined ? ADMIN : o.allowlist);
   // A chave dos níveis só é semeada quando o teste pede: AUSENTE é o estado do
   // dia 1, e nele o piso vale (todo mundo é coordenador geral). É esse estado
   // que faz a suíte inteira de antes desta peça continuar de pé.
-  if (o.gerais !== undefined) amb.api.gravarConfig('coordenadores_gerais', o.gerais);
+  if (o.gerais !== undefined) amb.api.gravarConfig_('coordenadores_gerais', o.gerais);
 
   return amb;
 }
@@ -204,7 +204,7 @@ function linhasDoLog(amb) {
  * porta que se entra.
  */
 function post(amb, corpo) {
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   amb.falso.requisicoes.length = 0;
   const saida = amb.api.doPost({
     postData: { type: 'text/plain', contents: JSON.stringify(corpo) }
@@ -275,7 +275,7 @@ teste('ATAQUE: token de OUTRO aplicativo, com e-mail que ESTÁ na allowlist', ()
 
 teste('e o token de outro aplicativo não abre o painel nem por acidente', () => {
   // Prova o efeito, e não só a resposta: se algum caminho tivesse criado sessão
-  // antes de recusar, o `sessaoAtiva` acharia. Nenhuma sessão existe.
+  // antes de recusar, o `sessaoAtiva_` acharia. Nenhuma sessão existe.
   const amb = montar();
   entrarPeloGoogle(amb, tokenBom({ aud: OUTRO_APLICATIVO }));
 
@@ -439,21 +439,21 @@ const NAO_DESPACHAVEIS = [
   // De console: rodam uma vez, não pedem token, e uma delas semeia o banco.
   'setup', 'semearConfigPadrao_',
   // Escrevem configuração sem passar por guarda nenhuma.
-  'gravarConfig', 'limparCacheConfig',
+  'gravarConfig_', 'limparCacheConfig_',
   // A fábrica de sessões. Se esta fosse chamável, o login inteiro seria enfeite.
   'criarSessao_',
   // Derruba todo mundo do painel.
   'invalidarSessoes',
   // O motor da inscrição: reserva vaga sem passar pelas guardas anti-abuso.
-  'reservarVaga',
+  'reservarVaga_',
   // Existe em 11_Banners.gs e o painel não a chama — função nova nasce inalcançável.
-  'removerBanner',
+  'removerBanner_',
   // O verificador e as peças internas do acesso.
   'verificarIdTokenGoogle_', 'emailAutorizado_', 'adminEmails_', 'tokenValido_',
   'emailDaSessao_', 'invalidarSessoesDe_', 'excedeuVerificacoesGoogle_',
   // Quem assina a trilha. Despachável, ela deixaria o cliente escolher o nome
   // que vai na coluna "Quem" de todas as linhas da execução — auditoria que o
-  // auditado escreve não é auditoria. Quem a chama é `exigirAdmin` (04_Log.gs).
+  // auditado escreve não é auditoria. Quem a chama é `exigirAdmin_` (04_Log.gs).
   'anotarOperador_',
   // O ÚLTIMO RECURSO. Ela cria sessão sem provar nada, e o que a torna segura é
   // exigir acesso ao arquivo do projeto no editor do Apps Script. Despachá-la
@@ -461,13 +461,13 @@ const NAO_DESPACHAVEIS = [
   // está logo abaixo deste grupo.
   'liberarAcesso', 'liberarMeuAcesso',
   // As peças do link por e-mail. `enviarLink_` manda a mensagem sem conferir a
-  // allowlist (quem confere é `pedirLinkDeAcesso`, antes de chamá-la),
+  // allowlist (quem confere é `pedirLinkDeAcesso_`, antes de chamá-la),
   // `impressaoDoLink_` é o que transforma token em chave guardada, e
   // `esquecerAllowlistDoLink_` é o que faz "tirei o acesso" valer no ato.
   'enviarLink_', 'impressaoDoLink_', 'freioDoLinkLibera_',
   'faxinaLinks_', 'corpoDoEmail_', 'urlDoPainel_', 'linkDeAcessoDisponivel_',
   'allowlistParaLink_', 'esquecerAllowlistDoLink_',
-  // Regrava a allowlist INTEIRA. Ela existe para `salvarConfiguracao` chamar, e
+  // Regrava a allowlist INTEIRA. Ela existe para `salvarConfiguracao_` chamar, e
   // uma função nova que escreve quem entra no sistema é exatamente o tipo de
   // coisa que não pode nascer despachável por descuido.
   'regravarAllowlist_',
@@ -475,16 +475,16 @@ const NAO_DESPACHAVEIS = [
   // listas de acesso — despachável, a primeira entregaria a coroa a quem soubesse
   // o nome dela, e a segunda passaria por cima da invariante do último
   // coordenador. `regravarGerais_` é a irmã de `regravarAllowlist_`.
-  // `exigirCoordenador` e `nivelDe_` são as que RESPONDEM a pergunta do acesso, e
+  // `exigirCoordenador_` e `nivelDe_` são as que RESPONDEM a pergunta do acesso, e
   // uma guarda chamável pelo cliente é uma guarda que o cliente pode fazer
   // responder o que quiser. `materializar_` congela quem é coordenador hoje.
-  'aplicarAcessos_', 'gravarAcessos_', 'regravarGerais_', 'exigirCoordenador',
+  'aplicarAcessos_', 'gravarAcessos_', 'regravarGerais_', 'exigirCoordenador_',
   'nivelDe_', 'nivelEm_', 'nivelDaSessao_', 'coordenadoresGerais_', 'materializar_',
   'listaDeEmails_', 'pessoasDoAcesso_', 'respostaDoAcesso_', 'rotuloDoNivel_',
   'funcoesDoProfessor_',
   // A camada de dados, crua.
-  'ler', 'inserir', 'atualizar', 'excluir', 'listar', 'contar',
-  'escreverEmLote', 'excluirEmLote',
+  'ler_', 'inserir_', 'atualizar_', 'excluir_', 'listar_', 'contar_',
+  'escreverEmLote_', 'excluirEmLote_',
   // As rotas, chamadas de dentro delas mesmas.
   'doGet', 'doPost', 'rotaDoPainel_', 'rotaDeLogin_', 'funcoesDoPainel_'
 ];
@@ -504,20 +504,25 @@ teste('ATAQUE: despachar função que não está na lista branca, com token VÁL
   const amb = montar();
   const token = amb.api.criarSessao_(ADMIN);
 
-  NAO_DESPACHAVEIS.forEach((nome) => {
-    const r = painel(amb, nome, token, { chave: 'admin_emails', valor: 'invasor@exemplo.com' });
-    igual(r.ok, false, nome + ' foi despachada');
-    verdadeiro(/Ação desconhecida/.test(r.erro || ''), nome + ': ' + r.erro);
+  // Os dois nomes de cada uma: o da função (`gravarConfig_`) e o que ela tinha
+  // antes de todo o servidor ganhar o `_` (`gravarConfig`), que é a forma em
+  // que um nome viaja no fio.
+  NAO_DESPACHAVEIS.forEach((funcao) => {
+    [funcao, funcao.replace(/_$/, '')].forEach((nome) => {
+      const r = painel(amb, nome, token, { chave: 'admin_emails', valor: 'invasor@exemplo.com' });
+      igual(r.ok, false, nome + ' foi despachada');
+      verdadeiro(/Ação desconhecida/.test(r.erro || ''), nome + ': ' + r.erro);
+    });
   });
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), ADMIN, 'alguma delas mexeu na allowlist');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), ADMIN, 'alguma delas mexeu na allowlist');
 });
 
 teste('ATAQUE: liberarAcesso pela rede — a porta dos fundos que não pode nascer', () => {
   // Ela cria sessão SEM PROVAR NADA: o que a torna segura é só o fato de que
   // para chamá-la é preciso abrir o projeto no editor do Apps Script, e quem
-  // consegue isso já pode reescrever `entrarComLink` inteiro. Roteá-la — por
+  // consegue isso já pode reescrever `entrarComLink_` inteiro. Roteá-la — por
   // conveniência, por engano, por um `if` a mais em `rotaDeLogin_` — anula a
   // única coisa que a protege e entrega o painel a quem souber o nome dela.
   //
@@ -534,7 +539,7 @@ teste('ATAQUE: liberarAcesso pela rede — a porta dos fundos que não pode nasc
 
   const sessoes = Array.from(amb.propriedades.keys()).filter((k) => k.indexOf('sess_') === 0);
   igual(sessoes, [], 'saiu sessão de uma rota anônima');
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.adminEmails_(), [], 'a allowlist foi escrita pela rede');
 });
 
@@ -592,12 +597,15 @@ teste('toda função da lista branca recusa sem token, mesmo chamada por dentro'
   // acrescentasse outro caminho (um `google.script.run`, um gatilho, uma rota
   // nova). A segunda linha de defesa é a que sobra quando a primeira sai de cena.
   const amb = montar();
-  const nomes = Object.keys(amb.api.funcoesDoPainel_());
+  // A chave é o nome do FIO; o valor é a função que roda — é ela que se chama
+  // aqui, direto, sem a rota na frente.
+  const funcoes = amb.api.funcoesDoPainel_();
+  const nomes = Object.keys(funcoes);
   verdadeiro(nomes.length >= 25, 'a lista encolheu: ' + nomes.length);
 
   nomes.forEach((nome) => {
     ['', undefined, null, 'forjado', 0, {}, []].forEach((token) => {
-      const r = amb.api[nome]({ token: token });
+      const r = funcoes[nome]({ token: token });
       igual(r && r.ok, false, nome + ' respondeu com token ' + JSON.stringify(token));
       verdadeiro(/Sess.o expirada/.test((r && r.erro) || ''),
         nome + ' recusou por outro motivo: ' + (r && r.erro));
@@ -685,8 +693,8 @@ teste('ATAQUE: assinar a trilha com o nome de outra pessoa, pelo payload', () =>
   // onde ela tira o nome. Se fosse de algum campo do payload, a trilha viraria
   // papel: quem faz a ação escolhe quem ela acusa.
   //
-  // Mutação que derruba: `registrar` (ou a rota) aceitar um `usuario` vindo de
-  // fora em vez do operador que `exigirAdmin` anotou a partir da SESSÃO.
+  // Mutação que derruba: `registrar_` (ou a rota) aceitar um `usuario` vindo de
+  // fora em vez do operador que `exigirAdmin_` anotou a partir da SESSÃO.
   const amb = montar({ allowlist: ADMIN });
   const token = amb.api.criarSessao_(ADMIN);
 
@@ -743,7 +751,7 @@ teste('sem client id, a porta que sobra é o link por e-mail', () => {
 
   verdadeiro(r.abertas.length > 0, 'SEM PORTA: nem Google nem link entram');
   igual(r.abertas, ['LINK']);
-  igual(r.amb.api.modoDeAcesso().google.disponivel, false,
+  igual(r.amb.api.modoDeAcesso_().google.disponivel, false,
     'anunciar o botão aqui manda o professor procurar o problema na conta dele');
 });
 
@@ -755,14 +763,14 @@ teste('com a allowlist VAZIA não há porta remota nenhuma — e é assumido', (
   const r = portasQueAbrem({ allowlist: '' });
   igual(r.abertas, []);
 
-  const tela = r.amb.api.modoDeAcesso();
+  const tela = r.amb.api.modoDeAcesso_();
   igual(tela.allowlistVazia, true, 'a tela não tem como explicar por que nada funciona');
   igual(tela.google.disponivel, false);
 
   // E a saída existe, fora da rede.
   r.amb.api.console = { log: () => {}, error: () => {} };
-  r.amb.api.liberarAcesso(ADMIN);
-  r.amb.api.limparCacheConfig();
+  r.amb.api.liberarAcesso_(ADMIN);
+  r.amb.api.limparCacheConfig_();
   igual(portasQueAbrem({}).abertas.length > 0, true);
 });
 
@@ -778,27 +786,27 @@ teste('client id ERRADO não parece defeito de fora, e ainda assim há porta', (
 
 teste('a identidade que chega ao servidor sozinha entra (implantação Workspace)', () => {
   // Sem client id, mas com `Session.getActiveUser()` respondendo: ali o caminho
-  // 1 de `autenticar` funciona, e é o cenário que o projeto assume quando mudar
+  // 1 de `autenticar_` funciona, e é o cenário que o projeto assume quando mudar
   // para a conta institucional.
   const amb = montar({ allowlist: ADMIN, clientId: null, usuario: ADMIN });
   const r = login(amb, { fn: 'autenticar' });
 
   igual(r.ok, true, 'a identidade visível devia entrar sozinha: ' + r.erro);
-  igual(amb.api.modoDeAcesso().identidadeVisivel, true);
+  igual(amb.api.modoDeAcesso_().identidadeVisivel, true);
 });
 
 teste('ninguém sai da allowlist sendo o último', () => {
   const amb = montar({ allowlist: ADMIN });
   const token = amb.api.criarSessao_(ADMIN);
 
-  const r = amb.api.removerAdmin({ token: token, email: ADMIN });
+  const r = amb.api.removerAdmin_({ token: token, email: ADMIN });
   igual(r.ok, false);
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), ADMIN, 'a lista ficou vazia mesmo assim');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), ADMIN, 'a lista ficou vazia mesmo assim');
 });
 
 teste('e o campo de texto de admin_emails não é a porta dos fundos disso', () => {
-  // `removerAdmin` tem duas guardas. O campo de texto da aba Configurações
+  // `removerAdmin_` tem duas guardas. O campo de texto da aba Configurações
   // gravava a mesma chave sem passar por nenhuma delas — e o que uma guarda
   // impede pela porta da frente não pode ser feito pela janela.
   //
@@ -809,10 +817,10 @@ teste('e o campo de texto de admin_emails não é a porta dos fundos disso', () 
   const amb = montar({ allowlist: ADMIN });
   const token = amb.api.criarSessao_(ADMIN);
 
-  const r = amb.api.salvarConfiguracao({ token: token, chave: 'admin_emails', valor: '' });
+  const r = amb.api.salvarConfiguracao_({ token: token, chave: 'admin_emails', valor: '' });
   igual(r.ok, false, 'esvaziou a lista, e agora não sobra porta nenhuma');
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), ADMIN);
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), ADMIN);
 });
 
 teste('e esvaziar a lista pela janela também não manda link para ninguém', () => {
@@ -822,8 +830,8 @@ teste('e esvaziar a lista pela janela também não manda link para ninguém', ()
   const amb = montar({ allowlist: ADMIN });
   const token = amb.api.criarSessao_(ADMIN);
 
-  amb.api.salvarConfiguracao({ token: token, chave: 'admin_emails', valor: '   ,  ' });
-  amb.api.limparCacheConfig();
+  amb.api.salvarConfiguracao_({ token: token, chave: 'admin_emails', valor: '   ,  ' });
+  amb.api.limparCacheConfig_();
 
   igual(pedirLink(amb, ADMIN).ok, true);
   igual(destinatarios(amb), [ADMIN], 'a lista foi esvaziada e o link parou de sair');
@@ -831,22 +839,22 @@ teste('e esvaziar a lista pela janela também não manda link para ninguém', ()
 
 teste('tirar alguém pelo campo de texto DERRUBA a sessão da pessoa', () => {
   // Tirar da lista e deixar entrar por mais oito horas é não ter tirado. O
-  // `removerAdmin` já fazia isso; o campo de texto, não — e é o mesmo gesto,
+  // `removerAdmin_` já fazia isso; o campo de texto, não — e é o mesmo gesto,
   // na mesma tela, com o mesmo significado para quem clica.
   const amb = montar({ allowlist: ADMIN + ', outra@exemplo.com' });
   const meu = amb.api.criarSessao_(ADMIN);
   const dela = amb.api.criarSessao_('outra@exemplo.com');
 
-  igual(amb.api.salvarConfiguracao({ token: meu, chave: 'admin_emails', valor: ADMIN }).ok, true);
+  igual(amb.api.salvarConfiguracao_({ token: meu, chave: 'admin_emails', valor: ADMIN }).ok, true);
 
-  igual(amb.api.sessaoAtiva(dela).ok, false, 'quem saiu continuou dentro por 8 horas');
-  igual(amb.api.sessaoAtiva(meu).ok, true, 'quem ficou foi derrubado junto');
+  igual(amb.api.sessaoAtiva_(dela).ok, false, 'quem saiu continuou dentro por 8 horas');
+  igual(amb.api.sessaoAtiva_(meu).ok, true, 'quem ficou foi derrubado junto');
 });
 
 teste('e a saída pelo campo de texto deixa rastro de quem saiu', () => {
   const amb = montar({ allowlist: ADMIN + ', outra@exemplo.com' });
   const token = amb.api.criarSessao_(ADMIN);
-  amb.api.salvarConfiguracao({ token: token, chave: 'admin_emails', valor: ADMIN });
+  amb.api.salvarConfiguracao_({ token: token, chave: 'admin_emails', valor: ADMIN });
 
   const acoes = [];
   amb.falso.documentos.forEach((campos, chave) => {
@@ -864,7 +872,7 @@ teste('a chave modo_acesso_painel MORREU, e ressuscitá-la é recusado', () => {
   const amb = montar({ allowlist: ADMIN });
   const token = amb.api.criarSessao_(ADMIN);
 
-  const r = amb.api.salvarConfiguracao({
+  const r = amb.api.salvarConfiguracao_({
     token: token, chave: 'modo_acesso_painel', valor: 'GOOGLE'
   });
 
@@ -935,7 +943,7 @@ teste('não dá para perguntar pela conta ALHEIA — o token é a pergunta', () 
 });
 
 teste('a tela de login anônima não entrega e-mail nenhum', () => {
-  // `modoDeAcesso` é a única coisa que uma pessoa sem token consegue pedir sobre
+  // `modoDeAcesso_` é a única coisa que uma pessoa sem token consegue pedir sobre
   // o acesso. Ela conta COMO entrar, e não QUEM entra.
   const amb = montar({ allowlist: 'chefe@exemplo.com, diretoria@exemplo.com' });
   const m = login(amb, { fn: 'modoDeAcesso' });
@@ -968,7 +976,7 @@ teste('sem token, listarAdmins não conta nem quantos são', () => {
 
 // -------------------------------------------------- O oráculo que não pode nascer
 //
-// `pedirLinkDeAcesso` é a rota mais exposta do sistema: anônima, pública, e ela
+// `pedirLinkDeAcesso_` é a rota mais exposta do sistema: anônima, pública, e ela
 // recebe um e-mail escolhido por quem chama. Ela SABE responder "este endereço
 // administra o CESUTECH?" — e a única coisa que a impede de responder é devolver
 // exatamente a mesma coisa nos dois casos.
@@ -1094,7 +1102,7 @@ teste('a recusa de entrarComLink é UMA frase só, seja qual for o motivo', () =
   const doRemovido = tokenDoEmail(amb);
 
   const sessao = amb.api.criarSessao_(ADMIN);
-  amb.api.removerAdmin({ token: sessao, email: 'saindo@exemplo.com' });
+  amb.api.removerAdmin_({ token: sessao, email: 'saindo@exemplo.com' });
   const desautorizado = entrarPeloLink(amb, doRemovido);
 
   relogio.avancar(16 * 60 * 1000);
@@ -1123,14 +1131,14 @@ teste('token com formato errado não toca sequer nas propriedades do script', ()
   ['', '   ', 'nao-e-token', token.toUpperCase(), token.slice(0, 63), token + 'a',
     token.slice(0, 63) + 'g', null, undefined, 12345, '../../etc/passwd',
     'x'.repeat(5000)].forEach((valor) => {
-    igual(amb.api.entrarComLink(valor).ok, false, JSON.stringify(String(valor)).slice(0, 30));
+    igual(amb.api.entrarComLink_(valor).ok, false, JSON.stringify(String(valor)).slice(0, 30));
   });
 
   igual(toques, 0, 'lixo chegou ao armazenamento');
 
   // O contrapeso: o mesmo contador tem de subir quando o token é de verdade,
   // senão o teste acima estaria medindo um espião que ninguém chama.
-  igual(amb.api.entrarComLink(token).ok, true, 'e o token de verdade continua entrando');
+  igual(amb.api.entrarComLink_(token).ok, true, 'e o token de verdade continua entrando');
   verdadeiro(toques > 0, 'o espião não estava no caminho: o teste acima não prova nada');
   amb.api.PropertiesService = propsDeVerdade;
 });
@@ -1189,15 +1197,15 @@ teste('endereço de fora não custa leitura nenhuma — é o que tira o preço d
   const amb = montar({ allowlist: ADMIN });
 
   // A primeira recarrega o cache e paga a leitura; é o controle.
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   amb.falso.requisicoes.length = 0;
-  amb.api.pedirLinkDeAcesso(ESTRANHO);
+  amb.api.pedirLinkDeAcesso_(ESTRANHO);
   igual(leiturasDeConfig(amb), 1, 'a primeira conferência tinha de ler a lista uma vez');
 
   // As duzentas seguintes saem do cache.
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   amb.falso.requisicoes.length = 0;
-  for (let i = 0; i < 200; i++) amb.api.pedirLinkDeAcesso('lixo' + i + '@exemplo.com');
+  for (let i = 0; i < 200; i++) amb.api.pedirLinkDeAcesso_('lixo' + i + '@exemplo.com');
 
   igual(leiturasDeConfig(amb), 0,
     'duzentos pedidos anônimos custaram ' + leiturasDeConfig(amb) + ' leitura(s) do banco');
@@ -1220,7 +1228,7 @@ teste('insistência de fora não fecha a porta de dentro — o teto global saiu 
   // inteiro. Se alguém reintroduzir um freio global aqui, este teste cai.
   const amb = montar({ allowlist: ADMIN });
 
-  for (let i = 0; i < 300; i++) amb.api.pedirLinkDeAcesso('lixo' + i + '@exemplo.com');
+  for (let i = 0; i < 300; i++) amb.api.pedirLinkDeAcesso_('lixo' + i + '@exemplo.com');
 
   igual(pedirLink(amb, ADMIN).ok, true, 'a frase única não pode mudar nem aqui');
   igual(destinatarios(amb), [ADMIN],
@@ -1279,7 +1287,7 @@ function leiturasCobradas(amb) {
 
 function comProjetos(amb, quantos) {
   for (let i = 1; i <= quantos; i++) {
-    amb.api.inserir('projetos', {
+    amb.api.inserir_('projetos', {
       codigo: 'p' + i, nome: 'Projeto ' + i, descricao: 'x', professor: 'y',
       vagas: '60', ativo: 'SIM', inscricoes_abertas: 'SIM',
       validar_matricula: 'SIM', ordem: String(i), criado_em: '2026-08-05 10:00:00'
@@ -1292,7 +1300,7 @@ teste('?api=config e ?api=projetos custam os mesmos 2 e 11 de sempre', () => {
   comProjetos(amb, 5);
 
   const medir = (parametros) => {
-    amb.api.limparCacheConfig();
+    amb.api.limparCacheConfig_();
     amb.falso.requisicoes.length = 0;
     amb.api.doGet({ parameter: parametros });
     return leiturasCobradas(amb);
@@ -1378,12 +1386,12 @@ teste('a ordem certa funciona inteira: liberarAcesso no editor, incluir e-mail, 
   const amb = montar({ allowlist: '' });
   amb.api.console = { log: () => {}, error: () => {} };
 
-  const url = amb.api.liberarAcesso(ADMIN);
+  const url = amb.api.liberarAcesso_(ADMIN);
   const sessao = /\?sessao=([0-9a-f]+)/.exec(url)[1];
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
 
   igual(painel(amb, 'incluirAdmin', sessao, { email: 'outra@exemplo.com' }).ok, true);
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
 
   igual(entrarPeloGoogle(amb, tokenBom()).ok, true, 'o botão do Google não entrou no fim da fila');
 
@@ -1400,8 +1408,8 @@ teste('e o painel recém-liberado não fica com a lista de acesso vazia', () => 
   const amb = montar({ allowlist: '' });
   amb.api.console = { log: () => {}, error: () => {} };
 
-  amb.api.liberarAcesso(ADMIN);
-  amb.api.limparCacheConfig();
+  amb.api.liberarAcesso_(ADMIN);
+  amb.api.limparCacheConfig_();
 
   const m = login(amb, { fn: 'modoDeAcesso' });
   igual(m.allowlistVazia, false, 'o dia seguinte volta ao estado sem porta nenhuma');
@@ -1505,6 +1513,45 @@ teste('ATAQUE: o professor chama as 31 da coordenação uma a uma, pelo POST dir
   igual(retratoDoBanco(amb), antes, 'alguma das 31 mexeu no banco');
 });
 
+teste('ATAQUE: o único geral tem e-mail sem forma — o professor continua professor, e as 31 seguem fechadas', () => {
+  // O filtro da forma (`adminEmails_`) descarta o geral com apóstrofo, que o
+  // Google Workspace aceita. Com a lista de gerais cruzada pela lista filtrada,
+  // ela voltaria vazia, o piso faria do professor um coordenador, e o primeiro
+  // gesto dele gravaria a promoção no banco. Os gestos que gravariam estão entre
+  // as 31, e vão também com o payload de cada um: incluir, promover a si mesmo,
+  // rebaixar, remover e os dois campos de texto.
+  //
+  // Mutação que derruba: `coordenadoresGerais_` cruzar com `adminEmails_`.
+  const GERAL_SEM_FORMA = "coord.d'exemplo@exemplo.edu.br";
+  const OUTRO_PROFESSOR = 'professor.dois@exemplo.edu.br';
+  const NOVO = 'novo.professor@exemplo.edu.br';
+  const amb = comNiveis({
+    allowlist: [GERAL_SEM_FORMA, PROFESSOR, OUTRO_PROFESSOR].join(', '),
+    gerais: GERAL_SEM_FORMA
+  });
+  const antes = retratoDoBanco(amb);
+
+  daCoordenacao(amb).forEach((fn) => {
+    const r = painel(amb, fn, amb.professor, payloadDeAtaque());
+    igual(r.motivo, 'NIVEL', fn + ' não foi recusada por nível: ' + JSON.stringify(r));
+  });
+  [
+    ['incluirAdmin', { email: NOVO }],
+    ['definirNivel', { email: PROFESSOR, nivel: 'coordenador' }],
+    ['definirNivel', { email: OUTRO_PROFESSOR, nivel: 'professor' }],
+    ['removerAdmin', { email: OUTRO_PROFESSOR }],
+    ['salvarConfiguracao', { chave: 'admin_emails', valor: [PROFESSOR, OUTRO_PROFESSOR, NOVO].join(', ') }],
+    ['salvarConfiguracao', { chave: 'coordenadores_gerais', valor: PROFESSOR }]
+  ].forEach(([fn, dados]) => {
+    const r = painel(amb, fn, amb.professor, dados);
+    igual(r.motivo, 'NIVEL', fn + ' ' + JSON.stringify(dados) + ': ' + JSON.stringify(r));
+  });
+
+  igual(retratoDoBanco(amb), antes, 'algum gesto do professor mexeu no banco');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.sessaoAtiva_(amb.professor), { ok: true, nivel: 'professor' });
+});
+
 teste('e as 11 do professor respondem — senão o teste de cima provaria um painel morto', () => {
   // A ordem importa tanto quanto no grupo 3: "não dá para chamar X" passaria
   // sozinho num sistema que não deixa chamar nada.
@@ -1519,22 +1566,22 @@ teste('e as 11 do professor respondem — senão o teste de cima provaria um pai
 });
 
 teste('e NENHUMA delas devolve o e-mail de quem importou ou revisou um lote', () => {
-  // A porta que sobra depois que a TELA some. `listarLotes` esteve no balde do
+  // A porta que sobra depois que a TELA some. `listarLotes_` esteve no balde do
   // professor enquanto o desenho previa a aba Importações visível; a decisão de
   // 23/09 mandou a aba sumir, e a função ficou aberta sem nenhuma tela dele que
   // a chamasse — e ela devolve `importado_por` e `revisado_por`, que são o
-  // e-mail de quem operou. Fechar `listarAdmins` e `listarLog` e deixar esta
+  // e-mail de quem operou. Fechar `listarAdmins_` e `listarLog_` e deixar esta
   // aberta é fechar a porta e deixar a janela.
   //
   // A varredura é DERIVADA do balde, e o que ela cobre é ESTE par de campos:
   // `importado_por` e `revisado_por`, os do lote. Não é uma promessa de que
-  // nenhum e-mail de operador alcança o professor — `detalheAluno` devolve
+  // nenhum e-mail de operador alcança o professor — `detalheAluno_` devolve
   // `cancelado_por` de propósito, e o porquê está escrito lá (10_Painel.gs).
   // Dizer mais do que se mede é pior do que não medir: quem vier depois confia.
   //
   // O payload é o mesmo para todas, e várias recusam por falta de argumento —
   // a varredura não prova nada sobre essas. O que ela pega é a função que
-  // RESPONDE e nomeia quem importou ou revisou, que é o caso do `listarLotes`
+  // RESPONDE e nomeia quem importou ou revisou, que é o caso do `listarLotes_`
   // se alguém o devolver ao balde.
   //
   // Mutação que derruba: pôr `listarLotes: true` de volta em
@@ -1543,7 +1590,7 @@ teste('e NENHUMA delas devolve o e-mail de quem importou ou revisou um lote', ()
   const QUEM_IMPORTOU = 'quem.importou@exemplo.com';
   const QUEM_REVISOU = 'quem.revisou@exemplo.com';
 
-  amb.api.inserir('lotes', {
+  amb.api.inserir_('lotes', {
     lote_id: 'L1', arquivo: 'turma.csv', linhas: 3, status: 'CONCLUIDO',
     criado_em: '20260101T000000000Z',
     importado_por: QUEM_IMPORTOU, revisado_por: QUEM_REVISOU
@@ -1566,7 +1613,7 @@ teste('e NENHUMA delas devolve o e-mail de quem importou ou revisou um lote', ()
 });
 
 teste('e a trilha da recusa diz QUAL professor tentou', () => {
-  // A coluna "Quem" existe para responder isso. Nenhum `exigirAdmin` roda neste
+  // A coluna "Quem" existe para responder isso. Nenhum `exigirAdmin_` roda neste
   // caminho — a função nem chega a ser chamada —, então quem anota o operador é
   // a própria rota.
   //
@@ -1583,7 +1630,7 @@ teste('e a trilha da recusa diz QUAL professor tentou', () => {
 });
 
 teste('e DOIS professores na mesma função deixam DUAS linhas, uma por pessoa', () => {
-  // O freio contra enchente de `registrarRecusa` grava a primeira de cada chave
+  // O freio contra enchente de `registrarRecusa_` grava a primeira de cada chave
   // e engole as iguais por dez minutos (04_Log.gs). Com a chave agrupando só
   // por `fn`, o segundo professor sumia da trilha — e a pergunta que a coluna
   // "Quem" existe para responder ("quem tentou remover o projeto?") ficava sem
@@ -1623,7 +1670,7 @@ teste('ATAQUE: o cliente escolhendo o próprio nível, dentro do payload', () =>
   igual(pelaRota.erro, RECUSA_NIVEL);
 
   // E por dentro, na função que cobra o nível ela mesma.
-  const direto = amb.api.salvarConfiguracao({
+  const direto = amb.api.salvarConfiguracao_({
     token: amb.professor, chave: 'vagas_padrao', valor: '1', nivel: 'coordenador'
   });
   igual(direto.ok, false);
@@ -1642,23 +1689,23 @@ teste('ATAQUE: o professor mexendo em QUEM PODE — as quatro que cobram por den
   // estar aqui: um professor que derruba a coordenação inteira fica sozinho no
   // painel pelo piso.
   //
-  // Mutação que derruba: trocar `exigirCoordenador` por `exigirAdmin` em
+  // Mutação que derruba: trocar `exigirCoordenador_` por `exigirAdmin_` em
   // qualquer uma das quatro.
   const amb = comNiveis();
 
   [
-    ['salvarConfiguracao', { chave: 'coordenadores_gerais', valor: ADMIN + ', ' + PROFESSOR }],
-    ['salvarConfiguracao', { chave: 'admin_emails', valor: PROFESSOR }],
-    ['incluirAdmin', { email: 'comparsa@exemplo.com' }],
-    ['definirNivel', { email: PROFESSOR, nivel: 'coordenador' }],
-    ['removerAdmin', { email: ADMIN }]
+    ['salvarConfiguracao_', { chave: 'coordenadores_gerais', valor: ADMIN + ', ' + PROFESSOR }],
+    ['salvarConfiguracao_', { chave: 'admin_emails', valor: PROFESSOR }],
+    ['incluirAdmin_', { email: 'comparsa@exemplo.com' }],
+    ['definirNivel_', { email: PROFESSOR, nivel: 'coordenador' }],
+    ['removerAdmin_', { email: ADMIN }]
   ].forEach(([fn, dados]) => {
     const r = amb.api[fn](Object.assign({ token: amb.professor }, dados));
     igual(r.ok, false, fn + '(' + dados.chave + dados.email + ') deixou o professor passar');
     igual(r.erro, RECUSA_NIVEL, fn + ': ' + r.erro);
   });
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.nivelDe_(PROFESSOR), 'professor', 'o professor se promoveu');
   igual(amb.api.adminEmails_(), [ADMIN, PROFESSOR], 'a lista de acesso mudou');
 });
@@ -1674,36 +1721,36 @@ teste('ATAQUE: esvaziar os coordenadores pelos QUATRO caminhos — sempre sobra 
   const amb = comNiveis();
   const eu = { token: amb.coordenacao };
 
-  const rebaixar = amb.api.definirNivel(Object.assign({ email: ADMIN, nivel: 'professor' }, eu));
+  const rebaixar = amb.api.definirNivel_(Object.assign({ email: ADMIN, nivel: 'professor' }, eu));
   igual(rebaixar.ok, false, 'o único coordenador se rebaixou');
   verdadeiro(/único coordenador geral/.test(rebaixar.erro), rebaixar.erro);
 
-  const remover = amb.api.removerAdmin(Object.assign({ email: ADMIN }, eu));
+  const remover = amb.api.removerAdmin_(Object.assign({ email: ADMIN }, eu));
   igual(remover.ok, false, 'o último coordenador saiu pela lista de acesso');
   verdadeiro(/último coordenador geral/.test(remover.erro), remover.erro);
 
-  const campoAllowlist = amb.api.salvarConfiguracao(
+  const campoAllowlist = amb.api.salvarConfiguracao_(
     Object.assign({ chave: 'admin_emails', valor: PROFESSOR }, eu));
   igual(campoAllowlist.ok, false, 'o campo admin_emails deixou o painel sem coordenador');
   verdadeiro(/nenhum coordenador geral/.test(campoAllowlist.erro), campoAllowlist.erro);
 
-  const campoGerais = amb.api.salvarConfiguracao(
+  const campoGerais = amb.api.salvarConfiguracao_(
     Object.assign({ chave: 'coordenadores_gerais', valor: '   ,  ' }, eu));
   igual(campoGerais.ok, false, 'esvaziar o campo de níveis promoveu todo mundo');
   verdadeiro(/poder total/.test(campoGerais.erro), campoGerais.erro);
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.coordenadoresGerais_(), [ADMIN], 'a lista de coordenadores mudou');
   igual(amb.api.adminEmails_(), [ADMIN, PROFESSOR]);
 });
 
 teste('ATAQUE: esvaziar os coordenadores A PARTIR DO PISO, com a chave ainda vazia', () => {
-  // O estado do dia 1, e o mesmo em que `removerAdmin` e o campo de texto
+  // O estado do dia 1, e o mesmo em que `removerAdmin_` e o campo de texto
   // deixam a chave quando se mexe na lista sem nunca separar níveis: gerais
   // VAZIA, todo mundo coordenador pelo piso. A guarda olhava o ANTES, e ali o
   // antes não tem nome nenhum escrito — então ela era pulada inteira.
   //
-  // O que acontecia: `definirNivel` materializava [A], tirava A, gravava [], o
+  // O que acontecia: `definirNivel_` materializava [A], tirava A, gravava [], o
   // piso devolvia A a coordenador, ninguém mudava de nível, nenhuma sessão
   // caía, nenhuma linha ia para a trilha — e a resposta saía `ok: true`. A tela
   // apagava o token e dizia "Você agora entra como Professor" para quem
@@ -1716,23 +1763,23 @@ teste('ATAQUE: esvaziar os coordenadores A PARTIR DO PISO, com a chave ainda vaz
   const eu = { token: amb.api.criarSessao_(ADMIN) };
   igual(amb.api.coordenadoresGerais_(), [], 'o cenário devia ser o do piso');
 
-  const r = amb.api.definirNivel(Object.assign({ email: ADMIN, nivel: 'professor' }, eu));
+  const r = amb.api.definirNivel_(Object.assign({ email: ADMIN, nivel: 'professor' }, eu));
   igual(r.ok, false, 'o único coordenador se rebaixou pelo piso');
   verdadeiro(/único coordenador geral/.test(r.erro), r.erro);
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.nivelDe_(ADMIN), 'coordenador');
   igual(linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_ALTERADO').length, 0,
     'a trilha anotou uma mudança de nível que não houve');
-  igual(amb.api.sessaoAtiva(eu.token).ok, true, 'a sessão caiu por uma mudança que não houve');
+  igual(amb.api.sessaoAtiva_(eu.token).ok, true, 'a sessão caiu por uma mudança que não houve');
 
   // E o gesto que não é de nível continua passando no piso: remover alguém não
-  // rebaixa ninguém, e é por isso que `removerAdmin` declara `pisoOk`.
+  // rebaixa ninguém, e é por isso que `removerAdmin_` declara `pisoOk`.
   const dois = montar({ allowlist: ADMIN + ', ' + PROFESSOR, gerais: undefined });
   const token = dois.api.criarSessao_(ADMIN);
-  igual(dois.api.removerAdmin({ token: token, email: PROFESSOR }).ok, true,
+  igual(dois.api.removerAdmin_({ token: token, email: PROFESSOR }).ok, true,
     'a guarda nova trancou a remoção comum, que não decide nível nenhum');
-  dois.api.limparCacheConfig();
+  dois.api.limparCacheConfig_();
   igual(dois.api.nivelDe_(ADMIN), 'coordenador');
 });
 
@@ -1762,20 +1809,20 @@ teste('ATAQUE: a sessão aberta sobrevive ao rebaixamento?', () => {
   //
   // Mutação que derruba: gravar o nível sem `invalidarSessoesDe_`.
   const amb = comNiveis();
-  igual(amb.api.definirNivel({
+  igual(amb.api.definirNivel_({
     token: amb.coordenacao, email: PROFESSOR, nivel: 'coordenador'
   }).ok, true);
 
   const dela = amb.api.criarSessao_(PROFESSOR);
   igual(painel(amb, 'listarAdmins', dela).ok, true, 'promovida, ela devia ler a lista');
 
-  igual(amb.api.definirNivel({
+  igual(amb.api.definirNivel_({
     token: amb.coordenacao, email: PROFESSOR, nivel: 'professor'
   }).ok, true);
 
-  igual(amb.api.sessaoAtiva(dela).ok, false, 'a sessão de quem mudou de nível não caiu');
+  igual(amb.api.sessaoAtiva_(dela).ok, false, 'a sessão de quem mudou de nível não caiu');
   igual(painel(amb, 'listarAdmins', dela).erro, RECUSA);
-  igual(amb.api.sessaoAtiva(amb.coordenacao).ok, true, 'a sessão de quem mexeu caiu junto');
+  igual(amb.api.sessaoAtiva_(amb.coordenacao).ok, true, 'a sessão de quem mexeu caiu junto');
 });
 
 teste('a recusa por nível NÃO faz o painel se deslogar — a expressão é lida de lá', () => {
@@ -1804,16 +1851,16 @@ teste('a recusa por nível NÃO faz o painel se deslogar — a expressão é lid
 });
 
 teste('as 11 do professor são leitura — e a varredura é TRANSITIVA', () => {
-  // A varredura precisa ser transitiva por causa de `atualizarAlunos`: o botão
+  // A varredura precisa ser transitiva por causa de `atualizarAlunos_`: o botão
   // se chama "Atualizar", parece recarregar, e uma varredura do corpo dela por
-  // `inserir(`/`atualizar(` não acha NADA. Ela chama
+  // `inserir_(`/`atualizar_(` não acha NADA. Ela chama
   // `reconciliarSeValerAPena_`, que reescreve a coleção `alunos` inteira.
   //
-  // `exportarCsv` é a ÚNICA exceção, e ela é declarada aqui com o motivo: ela
+  // `exportarCsv_` é a ÚNICA exceção, e ela é declarada aqui com o motivo: ela
   // grava a linha EXPORTACAO na trilha (decisão do Jonathan, 23/09 — o professor
   // exporta, e é por essa linha que a trilha responde qual professor exportou).
   //
-  // Mutação que derruba: pôr `atualizarAlunos` no balde do professor; ou trocar
+  // Mutação que derruba: pôr `atualizarAlunos_` no balde do professor; ou trocar
   // a varredura por não-transitiva, e aí ela passa a mentir.
   const fs = require('fs');
   const path = require('path');
@@ -1844,12 +1891,12 @@ teste('as 11 do professor são leitura — e a varredura é TRANSITIVA', () => {
   });
 
   // As escritas do REPO e da trilha. `setProperty`/`deleteProperty` ficam de
-  // fora de propósito: toda função guardada passa por `exigirAdmin` ->
+  // fora de propósito: toda função guardada passa por `exigirAdmin_` ->
   // `tokenValido_`, que APAGA a sessão vencida — varrer sessão morta não é
   // escrever no cadastro, e incluí-los faria as doze acusarem o mesmo falso.
-  const ESCRITAS = ['inserir', 'atualizar', 'excluir', 'escreverEmLote', 'excluirEmLote',
-    'atualizarEmLote', 'escreverAtomico', 'gravarConfig', 'gravarAcessos_',
-    'registrar', 'registrarRecusa'];
+  const ESCRITAS = ['inserir_', 'atualizar_', 'excluir_', 'escreverEmLote_', 'excluirEmLote_',
+    'atualizarEmLote_', 'escreverAtomico_', 'gravarConfig_', 'gravarAcessos_',
+    'registrar_', 'registrarRecusa_'];
 
   function escreve(nome) {
     const vistos = {};
@@ -1874,23 +1921,32 @@ teste('as 11 do professor são leitura — e a varredura é TRANSITIVA', () => {
   const foraDeSoLeitura = [];
   const escritoras = [];
 
+  // O balde e o SO_LEITURA falam o nome do FIO (`'listarAlunos'`); a varredura
+  // lê o corpo da FUNÇÃO (`listarAlunos_`). Quem traduz é a lista branca, pelo
+  // nome declarado da função que ela guarda. E o corpo tem de ter sido achado:
+  // sem ele, `escreve` não teria o que varrer e responderia "não escreve" para
+  // qualquer coisa.
+  const funcoes = amb.api.funcoesDoPainel_();
+  const daFuncao = (fio) => funcoes[fio].name;
+
   Object.keys(amb.api.funcoesDoProfessor_()).forEach((nome) => {
+    verdadeiro(corpos[daFuncao(nome)], 'o corpo de ' + daFuncao(nome) + ' não foi achado nos .gs');
     if (nome !== EXCECAO && soLeitura.indexOf(nome) === -1) foraDeSoLeitura.push(nome);
-    const caminho = escreve(nome);
+    const caminho = escreve(daFuncao(nome));
     if (caminho && nome !== EXCECAO) escritoras.push(caminho);
   });
 
   igual(foraDeSoLeitura, [], 'o painel não as tem como leitura, e elas estão abertas');
   igual(escritoras, [], 'função de escrita no balde do professor');
-  verdadeiro(escreve(EXCECAO).indexOf('registrar') !== -1,
+  verdadeiro(escreve(daFuncao(EXCECAO)).indexOf('registrar_') !== -1,
     'exportarCsv deixou de escrever a linha EXPORTACAO — a exceção perdeu o motivo');
-  verdadeiro(escreve('atualizarAlunos') !== '',
+  verdadeiro(escreve(daFuncao('atualizarAlunos')) !== '',
     'a varredura deixou de enxergar a escrita atrás de reconciliarSeValerAPena_');
 });
 
 teste('recusar por NÍVEL não custa uma leitura sequer, com token inválido', () => {
-  // Irmão do teste da recusa de sessão, e a razão de `exigirCoordenador` chamar
-  // `exigirAdmin` PRIMEIRO. Invertido, cada tentativa anônima passaria a ler a
+  // Irmão do teste da recusa de sessão, e a razão de `exigirCoordenador_` chamar
+  // `exigirAdmin_` PRIMEIRO. Invertido, cada tentativa anônima passaria a ler a
   // configuração para descobrir o nível de uma sessão que não existe — e um
   // endereço anônimo que gasta leitura para dizer "não" é um botão de desligar.
   //
@@ -1900,11 +1956,11 @@ teste('recusar por NÍVEL não custa uma leitura sequer, com token inválido', (
   igual(amb.falso.requisicoes.length, 0);
 
   amb.falso.requisicoes.length = 0;
-  lancouNivel(() => amb.api.exigirCoordenador('inventado'));
+  lancouNivel(() => amb.api.exigirCoordenador_('inventado'));
   igual(amb.falso.requisicoes.length, 0, 'a guarda leu o banco antes de conferir a sessão');
 });
 
-/** `exigirCoordenador` lança; aqui só se quer o efeito colateral (nenhum). */
+/** `exigirCoordenador_` lança; aqui só se quer o efeito colateral (nenhum). */
 function lancouNivel(fn) {
   try {
     fn();
@@ -1923,7 +1979,7 @@ teste('a migração é NULA: sem a chave no banco, quem entra continua podendo t
   // suíte inteira cai de uma vez, porque ninguém mais coordena nada.
   const amb = montar({ allowlist: ADMIN + ', ' + PROFESSOR });
 
-  igual(amb.api.config('coordenadores_gerais'), '', 'a chave nasceu preenchida');
+  igual(amb.api.config_('coordenadores_gerais'), '', 'a chave nasceu preenchida');
   igual(amb.api.coordenadoresGerais_(), []);
   igual(amb.api.nivelDe_(ADMIN), 'coordenador');
   igual(amb.api.nivelDe_(PROFESSOR), 'coordenador', 'o dia 1 rebaixou alguém');
@@ -1948,10 +2004,10 @@ teste('MATERIALIZAÇÃO ao rebaixar: os outros ficam escritos, e o piso não os 
   const amb = montar({ allowlist: ADMIN + ', ' + PROFESSOR + ', outra@exemplo.com' });
   const token = amb.api.criarSessao_(ADMIN);
 
-  igual(amb.api.definirNivel({ token: token, email: PROFESSOR, nivel: 'professor' }).ok, true);
+  igual(amb.api.definirNivel_({ token: token, email: PROFESSOR, nivel: 'professor' }).ok, true);
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('coordenadores_gerais'), ADMIN + ', outra@exemplo.com');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('coordenadores_gerais'), ADMIN + ', outra@exemplo.com');
   igual(amb.api.nivelDe_(PROFESSOR), 'professor', 'o piso devolveu o rebaixado a coordenador');
   igual(amb.api.nivelDe_('outra@exemplo.com'), 'coordenador', 'rebaixou quem ninguém tocou');
 });
@@ -1961,15 +2017,15 @@ teste('MATERIALIZAÇÃO ao incluir: quem chega nasce professor, e os de antes n�
   // materializar cria um coordenador geral em silêncio — o
   // pedido da coordenação ao contrário, e logo no primeiro gesto.
   //
-  // Mutação que derruba: não materializar em `incluirAdmin`.
+  // Mutação que derruba: não materializar em `incluirAdmin_`.
   const amb = montar({ allowlist: ADMIN + ', outra@exemplo.com' });
   const token = amb.api.criarSessao_(ADMIN);
 
-  const r = amb.api.incluirAdmin({ token: token, email: PROFESSOR });
+  const r = amb.api.incluirAdmin_({ token: token, email: PROFESSOR });
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.nivel, 'professor', 'quem chegou nasceu podendo tudo');
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.nivelDe_(PROFESSOR), 'professor');
   igual(amb.api.nivelDe_(ADMIN), 'coordenador');
   igual(amb.api.nivelDe_('outra@exemplo.com'), 'coordenador', 'os de antes foram rebaixados');
@@ -1979,17 +2035,17 @@ teste('MATERIALIZAÇÃO no campo de texto: o mesmo gesto, pela aba Configuraçõ
   // O campo `admin_emails` acrescenta gente sem passar pelo botão Incluir, e não
   // pode ter outras regras — é o mesmo gesto por outro caminho.
   //
-  // Mutação que derruba: materializar só em `incluirAdmin`.
+  // Mutação que derruba: materializar só em `incluirAdmin_`.
   const amb = montar({ allowlist: ADMIN + ', outra@exemplo.com' });
   const token = amb.api.criarSessao_(ADMIN);
 
-  const r = amb.api.salvarConfiguracao({
+  const r = amb.api.salvarConfiguracao_({
     token: token, chave: 'admin_emails',
     valor: ADMIN + ', outra@exemplo.com, ' + PROFESSOR
   });
   igual(r.ok, true, 'erro foi: ' + r.erro);
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.nivelDe_(PROFESSOR), 'professor', 'quem entrou pelo campo nasceu coordenador');
   igual(amb.api.nivelDe_('outra@exemplo.com'), 'coordenador');
 });
@@ -2004,34 +2060,34 @@ teste('o campo coordenadores_gerais recusa o vazio e o e-mail de fora — e não
   const amb = comNiveis();
   const eu = { token: amb.coordenacao };
 
-  const vazio = amb.api.salvarConfiguracao(
+  const vazio = amb.api.salvarConfiguracao_(
     Object.assign({ chave: 'coordenadores_gerais', valor: '' }, eu));
   igual(vazio.ok, false);
   verdadeiro(/poder total/.test(vazio.erro), vazio.erro);
 
-  const deFora = amb.api.salvarConfiguracao(Object.assign(
+  const deFora = amb.api.salvarConfiguracao_(Object.assign(
     { chave: 'coordenadores_gerais', valor: ADMIN + ', ninguem@exemplo.com' }, eu));
   igual(deFora.ok, false);
   verdadeiro(/ninguem@exemplo.com/.test(deFora.erro), deFora.erro);
   verdadeiro(/Nada foi alterado/.test(deFora.erro), deFora.erro);
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('coordenadores_gerais'), ADMIN, 'gravou metade do campo');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('coordenadores_gerais'), ADMIN, 'gravou metade do campo');
 });
 
 teste('liberarAcesso volta COORDENADOR, e repõe o e-mail nas duas chaves', () => {
   // Uma porta de emergência que desemboca num painel de professor não conserta
   // nada: o professor não abre Configurações, que é justamente o que se foi
   // consertar. E ela não concede privilégio novo — quem a roda está com o editor
-  // do Apps Script aberto e poderia reescrever `exigirCoordenador` inteiro.
+  // do Apps Script aberto e poderia reescrever `exigirCoordenador_` inteiro.
   //
   // Mutação que derruba: repor só em `admin_emails`.
   const amb = comNiveis();
   amb.api.console = { log: () => {}, error: () => {} };
 
-  amb.api.liberarAcesso(PROFESSOR);
+  amb.api.liberarAcesso_(PROFESSOR);
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.nivelDe_(PROFESSOR), 'coordenador', 'o socorro devolveu um professor');
   igual(amb.api.coordenadoresGerais_(), [ADMIN, PROFESSOR]);
 
@@ -2040,20 +2096,22 @@ teste('liberarAcesso volta COORDENADOR, e repõe o e-mail nas duas chaves', () =
   // está olhando.
   const novo = montar({ allowlist: '' });
   novo.api.console = { log: () => {}, error: () => {} };
-  novo.api.liberarAcesso(ADMIN);
-  novo.api.limparCacheConfig();
+  novo.api.liberarAcesso_(ADMIN);
+  novo.api.limparCacheConfig_();
   igual(novo.api.coordenadoresGerais_(), []);
   igual(novo.api.nivelDe_(ADMIN), 'coordenador');
 });
 
 teste('as duas listas de acesso têm UM escritor só — teste de fonte', () => {
-  // A lição que este repositório já escreveu em `gravarConfig`: uma guarda
+  // A lição que este repositório já escreveu em `gravarConfig_`: uma guarda
   // espalhada por quatro caminhos é uma guarda que o quinto caminho esquece. A
   // invariante do último coordenador mora dentro de `aplicarAcessos_`, e ela só
   // vale enquanto ninguém escrever as chaves por fora.
   //
-  // Mutação que derruba: um `gravarConfig('admin_emails', ...)` novo em qualquer
-  // lugar — exatamente o bug que o comentário de 03_Config.gs prevê.
+  // Mutação que derruba: um `gravarConfig_('admin_emails', ...)` novo em qualquer
+  // lugar — exatamente o bug que o comentário de 03_Config.gs prevê. A busca
+  // aceita o nome com e sem o `_` do fim: antes de 16/11/2026 ele não tinha, e
+  // uma busca presa a uma das duas grafias passaria calada na outra.
   const fs = require('fs');
   const path = require('path');
   const pasta = path.join(__dirname, '..', 'apps-script');
@@ -2065,8 +2123,8 @@ teste('as duas listas de acesso têm UM escritor só — teste de fonte', () => 
   let chamadas = 0;
   fontes.forEach((arquivo) => {
     const texto = fs.readFileSync(path.join(pasta, arquivo), 'utf8');
-    ["gravarConfig('admin_emails'", "gravarConfig('coordenadores_gerais'"].forEach((trecho) => {
-      if (texto.indexOf(trecho) !== -1) porFora.push(arquivo + ': ' + trecho);
+    (texto.match(/\bgravarConfig_?\s*\(\s*'(admin_emails|coordenadores_gerais)'/g) || []).forEach((trecho) => {
+      porFora.push(arquivo + ': ' + trecho);
     });
     chamadas += (texto.match(/gravarAcessos_\s*\(/g) || []).length;
   });

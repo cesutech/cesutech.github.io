@@ -9,8 +9,8 @@
  *
  * O que se prova, em ordem de importância:
  *
- *   1. o ORÇAMENTO: `listarBanners` e `enviarBanner` não fazem uma única
- *      requisição ao Firestore além do log, e `removerBanner` faz exatamente
+ *   1. o ORÇAMENTO: `listarBanners_` e `enviarBanner_` não fazem uma única
+ *      requisição ao Firestore além do log, e `removerBanner_` faz exatamente
  *      duas consultas, ambas filtradas e com teto — medido contando as
  *      requisições, não lendo o código;
  *   2. a conferência de "banner em uso" encontra as DUAS formas que o campo
@@ -54,7 +54,7 @@
  *     nossa. É a mesma família da armadilha do `__name__ DESCENDING`, que só
  *     apareceu contra o banco real.
  *   - O falso NÃO cobra leitura mínima por consulta vazia. O custo de 2 leituras
- *     do `removerBanner` sem projeto casado é conta em cima da documentação do
+ *     do `removerBanner_` sem projeto casado é conta em cima da documentação do
  *     Firestore; o que este arquivo mede é o número de CONSULTAS.
  *
  * Uso:  node testes/banners.js
@@ -233,7 +233,7 @@ function escritas(falso) {
 
 /** Último registro de log com esta ação. */
 function log(api, acao) {
-  const achado = api.ultimosRegistros(20).filter((r) => r.acao === acao)[0];
+  const achado = api.ultimosRegistros_(20).filter((r) => r.acao === acao)[0];
   if (!achado) throw new Error('o log não recebeu ' + acao);
   return achado;
 }
@@ -245,7 +245,7 @@ function imagemFalsa(bytes) {
 
 /** Sobe um banner e devolve a resposta. */
 function enviar(amb, nome, tipo, bytes) {
-  return chamar(amb, 'enviarBanner', {
+  return chamar(amb, 'enviarBanner_', {
     filename: nome,
     mimeType: tipo,
     dataBase64: imagemFalsa(bytes === undefined ? 1024 : bytes)
@@ -253,7 +253,7 @@ function enviar(amb, nome, tipo, bytes) {
 }
 
 function criarProjeto(api, id, banner) {
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     codigo: id, nome: 'Projeto ' + id, banner: banner || '',
     vagas: '60', ativo: 'true', inscricoes_abertas: 'true'
   }, id);
@@ -267,7 +267,7 @@ teste('as três funções recusam sem token e não tocam em Drive nem no banco',
   const amb = ambiente();
   amb.zerar();
 
-  ['listarBanners', 'enviarBanner', 'removerBanner'].forEach((funcao) => {
+  ['listarBanners_', 'enviarBanner_', 'removerBanner_'].forEach((funcao) => {
     const r = amb.api[funcao]({ id: 'drv1', filename: 'a.jpg', mimeType: 'image/jpeg' });
     igual(r.ok, false, funcao + ' deixou passar sem token');
     verdadeiro(/Sess.o expirada|inv.lida/.test(r.erro),
@@ -280,9 +280,9 @@ teste('as três funções recusam sem token e não tocam em Drive nem no banco',
 
 teste('token de outra sessão não vale', () => {
   const amb = ambiente();
-  igual(chamar(amb, 'listarBanners').ok, true);
-  amb.api.sair(amb.token);
-  igual(amb.api.listarBanners({ token: amb.token }).ok, false, 'o logout não derrubou o token');
+  igual(chamar(amb, 'listarBanners_').ok, true);
+  amb.api.sair_(amb.token);
+  igual(amb.api.listarBanners_({ token: amb.token }).ok, false, 'o logout não derrubou o token');
 });
 
 // ------------------------------------------------------------ listarBanners
@@ -294,7 +294,7 @@ teste('pasta vazia devolve lista vazia, e não erro', () => {
   // `aviso` entrou em 06/08 com a paginação de `driveListar_`: vazio quando a
   // lista veio inteira, preenchido quando o teto cortou. Ver o teste da
   // paginação, mais abaixo.
-  igual(chamar(amb, 'listarBanners'), { ok: true, itens: [], aviso: '' });
+  igual(chamar(amb, 'listarBanners_'), { ok: true, itens: [], aviso: '' });
 });
 
 teste('não custa uma leitura sequer no Firestore', () => {
@@ -302,7 +302,7 @@ teste('não custa uma leitura sequer no Firestore', () => {
   enviar(amb, 'a.jpg', 'image/jpeg');
   amb.zerar();
 
-  chamar(amb, 'listarBanners');
+  chamar(amb, 'listarBanners_');
   igual(amb.falso.requisicoes.length, 0, 'a lista de banners mora no Drive; o banco não sabe dela');
 });
 
@@ -310,7 +310,7 @@ teste('cada item traz id, nome, URL pública, tamanho e data', () => {
   const amb = ambiente();
   enviar(amb, 'Cidades Inteligentes.jpg', 'image/jpeg', 2048);
 
-  const item = chamar(amb, 'listarBanners').itens[0];
+  const item = chamar(amb, 'listarBanners_').itens[0];
   igual(item.nome, 'cidades-inteligentes.jpg');
   igual(item.url, 'https://drive.google.com/thumbnail?id=' + item.id + '&sz=w1600');
   igual(item.tamanhoKb, 2);
@@ -324,14 +324,14 @@ teste('arquivo sem `size` não vira NaN na legenda', () => {
   // É o que o Drive faz com os formatos nativos do Google: omite o campo.
   amb.drive.arquivos.forEach((f) => { f.size = null; });
 
-  igual(chamar(amb, 'listarBanners').itens[0].tamanhoKb, 0);
+  igual(chamar(amb, 'listarBanners_').itens[0].tamanhoKb, 0);
 });
 
 teste('a ordem é pedida ao Drive, e não refeita aqui', () => {
   const amb = ambiente();
   enviar(amb, 'a.jpg', 'image/jpeg');
   amb.zerar();
-  chamar(amb, 'listarBanners');
+  chamar(amb, 'listarBanners_');
 
   const lista = amb.drive.chamadas.filter((c) => c.metodo === 'list')[0];
   igual(lista.params.orderBy, 'createdTime desc', 'o mais novo primeiro é decisão do Drive');
@@ -365,7 +365,7 @@ teste('mais de 200 banners: a lista vem inteira, em várias páginas', () => {
   encherPasta(amb, 450);
   amb.drive.chamadas.length = 0;
 
-  const r = chamar(amb, 'listarBanners');
+  const r = chamar(amb, 'listarBanners_');
 
   igual(r.ok, true, r.erro);
   igual(r.itens.length, 450, 'sumiram ' + (450 - r.itens.length) + ' banners sem erro nenhum');
@@ -378,7 +378,7 @@ teste('a segunda página é pedida com o token que a primeira devolveu', () => {
   const amb = ambiente();
   encherPasta(amb, 250);
   amb.drive.chamadas.length = 0;
-  chamar(amb, 'listarBanners');
+  chamar(amb, 'listarBanners_');
 
   const listas = amb.drive.chamadas.filter((c) => c.metodo === 'list');
   igual(listas[0].params.pageToken, undefined, 'a primeira página não tem de onde continuar');
@@ -391,7 +391,7 @@ teste('acima do teto duro, a lista sai curta mas DIZ que saiu curta', () => {
   const amb = ambiente();
   encherPasta(amb, 1100);
 
-  const r = chamar(amb, 'listarBanners');
+  const r = chamar(amb, 'listarBanners_');
 
   igual(r.itens.length, 1000, 'o teto duro é 1.000');
   verdadeiro(r.aviso.indexOf('1000') !== -1, 'o aviso precisa dizer quantos couberam: ' + r.aviso);
@@ -422,7 +422,7 @@ teste('os três formatos do <input accept> do painel passam', () => {
 
 teste('arquivo vazio devolve recado, e não estouro dentro do base64Decode', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'enviarBanner', { filename: 'a.jpg', mimeType: 'image/jpeg', dataBase64: '' });
+  const r = chamar(amb, 'enviarBanner_', { filename: 'a.jpg', mimeType: 'image/jpeg', dataBase64: '' });
   igual(r, { ok: false, erro: 'O arquivo chegou vazio. Tente enviar de novo.' });
   igual(amb.decodificacoes, 0);
 });
@@ -442,7 +442,7 @@ teste('payload absurdo é medido pelo TEXTO, sem passar por base64Decode', () =>
   const amb = ambiente();
   amb.zerar();
 
-  const r = chamar(amb, 'enviarBanner', {
+  const r = chamar(amb, 'enviarBanner_', {
     filename: 'enorme.jpg',
     mimeType: 'image/jpeg',
     dataBase64: 'A'.repeat(40 * 1024 * 1024)
@@ -496,7 +496,7 @@ teste('a pasta é criada uma vez só, por mais envios que venham', () => {
 
   igual(criadas(), 1);
   enviar(amb, 'b.jpg', 'image/jpeg');
-  chamar(amb, 'listarBanners');
+  chamar(amb, 'listarBanners_');
   igual(criadas(), 1);
 });
 
@@ -542,7 +542,7 @@ teste('banner usado pela URL não é removido', () => {
   const r = enviar(amb, 'cidades.jpg', 'image/jpeg');
   criarProjeto(amb.api, 'p1', r.url);
 
-  const resposta = chamar(amb, 'removerBanner', { id: r.id });
+  const resposta = chamar(amb, 'removerBanner_', { id: r.id });
   igual(resposta.ok, false);
   verdadeiro(resposta.erro.indexOf('Projeto p1') !== -1, resposta.erro);
   igual(amb.drive.arquivos.get(r.id).trashed, false, 'o arquivo continua lá');
@@ -555,7 +555,7 @@ teste('banner usado pelo id cru também não é removido', () => {
   const r = enviar(amb, 'cidades.jpg', 'image/jpeg');
   criarProjeto(amb.api, 'p2', r.id);
 
-  const resposta = chamar(amb, 'removerBanner', { id: r.id });
+  const resposta = chamar(amb, 'removerBanner_', { id: r.id });
   igual(resposta.ok, false);
   verdadeiro(resposta.erro.indexOf('Projeto p2') !== -1, resposta.erro);
 });
@@ -566,7 +566,7 @@ teste('o mesmo projeto não aparece duas vezes na lista de impedimentos', () => 
   criarProjeto(amb.api, 'p1', r.url);
   criarProjeto(amb.api, 'p2', r.id);
 
-  const erro = chamar(amb, 'removerBanner', { id: r.id }).erro;
+  const erro = chamar(amb, 'removerBanner_', { id: r.id }).erro;
   igual(erro.split('Projeto p1').length - 1, 1, 'p1 casou nas duas consultas e foi listado duas vezes');
   verdadeiro(erro.indexOf('Projeto p2') !== -1, erro);
 });
@@ -576,7 +576,7 @@ teste('banner de ninguém vai para a lixeira e entra no log', () => {
   const r = enviar(amb, 'orfao.jpg', 'image/jpeg');
   criarProjeto(amb.api, 'p1', 'outro-banner.jpg');
 
-  igual(chamar(amb, 'removerBanner', { id: r.id }), { ok: true });
+  igual(chamar(amb, 'removerBanner_', { id: r.id }), { ok: true });
   igual(amb.drive.arquivos.get(r.id).trashed, true);
   igual(log(amb.api, 'BANNER_REMOVIDO').entidade_id, r.id);
 });
@@ -587,7 +587,7 @@ teste('a remoção custa DUAS consultas filtradas, e nenhuma leitura de coleçã
   for (let i = 1; i <= 30; i++) criarProjeto(amb.api, 'p' + i, 'banner-' + i + '.jpg');
   amb.zerar();
 
-  chamar(amb, 'removerBanner', { id: r.id });
+  chamar(amb, 'removerBanner_', { id: r.id });
 
   const feitas = consultas(amb.falso);
   igual(feitas.length, 2, 'uma por forma do campo `banner` — `listar` aceita um fieldFilter só');
@@ -603,7 +603,7 @@ teste('nenhuma consulta pede índice composto nem __name__ DESCENDENTE', () => {
   const amb = ambiente();
   const r = enviar(amb, 'orfao.jpg', 'image/jpeg');
   amb.zerar();
-  chamar(amb, 'removerBanner', { id: r.id });
+  chamar(amb, 'removerBanner_', { id: r.id });
 
   consultas(amb.falso).forEach((c) => {
     const q = c.corpo.structuredQuery;
@@ -619,7 +619,7 @@ teste('id em branco é recusado sem custar nada', () => {
   const amb = ambiente();
   amb.zerar();
 
-  igual(chamar(amb, 'removerBanner', { id: '  ' }),
+  igual(chamar(amb, 'removerBanner_', { id: '  ' }),
     { ok: false, erro: 'Informe qual banner remover.' });
   igual(amb.falso.requisicoes.length, 0);
   igual(amb.drive.chamadas.length, 0);
@@ -630,7 +630,7 @@ teste('a lista de impedimentos avisa quando sai cortada', () => {
   const r = enviar(amb, 'todos.jpg', 'image/jpeg');
   for (let i = 1; i <= 25; i++) criarProjeto(amb.api, 'p' + String(i).padStart(2, '0'), r.url);
 
-  const erro = chamar(amb, 'removerBanner', { id: r.id }).erro;
+  const erro = chamar(amb, 'removerBanner_', { id: r.id }).erro;
   verdadeiro(erro.indexOf('a conferência para em 20') !== -1,
     'sem o aviso, "está em uso por 20 projetos" parece a lista inteira: ' + erro);
 });
@@ -671,7 +671,7 @@ teste('o payload que o Admin.html manda é o que enviarBanner lê', () => {
 teste('o que listarBanners devolve é o que a galeria do painel desenha', () => {
   const amb = ambiente();
   enviar(amb, 'a.jpg', 'image/jpeg');
-  const item = chamar(amb, 'listarBanners').itens[0];
+  const item = chamar(amb, 'listarBanners_').itens[0];
 
   // Admin.html:757 monta o cartão com b.nome, b.url, b.tamanhoKb, b.enviadoEm e
   // b.id. Campo que faltar vira "undefined" escrito na legenda, sem erro nenhum.
@@ -910,12 +910,16 @@ teste('o painel não fala mais por google.script.run', () => {
 });
 
 teste('TODA função que o painel chama existe em algum .gs', () => {
+  // O painel chama pelo nome do FIO (`'listarBanners'`); a função que roda é a
+  // mesma palavra com o `_` do fim (`listarBanners_`) — todo o servidor é privado
+  // desde 16/11/2026, e a regra entre os dois nomes é conferida em
+  // testes/portas.js, contra os dois despachos.
   const chamadas = chamadasDoAdmin(ADMIN).nomes;
   const servidor = funcoesDoServidor();
 
   verdadeiro(chamadas.length >= 22, 'só ' + chamadas.length + ' chamadas: o detector regrediu');
 
-  const faltando = chamadas.filter((n) => !servidor[n]);
+  const faltando = chamadas.filter((n) => !servidor[n + '_']);
   igual(faltando, [],
     'o painel chama ' + faltando.length + ' função(ões) que não existem no servidor: ' +
     faltando.join(', ') + '. O botão correspondente devolve erro genérico no navegador.');
@@ -925,12 +929,13 @@ teste('as duas funções desta fase estão de pé e são chamadas pelo painel', 
   const amb = ambiente();
   const chamadas = chamadasDoAdmin(ADMIN).nomes;
 
-  ['listarBanners', 'enviarBanner'].forEach((funcao) => {
-    igual(typeof amb.api[funcao], 'function', funcao + ' não existe');
-    verdadeiro(chamadas.indexOf(funcao) !== -1, 'o Admin.html não chama ' + funcao);
+  // O nome do fio (o que o painel chama) e a função dele, com o `_` do fim.
+  ['listarBanners', 'enviarBanner'].forEach((fio) => {
+    igual(typeof amb.api[fio + '_'], 'function', fio + '_ não existe');
+    verdadeiro(chamadas.indexOf(fio) !== -1, 'o Admin.html não chama ' + fio);
   });
 
-  igual(typeof amb.api.removerBanner, 'function');
+  igual(typeof amb.api.removerBanner_, 'function');
   igual(chamadas.indexOf('removerBanner'), -1,
     'ganhou botão no painel? então este teste vira o contrário, e o payload precisa mandar `id`');
 });

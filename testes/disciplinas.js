@@ -55,7 +55,7 @@ function ambiente(opcoes) {
 /**
  * Uma sessão de admin, montada como as três portas do painel a montam.
  *
- * `criarSessao_` é o que `autenticar`, `entrarComGoogle` e `entrarComLink`
+ * `criarSessao_` é o que `autenticar_`, `entrarComGoogle_` e `entrarComLink_`
  * chamam no último passo, e é o passo inteiro que interessa aqui: nada neste
  * arquivo é sobre COMO se entra, só sobre o que um token válido autoriza. Passar
  * pelo login de verdade obrigaria cada teste de disciplina a manter a allowlist,
@@ -75,11 +75,11 @@ function linha(curso, turma, semestre, ano) {
 
 /** Inclui pelo caminho público de verdade — nada de semear o banco na mão. */
 function incluir(api, token, linhas, coringa) {
-  return api.incluirDisciplinas({ token: token, linhas: linhas, coringa: coringa });
+  return api.incluirDisciplinas_({ token: token, linhas: linhas, coringa: coringa });
 }
 
 function idDe(api, token, rotulo) {
-  const achada = api.listarDisciplinas({ token: token }).itens
+  const achada = api.listarDisciplinas_({ token: token }).itens
     .filter((d) => d.rotulo === rotulo)[0];
   if (!achada) throw new Error('não achei a disciplina "' + rotulo + '"');
   return achada.id;
@@ -192,7 +192,7 @@ teste('grava as várias linhas de uma vez', () => {
 
   igual(r.ok, true);
   igual(r.criadas.length, 3);
-  igual(api.listarDisciplinas({ token: token }).itens.length, 3);
+  igual(api.listarDisciplinas_({ token: token }).itens.length, 3);
 });
 
 teste('linha incompleta RECUSA o lote inteiro, e nada é gravado', () => {
@@ -385,7 +385,7 @@ teste('só as ATIVAS chegam ao formulário', () => {
   const token = tokenAdmin(api);
   incluir(api, token, [linha('ATIVA', 'A1'), linha('DESLIGADA', 'D1')]);
 
-  api.alternarDisciplina({ token: token, id: idDe(api, token, 'D1 - DESLIGADA (2026/1)'), ativo: false });
+  api.alternarDisciplina_({ token: token, id: idDe(api, token, 'D1 - DESLIGADA (2026/1)'), ativo: false });
 
   igual(listaDoFormulario(api), ['A1 - ATIVA (2026/1)']);
 });
@@ -428,7 +428,7 @@ teste('a rota pública de verdade entrega os rótulos da coleção', () => {
   amb.api.semearConfigPadrao_();
   const token = tokenAdmin(amb.api);
   incluir(amb.api, token, [linha('WORK EXPERIENCE', 'ADM61')]);
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
 
   igual(amb.api.dadosFormularioPublico_().cursosFases, ['ADM61 - WORK EXPERIENCE (2026/1)']);
 });
@@ -487,7 +487,7 @@ teste('toda escrita descarta a lista pública guardada', () => {
   incluir(api, token, [linha('A', 'A1')]);
   igual(listaDoFormulario(api), ['A1 - A (2026/1)']);
 
-  api.alternarDisciplina({ token: token, id: idDe(api, token, 'A1 - A (2026/1)'), ativo: false });
+  api.alternarDisciplina_({ token: token, id: idDe(api, token, 'A1 - A (2026/1)'), ativo: false });
 
   // Sem a invalidação, a coordenação inativaria a disciplina e ela continuaria
   // no formulário por cinco minutos, sem nenhum sinal de que sumiu do painel.
@@ -538,7 +538,7 @@ teste('inativar a primeira libera a segunda', () => {
   const { api } = ambiente();
   const token = tokenAdmin(api);
   incluir(api, token, [{ curso: 'Outra: disciplina não listada' }], true);
-  api.alternarDisciplina({ token: token, id: idDe(api, token, 'Outra: disciplina não listada'), ativo: false });
+  api.alternarDisciplina_({ token: token, id: idDe(api, token, 'Outra: disciplina não listada'), ativo: false });
 
   igual(incluir(api, token, [{ curso: 'Não achei a minha' }], true).ok, true);
 });
@@ -548,12 +548,12 @@ teste('reativar uma coringa velha com outra no ar é recusado', () => {
   const token = tokenAdmin(api);
   incluir(api, token, [{ curso: 'Primeira' }], true);
   const primeira = idDe(api, token, 'Primeira');
-  api.alternarDisciplina({ token: token, id: primeira, ativo: false });
+  api.alternarDisciplina_({ token: token, id: primeira, ativo: false });
   incluir(api, token, [{ curso: 'Segunda' }], true);
 
   // Sem a conferência na ATIVAÇÃO, este caminho poria duas coringas no
   // formulário sem nenhuma delas ter sido criada irregularmente.
-  const r = api.alternarDisciplina({ token: token, id: primeira, ativo: true });
+  const r = api.alternarDisciplina_({ token: token, id: primeira, ativo: true });
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('Segunda') !== -1, r.erro);
 });
@@ -566,17 +566,17 @@ teste('o painel lista quem escolheu a coringa — o ponto inteiro dela', () => {
 
   // Gravadas pelo caminho de verdade (04_Inscricoes.gs), e não semeadas na mão:
   // o campo e o formato têm de ser os que a produção grava.
-  api.gravarInscricao({
+  api.gravarInscricao_({
     projeto_id: 'p1', projeto_nome: 'R+ Cidades', matricula: '9110001',
     nome: 'Maria de Souza', email: 'maria@aluno.br',
     curso_fase: 'Outra: disciplina não listada'
   });
-  api.gravarInscricao({
+  api.gravarInscricao_({
     projeto_id: 'p1', projeto_nome: 'R+ Cidades', matricula: '9110002',
     nome: 'João Lima', email: 'joao@aluno.br', curso_fase: 'Z1 - ZOOLOGIA (2026/1)'
   });
 
-  const r = api.inscritosDaDisciplina({ token: token, id: id });
+  const r = api.inscritosDaDisciplina_({ token: token, id: id });
   igual(r.ok, true);
   igual(r.itens.length, 1);
   igual(r.itens[0].matricula, '9110001');
@@ -590,7 +590,7 @@ teste('a lista de inscritos casa pelo TEXTO gravado, com uma consulta só', () =
   const id = idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)');
 
   falso.requisicoes.length = 0;
-  api.inscritosDaDisciplina({ token: token, id: id });
+  api.inscritosDaDisciplina_({ token: token, id: id });
 
   const consulta = falso.requisicoes.filter((r) => r.url.indexOf(':runQuery') !== -1)[0];
   igual(consulta.corpo.structuredQuery.from[0].collectionId, 'inscricoes');
@@ -603,7 +603,7 @@ teste('a lista de inscritos casa pelo TEXTO gravado, com uma consulta só', () =
 // ------------------------------------------------------------- Cruzamento
 
 /**
- * `matriculadosDaDisciplina` — o OUTRO lado, e o que a coordenação pergunta no
+ * `matriculadosDaDisciplina_` — o OUTRO lado, e o que a coordenação pergunta no
  * dia do evento: "quem de ADS11 ainda NÃO se inscreveu em projeto nenhum?".
  *
  * Nenhuma consulta sobre `inscricoes` responde isso, e é o ponto inteiro desta
@@ -637,8 +637,8 @@ grupo('Cruzamento — quem da turma ainda NÃO se inscreveu');
  * que o cruzamento depende continuam existindo lá.
  */
 function matricular(api, matricula, campos) {
-  const chave = api.normalizarMatricula(matricula);
-  api.inserir('matriculados', Object.assign({
+  const chave = api.normalizarMatricula_(matricula);
+  api.inserir_('matriculados', Object.assign({
     nome: 'Matriculado ' + chave, cpf: '', email: chave + '@aluno.br',
     matricula: chave, telefone: '', data_nascimento: '',
     curso: 'ADS', turma: 'ADS11', situacao: 'MATRICULADO'
@@ -647,7 +647,7 @@ function matricular(api, matricula, campos) {
 }
 
 function inscrever(api, campos) {
-  return api.gravarInscricao(Object.assign({
+  return api.gravarInscricao_(Object.assign({
     projeto_id: 'p1', projeto_nome: 'R+ Cidades', origem: 'FORMULARIO'
   }, campos));
 }
@@ -655,7 +655,7 @@ function inscrever(api, campos) {
 function cruzar(api, token, id, turma) {
   const payload = { token: token, id: id };
   if (turma !== undefined) payload.turma = turma;
-  return api.matriculadosDaDisciplina(payload);
+  return api.matriculadosDaDisciplina_(payload);
 }
 
 /** A disciplina do cruzamento, e o id dela. */
@@ -747,7 +747,7 @@ teste('cancelado na lista oficial e SEM inscrição é o quarto grupo — não �
 
   matricular(api, '9110001', { nome: 'Maria de Souza' });
   matricular(api, '9110002', { nome: 'Joao Lima' });
-  api.atualizarEmLote('matriculados', [{
+  api.atualizarEmLote_('matriculados', [{
     _id: '9110002', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'coordenacao@exemplo.com', cancelado_lote_id: 'L2'
   }]);
@@ -772,7 +772,7 @@ teste('cancelado na lista oficial COM inscrição é COM_PROJETO, e a marca vai 
   const id = disciplinaDaTurma(api, token, 'ADS11');
 
   matricular(api, '9110001', { nome: 'Maria de Souza' });
-  api.atualizarEmLote('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
+  api.atualizarEmLote_('matriculados', [{ _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00' }]);
   inscrever(api, { matricula: '9110001', nome: 'Maria de Souza', curso_fase: 'ADS11 - PRATICA EXTENSIONISTA (2026/1)' });
 
   const r = cruzar(api, token, id);
@@ -785,8 +785,8 @@ teste('cancelado na lista oficial COM inscrição é COM_PROJETO, e a marca vai 
 });
 
 teste('varrerInscricoes_ leva o id e o projeto_id de cada inscrição — é por eles que a revisão anula', () => {
-  // Mutação que derruba: tirar `id` da linha — `aplicarRevisao` (05c) não
-  // teria o que mandar a `anularInscricoes`.
+  // Mutação que derruba: tirar `id` da linha — `aplicarRevisao_` (05c) não
+  // teria o que mandar a `anularInscricoes_`.
   const { api } = ambiente();
   const gravada = inscrever(api, { matricula: '9110001', nome: 'Maria de Souza', curso_fase: 'ADS11 - X' });
 
@@ -875,7 +875,7 @@ teste('turma declarada no formulário diverge da oficial: manda a OFICIAL, e a d
 
 teste('a matrícula casa com e sem o zero à esquerda', () => {
   // A lista oficial traz '09110001' e o aluno digita '9110001'. As duas formas
-  // passam por `normalizarMatricula` nas DUAS pontas do cruzamento — sem isso, o
+  // passam por `normalizarMatricula_` nas DUAS pontas do cruzamento — sem isso, o
   // aluno inscrito apareceria como faltoso e como fora da lista ao mesmo tempo.
   const { api } = ambiente();
   const token = tokenAdmin(api);
@@ -1033,7 +1033,7 @@ teste('e o que a pessoa digita passa pela MESMA régua da importação', () => {
 });
 
 teste('o cadastro da disciplina também sobe a turma, e pela mesma função', () => {
-  // As duas pontas do casamento saem de `normalizarTurma` (01_Utils.gs). Este
+  // As duas pontas do casamento saem de `normalizarTurma_` (01_Utils.gs). Este
   // teste é o que impede uma delas de mudar sozinha — a divergência não dá erro,
   // dá lista vazia.
   const { api } = ambiente();
@@ -1064,7 +1064,7 @@ teste('disciplina sem turma (a coringa) recusa e manda para a vista que responde
 
 teste('duas consultas com UM filtro cada, nenhuma escrita, nenhum orderBy de campo', () => {
   // Filtro num campo somado a ordenação por OUTRO exige índice composto e
-  // devolve `400 The query requires an index` — a cicatriz de `ultimosRegistros`
+  // devolve `400 The query requires an index` — a cicatriz de `ultimosRegistros_`
   // (04_Log.gs). E uma tela de relatório não escreve NADA, nem no log.
   const { api, falso } = ambiente();
   const token = tokenAdmin(api);
@@ -1132,7 +1132,7 @@ teste('editar um campo move o documento e apaga o endereço velho', () => {
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM51')]);
   const antigo = idDe(api, token, 'ADM51 - WORK EXPERIENCE (2026/1)');
 
-  const r = api.editarDisciplina({
+  const r = api.editarDisciplina_({
     token: token, id: antigo,
     disciplina: linha('WORK EXPERIENCE', 'ADM61')
   });
@@ -1147,13 +1147,13 @@ teste('a edição CARREGA criado_em e criado_por para o endereço novo', () => {
   const { api } = ambiente();
   const token = tokenAdmin(api);
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM51')]);
-  const antigo = api.listarDisciplinas({ token: token }).itens[0];
+  const antigo = api.listarDisciplinas_({ token: token }).itens[0];
 
-  const r = api.editarDisciplina({
+  const r = api.editarDisciplina_({
     token: token, id: antigo.id, disciplina: linha('WORK EXPERIENCE', 'ADM61')
   });
 
-  const nova = api.listarDisciplinas({ token: token }).itens[0];
+  const nova = api.listarDisciplinas_({ token: token }).itens[0];
   igual(nova.id, r.id);
   igual(nova.criado_em, antigo.criado_em, 'sem isto, toda edição zeraria a autoria');
   igual(nova.criado_por, 'coordenacao@exemplo.com');
@@ -1164,14 +1164,14 @@ teste('a edição preserva ativo e coringa', () => {
   const token = tokenAdmin(api);
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM51')]);
   const id = idDe(api, token, 'ADM51 - WORK EXPERIENCE (2026/1)');
-  api.alternarDisciplina({ token: token, id: id, ativo: false });
+  api.alternarDisciplina_({ token: token, id: id, ativo: false });
 
-  const r = api.editarDisciplina({
+  const r = api.editarDisciplina_({
     token: token, id: idDe(api, token, 'ADM51 - WORK EXPERIENCE (2026/1)'),
     disciplina: linha('WORK EXPERIENCE', 'ADM61')
   });
 
-  const nova = api.listarDisciplinas({ token: token }).itens[0];
+  const nova = api.listarDisciplinas_({ token: token }).itens[0];
   igual(r.ok, true);
   igual(nova.ativo, false, 'editar não pode religar o que a coordenação desligou');
 });
@@ -1181,7 +1181,7 @@ teste('editar até colidir com uma existente é recusado, e não apaga a origina
   const token = tokenAdmin(api);
   incluir(api, token, [linha('A', 'A1'), linha('B', 'B1')]);
 
-  const r = api.editarDisciplina({
+  const r = api.editarDisciplina_({
     token: token, id: idDe(api, token, 'B1 - B (2026/1)'), disciplina: linha('A', 'A1')
   });
 
@@ -1197,7 +1197,7 @@ teste('editar só a caixa das letras é PATCH no mesmo endereço', () => {
   const id = idDe(api, token, 'ADM61 - work experience (2026/1)');
 
   falso.requisicoes.length = 0;
-  const r = api.editarDisciplina({ token: token, id: id, disciplina: linha('WORK EXPERIENCE', 'ADM61') });
+  const r = api.editarDisciplina_({ token: token, id: id, disciplina: linha('WORK EXPERIENCE', 'ADM61') });
 
   igual(r.id, id, 'a chave normaliza a caixa: mesmo endereço');
   igual(falso.requisicoes.filter((x) => x.metodo === 'DELETE').length, 0, 'nada a apagar');
@@ -1207,9 +1207,9 @@ teste('editar disciplina que sumiu não a ressuscita pela metade', () => {
   const { api, falso } = ambiente();
   const token = tokenAdmin(api);
 
-  // `atualizar` é PATCH, e PATCH no Firestore CRIA o documento que não existe —
-  // a mesma armadilha de `salvarProjeto` (09_Projetos.gs).
-  const r = api.editarDisciplina({
+  // `atualizar_` é PATCH, e PATCH no Firestore CRIA o documento que não existe —
+  // a mesma armadilha de `salvarProjeto_` (09_Projetos.gs).
+  const r = api.editarDisciplina_({
     token: token, id: 'nao_existe', disciplina: linha('A', 'A1')
   });
 
@@ -1227,12 +1227,12 @@ teste('inativar tira do formulário e mantém o registro', () => {
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM61')]);
   const id = idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)');
 
-  const r = api.alternarDisciplina({ token: token, id: id, ativo: false });
+  const r = api.alternarDisciplina_({ token: token, id: id, ativo: false });
 
   igual(r.ok, true);
   verdadeiro(r.mensagem.indexOf('histórico continua') !== -1, r.mensagem);
   igual(documentosDe(falso, 'disciplinas').length, 1, 'o registro fica');
-  igual(api.listarDisciplinas({ token: token }).itens[0].ativo, false);
+  igual(api.listarDisciplinas_({ token: token }).itens[0].ativo, false);
 });
 
 teste('excluir disciplina sem inscrição apaga mesmo', () => {
@@ -1240,7 +1240,7 @@ teste('excluir disciplina sem inscrição apaga mesmo', () => {
   const token = tokenAdmin(api);
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM61')]);
 
-  const r = api.removerDisciplina({ token: token, id: idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)') });
+  const r = api.removerDisciplina_({ token: token, id: idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)') });
 
   igual(r, { ok: true, mensagem: 'Disciplina excluída.' });
   igual(documentosDe(falso, 'disciplinas').length, 0);
@@ -1252,12 +1252,12 @@ teste('excluir disciplina COM inscrição é recusado e oferece inativar', () =>
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM61')]);
   const id = idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)');
 
-  api.gravarInscricao({
+  api.gravarInscricao_({
     projeto_id: 'p1', matricula: '9110001', nome: 'Maria de Souza',
     curso_fase: 'ADM61 - WORK EXPERIENCE (2026/1)'
   });
 
-  const r = api.removerDisciplina({ token: token, id: id });
+  const r = api.removerDisciplina_({ token: token, id: id });
 
   igual(r.ok, false);
   igual(r.inscritos, 1);
@@ -1272,7 +1272,7 @@ teste('a guarda conta por AGREGAÇÃO, e não trazendo as inscrições', () => {
   const id = idDe(api, token, 'ADM61 - WORK EXPERIENCE (2026/1)');
 
   falso.requisicoes.length = 0;
-  api.removerDisciplina({ token: token, id: id });
+  api.removerDisciplina_({ token: token, id: id });
 
   // Trazer as inscrições para contá-las custaria uma leitura por inscrito.
   igual(falso.requisicoes.filter((r) => r.url.indexOf(':runAggregationQuery') !== -1).length, 1);
@@ -1294,7 +1294,7 @@ teste('a guarda usa a MESMA coleção que gravarInscricao escreve', () => {
 });
 
 teste('MATRICULADOS_COLECAO tem o mesmo valor nos quatro arquivos que a declaram', () => {
-  // Divergir aqui é pior do que na de cima: `matriculadosDaDisciplina` cruzaria
+  // Divergir aqui é pior do que na de cima: `matriculadosDaDisciplina_` cruzaria
   // contra uma coleção VAZIA e responderia que a turma inteira está sem projeto
   // — uma lista de chamada de gente para cobrar que não devia nada. E não
   // quebraria nada visível: a tela abre, a consulta responde, o número é zero.
@@ -1333,10 +1333,10 @@ teste('cria uma disciplina por opção de cursos_fases', () => {
   const { api } = ambiente();
   const token = tokenAdmin(api);
 
-  const r = api.migrarDisciplinas();
+  const r = api.migrarDisciplinas_();
 
   igual(r.criadas.length, 13);
-  igual(api.listarDisciplinas({ token: token }).itens.length, 14, '13 + a coringa');
+  igual(api.listarDisciplinas_({ token: token }).itens.length, 14, '13 + a coringa');
 });
 
 teste('a migração parte curso e turma sem perder um caractere — só a ORDEM muda', () => {
@@ -1351,9 +1351,9 @@ teste('a migração parte curso e turma sem perder um caractere — só a ORDEM 
   // (gravando o texto inteiro como `curso`) passaria num teste frouxo e deixaria
   // a aba Disciplinas sem turma nenhuma para cruzar.
   const { api } = ambiente();
-  const originais = api.configLista('cursos_fases');
+  const originais = api.configLista_('cursos_fases');
 
-  api.migrarDisciplinas();
+  api.migrarDisciplinas_();
   const lista = listaDoFormulario(api);
 
   originais.forEach((texto) => {
@@ -1388,9 +1388,9 @@ teste('parte curso e turma no último " - ", e só quando o texto volta igual', 
 teste('migrados entram SEM semestre e SEM ano — cursos_fases não os tinha', () => {
   const { api } = ambiente();
   const token = tokenAdmin(api);
-  api.migrarDisciplinas();
+  api.migrarDisciplinas_();
 
-  const uma = api.listarDisciplinas({ token: token }).itens
+  const uma = api.listarDisciplinas_({ token: token }).itens
     .filter((d) => d.turma === 'ADM21')[0];
 
   // Chutar o ano corrente seria inventar dado de secretaria dentro de uma
@@ -1404,7 +1404,7 @@ teste('migrados entram ATIVOS: o formulário serve a mesma lista de ontem', () =
   const { api } = ambiente();
   const antes = listaDoFormulario(api);
 
-  api.migrarDisciplinas();
+  api.migrarDisciplinas_();
 
   const depois = listaDoFormulario(api);
   igual(depois.length, antes.length + 1, 'as mesmas 13, mais a coringa');
@@ -1414,24 +1414,24 @@ teste('migrados entram ATIVOS: o formulário serve a mesma lista de ontem', () =
 teste('rodar de novo não duplica nem desfaz correção', () => {
   const { api, falso } = ambiente();
   const token = tokenAdmin(api);
-  api.migrarDisciplinas();
+  api.migrarDisciplinas_();
 
   const id = idDe(api, token, 'ADM21 - WORK EXPERIENCE');
-  api.alternarDisciplina({ token: token, id: id, ativo: false });
+  api.alternarDisciplina_({ token: token, id: id, ativo: false });
 
-  const r = api.migrarDisciplinas();
+  const r = api.migrarDisciplinas_();
 
   igual(r.criadas, []);
   igual(r.jaExistiam.length, 13);
   igual(documentosDe(falso, 'disciplinas').length, 14);
-  igual(api.listarDisciplinas({ token: token }).itens.filter((d) => d.id === id)[0].ativo, false,
+  igual(api.listarDisciplinas_({ token: token }).itens.filter((d) => d.id === id)[0].ativo, false,
     'a correção da coordenação não pode ser desfeita por rodar a migração de novo');
 });
 
 teste('NÃO apaga a chave cursos_fases — ela é o fallback', () => {
   const { api } = ambiente();
-  api.migrarDisciplinas();
-  igual(api.configLista('cursos_fases').length, 13);
+  api.migrarDisciplinas_();
+  igual(api.configLista_('cursos_fases').length, 13);
 });
 
 teste('não cria uma segunda coringa se já houver uma ativa', () => {
@@ -1439,8 +1439,8 @@ teste('não cria uma segunda coringa se já houver uma ativa', () => {
   const token = tokenAdmin(api);
   incluir(api, token, [{ curso: 'Não achei a minha' }], true);
 
-  igual(api.migrarDisciplinas().coringa, null);
-  igual(api.listarDisciplinas({ token: token }).itens.filter((d) => d.coringa).length, 1);
+  igual(api.migrarDisciplinas_().coringa, null);
+  igual(api.listarDisciplinas_({ token: token }).itens.filter((d) => d.coringa).length, 1);
 });
 
 teste('migrarDisciplinas é chamável do editor — o nome não termina em sublinhado', () => {
@@ -1459,9 +1459,9 @@ teste('a lista do painel traz ativas e inativas, com a coringa por último', () 
   const token = tokenAdmin(api);
   incluir(api, token, [{ curso: 'Outra: disciplina não listada' }], true);
   incluir(api, token, [linha('ZOOLOGIA', 'Z1'), linha('ADMINISTRAÇÃO', 'A1')]);
-  api.alternarDisciplina({ token: token, id: idDe(api, token, 'Z1 - ZOOLOGIA (2026/1)'), ativo: false });
+  api.alternarDisciplina_({ token: token, id: idDe(api, token, 'Z1 - ZOOLOGIA (2026/1)'), ativo: false });
 
-  const itens = api.listarDisciplinas({ token: token }).itens;
+  const itens = api.listarDisciplinas_({ token: token }).itens;
   igual(itens.map((d) => d.rotulo),
     ['A1 - ADMINISTRAÇÃO (2026/1)', 'Z1 - ZOOLOGIA (2026/1)', 'Outra: disciplina não listada']);
   igual(itens[1].ativo, false);
@@ -1472,7 +1472,7 @@ teste('a lista traz os quatro campos separados, para a tela filtrar por eles', (
   const token = tokenAdmin(api);
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM61', '2', '2027')]);
 
-  const d = api.listarDisciplinas({ token: token }).itens[0];
+  const d = api.listarDisciplinas_({ token: token }).itens[0];
   igual([d.curso, d.turma, d.semestre, d.ano], ['WORK EXPERIENCE', 'ADM61', '2', '2027']);
   igual(d.rotulo, 'ADM61 - WORK EXPERIENCE (2027/2)');
 });
@@ -1482,7 +1482,8 @@ teste('sem token, nenhuma das sete funções do painel responde dado', () => {
   ['listarDisciplinas', 'incluirDisciplinas', 'editarDisciplina',
     'alternarDisciplina', 'removerDisciplina', 'inscritosDaDisciplina',
     'matriculadosDaDisciplina'].forEach((funcao) => {
-    const r = api[funcao]({ token: 'token-falso' });
+    // O nome do fio; a função que roda tem o `_` do fim (ver testes/portas.js).
+    const r = api[funcao + '_']({ token: 'token-falso' });
     igual(r.ok, false, funcao + ' respondeu sem token');
     // A mensagem precisa casar com o teste do Admin.html, que derruba a sessão
     // por ela (`/Sess.o expirada|inv.lida/`).
@@ -1505,7 +1506,7 @@ teste('a lista cortada pelo teto DIZ que foi cortada', () => {
   amb.api.DISCIPLINAS_MAX = 2;
   incluir(amb.api, t2, [linha('A', 'A1'), linha('B', 'B1'), linha('C', 'C1')]);
 
-  const r = amb.api.listarDisciplinas({ token: t2 });
+  const r = amb.api.listarDisciplinas_({ token: t2 });
   igual(r.itens.length, 2);
   verdadeiro(r.aviso.indexOf('Há mais no cadastro') !== -1, r.aviso);
   igual(typeof token, 'string');
@@ -1520,7 +1521,8 @@ teste('as sete funções desta aba existem e são chamadas pelo painel', () => {
 
   ['listarDisciplinas', 'incluirDisciplinas', 'editarDisciplina', 'alternarDisciplina',
     'removerDisciplina', 'inscritosDaDisciplina', 'matriculadosDaDisciplina'].forEach((funcao) => {
-    igual(typeof api[funcao], 'function', funcao + ' não existe no servidor');
+    // O painel chama pelo nome do fio; a função é a mesma palavra com o `_`.
+    igual(typeof api[funcao + '_'], 'function', funcao + '_ não existe no servidor');
     verdadeiro(ADMIN.indexOf("chamar('" + funcao + "'") !== -1,
       'o Admin.html não chama ' + funcao + ' — o contrato mudou de um lado só');
   });
@@ -1562,7 +1564,7 @@ teste('a tela usa os campos que o servidor manda, e o servidor manda todos', () 
   const { api } = ambiente();
   const token = tokenAdmin(api);
   incluir(api, token, [linha('WORK EXPERIENCE', 'ADM61')]);
-  const d = api.listarDisciplinas({ token: token }).itens[0];
+  const d = api.listarDisciplinas_({ token: token }).itens[0];
 
   ['id', 'curso', 'turma', 'semestre', 'ano', 'rotulo', 'ativo', 'coringa'].forEach((campo) => {
     verdadeiro(Object.prototype.hasOwnProperty.call(d, campo), 'o servidor não manda ' + campo);
@@ -1659,10 +1661,68 @@ teste('a janela de lote lê os campos ANTES de redesenhar', () => {
   });
 });
 
+teste('os botões da tabela passam o id por argumentoJs — nunca entre aspas escritas à mão', () => {
+  // Dentro de um `onclick`, o navegador decodifica o atributo ANTES de compilar o
+  // JavaScript: `escapar` entre aspas escritas à mão (`\'' + escapar(id) + '\'`)
+  // deixa o `'` voltar inteiro e fechar a string. `argumentoJs` faz a string do
+  // JavaScript e a guarda no atributo. Escapar também na variável não serve: um
+  // id com `&` chegaria estragado ao clique. O teste que CLICA, com o pior id
+  // possível, está em painel-navegador.js; este segura a forma no texto.
+  //
+  // Mutação que derruba: qualquer botão da tabela voltar às aspas escritas à mão
+  // (com ou sem `escapar`), um botão novo com o id interpolado de outro jeito,
+  // ou a variável voltar a ser `escapar(d.id)`.
+  const inicio = ADMIN.indexOf('function desenharDisciplinas()');
+  verdadeiro(inicio !== -1, 'desenharDisciplinas sumiu do painel');
+  const corpo = ADMIN.slice(inicio, ADMIN.indexOf('\n  }\n', inicio));
+
+  // Aspas escritas à mão em volta de uma interpolação: `\'' + ...` e `... + '\'`.
+  igual(corpo.match(/\\'' \+|\+ '\\'/g), null, 'botão de disciplina com aspas escritas à mão no onclick');
+  // O id interpolado cru, ou só com `escapar` — que, dentro de onclick, não basta.
+  igual(corpo.match(/\+\s*(?:d\.)?id\s*\+/g), null, 'botão de disciplina com o id interpolado cru');
+  igual(corpo.match(/escapar\((?:d\.)?id\)/g), null, 'botão de disciplina com o id só escapado para HTML');
+  verdadeiro((corpo.match(/argumentoJs\(id\)/g) || []).length >= 4, 'os quatro botões não passam o id por argumentoJs');
+  verdadeiro(/var id = d\.id;/.test(corpo), 'o id é escapado duas vezes — na variável e no botão');
+});
+
+teste('argumentoJs faz uma string de JavaScript que sobrevive ao atributo — com o pior texto', () => {
+  // O caminho inteiro, como o navegador o percorre: o texto vai para dentro de
+  // `onclick="f(...)"`, o atributo é decodificado, e o que sobra é compilado.
+  // Tem de chegar à função o MESMO texto, e nada mais rodar.
+  //
+  // Mutação que derruba: tirar o JSON.stringify (sobra o `escapar` sem aspas), ou
+  // tirar o `escapar` (a aspa dupla do JSON fecha o atributo).
+  const vm = require('vm');
+  const inicio = ADMIN.indexOf('function escapar(v)');
+  const fim = ADMIN.indexOf('\n  }\n', ADMIN.indexOf('function argumentoJs(v)'));
+  verdadeiro(inicio !== -1 && fim !== -1, 'escapar ou argumentoJs sumiu do painel');
+  const caixa = vm.createContext({ String, JSON });
+  vm.runInContext(ADMIN.slice(inicio, fim + 4), caixa);
+
+  // O inverso do `escapar`, que é o que o navegador faz ao ler o atributo.
+  const decodificar = (v) => v.replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+  ["x');sinal();('", 'a"b', 'c\\d', '<b>&amp;</b>', "ç'ã\u2028fim", '', 'abc123'].forEach((texto) => {
+    const atributo = 'f(' + caixa.argumentoJs(texto) + ')';
+    verdadeiro(atributo.indexOf('"') === -1, 'aspa dupla crua dentro do atributo: ' + atributo);
+    const recebidos = [];
+    let sinal = false;
+    vm.runInContext(decodificar(atributo), vm.createContext({
+      f: (v) => recebidos.push(v),
+      sinal: () => { sinal = true; }
+    }));
+    igual(recebidos, [texto], 'o texto não chegou inteiro: ' + JSON.stringify(texto));
+    igual(sinal, false, 'o texto virou código: ' + JSON.stringify(texto));
+  });
+});
+
 teste('o botão de nova linha fica embaixo, à direita', () => {
   // Pedido textual do Jonathan: "no fim, embaixo, do lado direito, um botao
   // para adicionar uma nova linha".
-  const estilos = fs.readFileSync(path.join(PASTA_GS, 'Estilos.html'), 'utf8');
+  // O CSS do painel. Até 16/11/2026 ele tinha um gêmeo em apps-script/Estilos.html,
+  // que saiu junto com as páginas do Apps Script; esta é a cópia que a tela usa.
+  const estilos = fs.readFileSync(path.join(__dirname, '..', 'docs', 'painel', 'estilos.css'), 'utf8');
   verdadeiro(/\.rodape-direita \{[^}]*justify-content: flex-end/.test(estilos));
   verdadeiro(/<div class="rodape-direita">[\s\S]{0,200}adicionarLinhaDisciplina\(\)/.test(ADMIN));
 });

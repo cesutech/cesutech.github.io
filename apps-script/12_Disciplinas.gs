@@ -18,7 +18,7 @@
  * pelo mesmo caminho que `chaveDedup_` usa nas inscrições. A escolha compra a
  * unicidade do requisito 2 de graça e de forma ATÔMICA: duas disciplinas iguais
  * não são impedidas por uma consulta nossa que outra execução pode furar, e sim
- * pelo 409 ALREADY_EXISTS do `createDocument` (ver `inserir` em 02_Repo.gs). É a
+ * pelo 409 ALREADY_EXISTS do `createDocument` (ver `inserir_` em 02_Repo.gs). É a
  * mesma decisão de `inscricoes/{hash_dedup}`, `matriculados/{matricula}` e
  * `alunos/{id determinístico}` — nesta casa, chave de negócio é endereço.
  *
@@ -41,7 +41,7 @@
  * O que a escolha do id NÃO custa: inscrição órfã. Inscrição guarda o TEXTO da
  * disciplina em `curso_fase` (04_Inscricoes.gs:265), nunca uma referência ao
  * documento. Mudar o endereço não desliga nada — e é justamente por isso que a
- * recusa de exclusão (`removerDisciplina`) precisa contar por TEXTO, não por id.
+ * recusa de exclusão (`removerDisciplina_`) precisa contar por TEXTO, não por id.
  *
  * -------------------------------------------------- O custo da rota pública
  *
@@ -83,7 +83,7 @@ var INSCRICOES_COLECAO = 'inscricoes';
  * A lista oficial da secretaria — `_id` = matrícula normalizada.
  *
  * Repetida aqui pelo mesmo motivo e com o mesmo risco de `INSCRICOES_COLECAO`
- * logo acima: divergir faria `matriculadosDaDisciplina` cruzar contra uma coleção
+ * logo acima: divergir faria `matriculadosDaDisciplina_` cruzar contra uma coleção
  * vazia e responder que a turma INTEIRA está sem projeto — uma lista de chamada
  * de gente para cobrar que não devia nada. Há teste comparando os quatro
  * arquivos que a declaram.
@@ -93,7 +93,7 @@ var MATRICULADOS_COLECAO = 'matriculados';
 /**
  * Teto de documentos que o painel traz de uma vez.
  *
- * A tela filtra no NAVEGADOR, e não no servidor: `listar` aceita UM `fieldFilter`
+ * A tela filtra no NAVEGADOR, e não no servidor: `listar_` aceita UM `fieldFilter`
  * só (02_Repo.gs), e os quatro filtros que o Jonathan pediu não cabem numa
  * consulta — seriam quatro consultas, ou uma varredura com peneira. Com dezenas
  * de disciplinas, mandar a lista inteira e filtrar no navegador é mais barato
@@ -121,7 +121,7 @@ var DISCIPLINAS_MAX_INSCRITOS = 200;
  * Tetos do cruzamento "quem desta turma ainda não se inscreveu".
  *
  * Os dois lados são lidos, e por isso são dois tetos. Ver o cabeçalho de
- * `matriculadosDaDisciplina` para a conta inteira.
+ * `matriculadosDaDisciplina_` para a conta inteira.
  *
  * TURMA = 500: a maior turma do CESUTECH tem algumas dezenas de alunos, e 500 é
  * uma ordem de grandeza acima. Turma acima disso é sinal de que o filtro casou
@@ -151,16 +151,16 @@ var DISCIPLINA_CORINGA_PADRAO = 'Outra: disciplina não listada';
 /**
  * O id do documento: hash dos quatro campos normalizados.
  *
- * `normalizarTexto` é o que faz 'Work Experience' e 'WORK EXPERIENCE' caírem no
+ * `normalizarTexto_` é o que faz 'Work Experience' e 'WORK EXPERIENCE' caírem no
  * mesmo endereço — duas grafias da mesma disciplina são a MESMA disciplina, e o
  * aluno não pode receber duas opções idênticas para escolher.
  */
 function chaveDisciplina_(d) {
-  return hash([
-    normalizarTexto(d.curso),
-    normalizarTexto(d.turma),
-    normalizarTexto(d.semestre),
-    normalizarTexto(d.ano)
+  return hash_([
+    normalizarTexto_(d.curso),
+    normalizarTexto_(d.turma),
+    normalizarTexto_(d.semestre),
+    normalizarTexto_(d.ano)
   ].join('::'));
 }
 
@@ -184,8 +184,8 @@ function chaveDisciplina_(d) {
  *
  * Este formato JÁ FOI OUTRO. Até 12/08/2026 ele era 'CURSO - TURMA (ano/sem)', e
  * não por gosto: o rótulo é COPIADO para dentro da inscrição, no campo
- * `curso_fase` (04_Inscricoes.gs), e é por esse texto que `inscritosDaDisciplina`
- * e a guarda de `removerDisciplina` procuram. O formato antigo reproduzia
+ * `curso_fase` (04_Inscricoes.gs), e é por esse texto que `inscritosDaDisciplina_`
+ * e a guarda de `removerDisciplina_` procuram. O formato antigo reproduzia
  * exatamente o texto de `cursos_fases`, e era isso que mantinha as inscrições já
  * gravadas casando com a linha do cadastro.
  *
@@ -254,8 +254,8 @@ function rotuloLegado_(d) {
 function normalizarDisciplina_(bruta) {
   bruta = bruta || {};
   return {
-    curso: normalizarNomeDeCurso(bruta.curso),
-    turma: normalizarTurma(bruta.turma),
+    curso: normalizarNomeDeCurso_(bruta.curso),
+    turma: normalizarTurma_(bruta.turma),
     semestre: String(bruta.semestre || '').trim(),
     ano: String(bruta.ano || '').trim()
   };
@@ -329,12 +329,12 @@ function disciplinaDe_(documento) {
  * meio da lista é escolhida por engano. A ordenação é feita aqui, em JavaScript,
  * e não no `orderBy` da consulta — filtrar por `ativo` e ordenar por OUTRO campo
  * exigiria índice composto declarado no console, que é passo manual repetido a
- * cada ambiente novo (ver a armadilha 1 no cabeçalho de `listar`).
+ * cada ambiente novo (ver a armadilha 1 no cabeçalho de `listar_`).
  */
 function ordenarDisciplinas_(lista) {
   return lista.sort(function (a, b) {
     if (a.coringa !== b.coringa) return a.coringa ? 1 : -1;
-    return normalizarTexto(a.rotulo).localeCompare(normalizarTexto(b.rotulo));
+    return normalizarTexto_(a.rotulo).localeCompare(normalizarTexto_(b.rotulo));
   });
 }
 
@@ -384,10 +384,10 @@ function cursosFasesAtivos_() {
     rotulos = rotulosAtivos_();
   } catch (e) {
     console.error('cursosFasesAtivos_: ' + e.message);
-    return configLista('cursos_fases');
+    return configLista_('cursos_fases');
   }
 
-  if (!rotulos.length) return configLista('cursos_fases');
+  if (!rotulos.length) return configLista_('cursos_fases');
 
   if (cache) {
     try {
@@ -402,13 +402,13 @@ function cursosFasesAtivos_() {
 /**
  * Só as ATIVAS, ordenadas, com a coringa no fim.
  *
- * Filtro de igualdade em um campo, sem ordenação declarada: `listar` ordena por
+ * Filtro de igualdade em um campo, sem ordenação declarada: `listar_` ordena por
  * `__name__` ASCENDENTE, que é o desempate embutido em todo índice automático de
  * campo único. Não exige índice composto — e não é a armadilha do `__name__`
  * DESCENDENTE, que exigiria.
  */
 function rotulosAtivos_() {
-  var itens = listar(DISCIPLINAS_COLECAO, {
+  var itens = listar_(DISCIPLINAS_COLECAO, {
     campo: 'ativo',
     valor: 'SIM',
     limite: DISCIPLINAS_MAX_FORMULARIO
@@ -450,11 +450,11 @@ function cacheDeDisciplinas_() {
  * Sem filtro no servidor de propósito — ver DISCIPLINAS_MAX. Uma consulta, D
  * documentos, e a tela peneira o resto.
  */
-function listarDisciplinas(payload) {
+function listarDisciplinas_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    var itens = listar(DISCIPLINAS_COLECAO, { limite: DISCIPLINAS_MAX }).itens.map(disciplinaDe_);
+    var itens = listar_(DISCIPLINAS_COLECAO, { limite: DISCIPLINAS_MAX }).itens.map(disciplinaDe_);
     var resposta = { ok: true, itens: ordenarDisciplinas_(itens) };
 
     // Lista cortada pelo teto tem de DIZER que foi cortada. O modo de falha
@@ -484,14 +484,14 @@ function listarDisciplinas(payload) {
  * Elas não se perdem (continuam na inscrição e na exportação); param de casar com
  * esta linha do cadastro.
  */
-function inscritosDaDisciplina(payload) {
+function inscritosDaDisciplina_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    var disciplina = disciplinaDe_(ler(DISCIPLINAS_COLECAO, String((payload && payload.id) || '')));
+    var disciplina = disciplinaDe_(ler_(DISCIPLINAS_COLECAO, String((payload && payload.id) || '')));
     if (!disciplina) return { ok: false, erro: 'Disciplina não encontrada. Recarregue a lista.' };
 
-    var itens = listar(INSCRICOES_COLECAO, {
+    var itens = listar_(INSCRICOES_COLECAO, {
       campo: 'curso_fase',
       valor: disciplina.rotulo,
       limite: DISCIPLINAS_MAX_INSCRITOS
@@ -520,7 +520,7 @@ function inscritosDaDisciplina(payload) {
  * O OUTRO LADO: quem da turma desta disciplina está — e quem NÃO está — em algum
  * projeto de extensão.
  *
- * `inscritosDaDisciplina`, logo acima, responde "quem escolheu este texto no
+ * `inscritosDaDisciplina_`, logo acima, responde "quem escolheu este texto no
  * formulário". A pergunta da coordenação no dia do evento é a inversa, e nenhuma
  * consulta sobre `inscricoes` a responde: "quem de ADS11 ainda não se inscreveu
  * em projeto nenhum?" — porque quem não se inscreveu NÃO TEM documento em
@@ -533,7 +533,7 @@ function inscritosDaDisciplina(payload) {
  * `curso_fase` é o que o ALUNO escolheu num `select`, gravado como texto: ele erra,
  * ele escolhe a coringa, e o texto MUDA quando a coordenação edita a disciplina —
  * as inscrições antigas guardam o rótulo velho e param de casar (está dito no
- * cabeçalho de `inscritosDaDisciplina`). Uma lista de chamada montada sobre esse
+ * cabeçalho de `inscritosDaDisciplina_`). Uma lista de chamada montada sobre esse
  * campo acusaria de "não se inscreveu" quem se inscreveu escolhendo errado. A
  * lista da secretaria não depende do dedo de ninguém.
  *
@@ -603,19 +603,19 @@ function inscritosDaDisciplina(payload) {
  * é da turma": sem esse corte, o grupo seria a coleção inteira de inscrições em
  * toda abertura de tela.
  */
-function matriculadosDaDisciplina(payload) {
+function matriculadosDaDisciplina_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
-    var disciplina = disciplinaDe_(ler(DISCIPLINAS_COLECAO, String(payload.id || '')));
+    var disciplina = disciplinaDe_(ler_(DISCIPLINAS_COLECAO, String(payload.id || '')));
     if (!disciplina) return { ok: false, erro: 'Disciplina não encontrada. Recarregue a lista.' };
 
     // A turma pode vir do painel: é a saída manual para quando o cadastro da
     // disciplina e a lista oficial não se encontram (turma escrita de outro jeito,
     // disciplina cadastrada sem turma).
     //
-    // ELA PASSA PELA MESMA `normalizarTurma` DOS DOIS LADOS, e isso é a decisão do
+    // ELA PASSA PELA MESMA `normalizarTurma_` DOS DOIS LADOS, e isso é a decisão do
     // trecho. Até 12/08/2026 este campo era o remendo do defeito: a importação
     // gravava 'Ads11' e o cadastro comparava 'ADS11', então a saída de emergência
     // era digitar aqui a forma exata que estava gravada. O conserto foi para a
@@ -629,7 +629,7 @@ function matriculadosDaDisciplina(payload) {
     // dela é reimportar o mesmo arquivo — o id do documento é a matrícula, então
     // reescrever é escrever o mesmo —, e é o que o aviso de lista vazia manda
     // fazer.
-    var turma = normalizarTurma(
+    var turma = normalizarTurma_(
       (payload.turma === undefined || payload.turma === null) ? disciplina.turma : payload.turma
     ).slice(0, 40);   // 40 = PAINEL_MAX_TURMA (10_Painel.gs)
 
@@ -645,10 +645,10 @@ function matriculadosDaDisciplina(payload) {
       };
     }
 
-    // UM filtro de igualdade, sem ordenação declarada: `listar` ordena por
+    // UM filtro de igualdade, sem ordenação declarada: `listar_` ordena por
     // `__name__` ASCENDENTE, coberto pelo índice automático de campo único. Ver
-    // a armadilha 1 no cabeçalho de `listar` (02_Repo.gs).
-    var oficiais = listar(MATRICULADOS_COLECAO, {
+    // a armadilha 1 no cabeçalho de `listar_` (02_Repo.gs).
+    var oficiais = listar_(MATRICULADOS_COLECAO, {
       campo: 'turma',
       valor: turma,
       limite: DISCIPLINAS_MAX_TURMA
@@ -663,7 +663,7 @@ function matriculadosDaDisciplina(payload) {
       // O `_id` do documento É a matrícula normalizada (05_Importacao.gs). O
       // campo `matricula` guarda a mesma coisa; a chave sai dos dois, na ordem,
       // para o cruzamento não depender de um deles ter sido gravado.
-      var chave = normalizarMatricula(m.matricula || m._id);
+      var chave = normalizarMatricula_(m.matricula || m._id);
       if (chave) daTurma[chave] = true;
 
       var inscricoes = (chave && Object.prototype.hasOwnProperty.call(varredura.porMatricula, chave))
@@ -701,7 +701,7 @@ function matriculadosDaDisciplina(payload) {
 
     varredura.todas.forEach(function (i) {
       if (i.curso_fase !== disciplina.rotulo) return;
-      var chave = normalizarMatricula(i.matricula);
+      var chave = normalizarMatricula_(i.matricula);
       if (chave && Object.prototype.hasOwnProperty.call(daTurma, chave)) return;
 
       itens.push({
@@ -720,7 +720,7 @@ function matriculadosDaDisciplina(payload) {
       });
     });
 
-    itens.sort(function (a, b) { return chaveNome(a.nome).localeCompare(chaveNome(b.nome)); });
+    itens.sort(function (a, b) { return chaveNome_(a.nome).localeCompare(chaveNome_(b.nome)); });
 
     // `cancelados` conta a MARCA (os dois casos): é o número que a linha de
     // resumo diz, e o cancelado com projeto está em `comProjeto` também.
@@ -766,7 +766,7 @@ function matriculadosDaDisciplina(payload) {
       // A agregação só acontece aqui, e é o único lugar em que ela se paga: o
       // aviso precisa dizer o TAMANHO do buraco, senão ele vira "pode faltar
       // alguém", que ninguém sabe o que fazer com.
-      var total = contar(INSCRICOES_COLECAO);
+      var total = contar_(INSCRICOES_COLECAO);
       resposta.truncado = true;
       resposta.avisos.push(
         'Li as ' + varredura.lidas + ' primeiras inscrições de ' + total + '. Quem estiver nas ' +
@@ -784,7 +784,7 @@ function matriculadosDaDisciplina(payload) {
 /**
  * Todas as inscrições, em blocos, até o teto — indexadas por matrícula.
  *
- * Sem filtro, ordenadas por `__name__` ASCENDENTE (o padrão de `listar`), com
+ * Sem filtro, ordenadas por `__name__` ASCENDENTE (o padrão de `listar_`), com
  * paginação por cursor: o mesmo desenho de `varrerAlunos_` (10_Painel.gs), e pelo
  * mesmo motivo — o cursor salta no índice, e a página 5 custa o mesmo que a 1.
  *
@@ -812,7 +812,7 @@ function varrerInscricoes_(teto) {
   var cursor = null;
 
   do {
-    var resposta = listar(INSCRICOES_COLECAO, { limite: DISCIPLINAS_BLOCO, cursor: cursor });
+    var resposta = listar_(INSCRICOES_COLECAO, { limite: DISCIPLINAS_BLOCO, cursor: cursor });
     lidas += resposta.itens.length;
 
     resposta.itens.forEach(function (i) {
@@ -832,7 +832,7 @@ function varrerInscricoes_(teto) {
       // Inscrição sem matrícula (projeto aberto à comunidade, onde ela não é
       // exigida) não entra no índice: ela não tem como casar com a lista
       // oficial. Continua em `todas`, que é o que o grupo FORA_DA_LISTA lê.
-      var chave = normalizarMatricula(i.matricula);
+      var chave = normalizarMatricula_(i.matricula);
       if (!chave) return;
       if (!Object.prototype.hasOwnProperty.call(porMatricula, chave)) porMatricula[chave] = [];
       porMatricula[chave].push(linha);
@@ -866,14 +866,14 @@ function varrerInscricoes_(teto) {
  * "já existiria" por causa da primeira, e relatar isso como duplicata do banco
  * esconderia um erro de digitação.
  *
- * Grava com `inserir` um a um, e não com `escreverEmLote`: o lote é upsert
+ * Grava com `inserir_` um a um, e não com `escreverEmLote_`: o lote é upsert
  * (02_Repo.gs) e SOBRESCREVERIA uma disciplina existente, apagando `criado_em`,
  * `criado_por` e o `ativo` que alguém tinha acabado de desligar. São dezenas de
  * escritas, no máximo, disparadas por um clique de painel.
  */
-function incluirDisciplinas(payload) {
+function incluirDisciplinas_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var coringa = Boolean(payload.coringa);
@@ -913,8 +913,8 @@ function incluirDisciplinas(payload) {
       if (linhas.length > 1) return { ok: false, erro: 'Só existe uma disciplina coringa por vez.' };
     }
 
-    var agoraStr = agora();
-    var usuario = usuarioAtual();
+    var agoraStr = agora_();
+    var usuario = usuarioAtual_();
     var criadas = [];
     var jaExistiam = [];
     var falharam = [];
@@ -937,7 +937,7 @@ function incluirDisciplinas(payload) {
       // de dez não pode apagar da resposta as quatro que entraram. Quem vê a tela
       // precisa saber exatamente o que ficou no banco.
       try {
-        if (inserir(DISCIPLINAS_COLECAO, registro, linha.chave).jaExistia) jaExistiam.push(rotulo);
+        if (inserir_(DISCIPLINAS_COLECAO, registro, linha.chave).jaExistia) jaExistiam.push(rotulo);
         else criadas.push(rotulo);
       } catch (e) {
         console.error('incluirDisciplinas ' + rotulo + ': ' + e.message);
@@ -949,7 +949,7 @@ function incluirDisciplinas(payload) {
       invalidarCacheDisciplinas_();
       // UMA linha de log para o lote, e não uma por disciplina: dez inclusões
       // não são dez decisões da coordenação, são uma.
-      registrar('DISCIPLINAS_INCLUIDAS', 'disciplina', '',
+      registrar_('DISCIPLINAS_INCLUIDAS', 'disciplina', '',
         criadas.length + ' incluída(s): ' + criadas.join(' · '));
     }
 
@@ -965,17 +965,17 @@ function incluirDisciplinas(payload) {
  * ENDEREÇO — ver o cabeçalho.
  *
  * `ativo` e `coringa` NÃO são editáveis aqui: quem liga e desliga é
- * `alternarDisciplina`, e coringa se decide na criação. Misturar as três coisas
+ * `alternarDisciplina_`, e coringa se decide na criação. Misturar as três coisas
  * na mesma tela é o que fez a caixa "Inscrições abertas" reabrir projeto inativo
- * em silêncio (ver `listarProjetos` em 09_Projetos.gs).
+ * em silêncio (ver `listarProjetos_` em 09_Projetos.gs).
  */
-function editarDisciplina(payload) {
+function editarDisciplina_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var idAtual = String(payload.id || '');
-    var documento = ler(DISCIPLINAS_COLECAO, idAtual);
+    var documento = ler_(DISCIPLINAS_COLECAO, idAtual);
     if (!documento) return { ok: false, erro: 'Disciplina não encontrada. Recarregue a lista.' };
 
     var antiga = disciplinaDe_(documento);
@@ -983,7 +983,7 @@ function editarDisciplina(payload) {
     var erros = validarDisciplina_(nova, antiga.coringa);
     if (erros.length) return { ok: false, erro: erros.join(' ') };
 
-    var agoraStr = agora();
+    var agoraStr = agora_();
     var campos = {
       curso: nova.curso,
       turma: nova.turma,
@@ -997,9 +997,9 @@ function editarDisciplina(payload) {
     // Mesmo endereço: nenhum dos quatro campos mudou de verdade (mudou a caixa,
     // um acento ou um espaço). PATCH e pronto.
     if (chaveNova === idAtual) {
-      atualizar(DISCIPLINAS_COLECAO, idAtual, campos);
+      atualizar_(DISCIPLINAS_COLECAO, idAtual, campos);
       invalidarCacheDisciplinas_();
-      registrar('DISCIPLINA_EDITADA', 'disciplina', idAtual, rotuloDisciplina_(nova));
+      registrar_('DISCIPLINA_EDITADA', 'disciplina', idAtual, rotuloDisciplina_(nova));
       return { ok: true, id: idAtual, rotulo: rotuloDisciplina_(nova) };
     }
 
@@ -1007,7 +1007,7 @@ function editarDisciplina(payload) {
     // apagar primeiro e falhar ao criar perderia o registro; criar primeiro e
     // falhar ao apagar deixa duas linhas na tela, que a coordenação resolve
     // apagando uma. Perder dado nunca; sujar a tela, quando não houver escolha.
-    var gravacao = inserir(DISCIPLINAS_COLECAO, {
+    var gravacao = inserir_(DISCIPLINAS_COLECAO, {
       curso: nova.curso,
       turma: nova.turma,
       semestre: nova.semestre,
@@ -1016,7 +1016,7 @@ function editarDisciplina(payload) {
       coringa: antiga.coringa ? 'SIM' : 'NAO',
       // Carregados do documento velho: sem isto, toda edição zeraria a autoria.
       criado_em: antiga.criado_em || agoraStr,
-      criado_por: antiga.criado_por || usuarioAtual(),
+      criado_por: antiga.criado_por || usuarioAtual_(),
       atualizado_em: agoraStr
     }, chaveNova);
 
@@ -1028,9 +1028,9 @@ function editarDisciplina(payload) {
       };
     }
 
-    excluir(DISCIPLINAS_COLECAO, idAtual);
+    excluir_(DISCIPLINAS_COLECAO, idAtual);
     invalidarCacheDisciplinas_();
-    registrar('DISCIPLINA_EDITADA', 'disciplina', chaveNova,
+    registrar_('DISCIPLINA_EDITADA', 'disciplina', chaveNova,
       antiga.rotulo + ' -> ' + rotuloDisciplina_(nova));
 
     return { ok: true, id: chaveNova, rotulo: rotuloDisciplina_(nova) };
@@ -1044,13 +1044,13 @@ function editarDisciplina(payload) {
  * Ativa ou inativa. INATIVAR é o botão que a tela empurra em vez de excluir:
  * tira do formulário e mantém o histórico inteiro.
  */
-function alternarDisciplina(payload) {
+function alternarDisciplina_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var id = String(payload.id || '');
-    var documento = ler(DISCIPLINAS_COLECAO, id);
+    var documento = ler_(DISCIPLINAS_COLECAO, id);
     if (!documento) return { ok: false, erro: 'Disciplina não encontrada. Recarregue a lista.' };
 
     var disciplina = disciplinaDe_(documento);
@@ -1064,9 +1064,9 @@ function alternarDisciplina(payload) {
       if (conflito) return { ok: false, erro: recusaDeCoringa_(conflito) };
     }
 
-    atualizar(DISCIPLINAS_COLECAO, id, { ativo: ativar ? 'SIM' : 'NAO', atualizado_em: agora() });
+    atualizar_(DISCIPLINAS_COLECAO, id, { ativo: ativar ? 'SIM' : 'NAO', atualizado_em: agora_() });
     invalidarCacheDisciplinas_();
-    registrar(ativar ? 'DISCIPLINA_ATIVADA' : 'DISCIPLINA_INATIVADA', 'disciplina', id, disciplina.rotulo);
+    registrar_(ativar ? 'DISCIPLINA_ATIVADA' : 'DISCIPLINA_INATIVADA', 'disciplina', id, disciplina.rotulo);
 
     return {
       ok: true,
@@ -1093,23 +1093,23 @@ function alternarDisciplina(payload) {
  *
  * UMA agregação por clique, e não uma por linha da lista: mostrar a contagem em
  * toda a tabela custaria D agregações em fila a cada abertura da aba — a mesma
- * conta que fez `listarProjetos` filtrar antes de contar (09_Projetos.gs).
+ * conta que fez `listarProjetos_` filtrar antes de contar (09_Projetos.gs).
  *
- * Janela conhecida e aceita, igual à de `removerProjeto`: entre contar e excluir,
+ * Janela conhecida e aceita, igual à de `removerProjeto_`: entre contar e excluir,
  * uma inscrição pode entrar. Fechá-la exigiria pôr o clique da coordenação
  * dentro do lock global do formulário, fazendo-a esperar a fila do auditório
  * inteiro. O estrago possível é uma inscrição órfã, rastreável pelo log.
  */
-function removerDisciplina(payload) {
+function removerDisciplina_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var id = String((payload && payload.id) || '');
-    var documento = ler(DISCIPLINAS_COLECAO, id);
+    var documento = ler_(DISCIPLINAS_COLECAO, id);
     if (!documento) return { ok: false, erro: 'Disciplina não encontrada. Recarregue a lista.' };
 
     var disciplina = disciplinaDe_(documento);
-    var inscritos = contar(INSCRICOES_COLECAO, { campo: 'curso_fase', valor: disciplina.rotulo });
+    var inscritos = contar_(INSCRICOES_COLECAO, { campo: 'curso_fase', valor: disciplina.rotulo });
 
     if (inscritos > 0) {
       return {
@@ -1122,9 +1122,9 @@ function removerDisciplina(payload) {
       };
     }
 
-    excluir(DISCIPLINAS_COLECAO, id);
+    excluir_(DISCIPLINAS_COLECAO, id);
     invalidarCacheDisciplinas_();
-    registrar('DISCIPLINA_EXCLUIDA', 'disciplina', id, disciplina.rotulo);
+    registrar_('DISCIPLINA_EXCLUIDA', 'disciplina', id, disciplina.rotulo);
 
     return { ok: true, mensagem: 'Disciplina excluída.' };
   } catch (err) {
@@ -1143,7 +1143,7 @@ function removerDisciplina(payload) {
 function coringaAtivaOutra_(idIgnorado) {
   var achada = null;
 
-  listar(DISCIPLINAS_COLECAO, { campo: 'coringa', valor: 'SIM', limite: 20 }).itens
+  listar_(DISCIPLINAS_COLECAO, { campo: 'coringa', valor: 'SIM', limite: 20 }).itens
     .forEach(function (documento) {
       if (achada) return;
       if (String(documento._id) === String(idIgnorado)) return;
@@ -1190,16 +1190,22 @@ function recusaDeCoringa_(coringa) {
  * devolver o texto de onde eles saíram. Se não devolver, a migração desiste do
  * corte e grava o texto inteiro como `curso`, que sempre reproduz.
  *
- * Idempotente: `inserir` não sobrescreve, e rodar de novo depois de a
+ * Idempotente: `inserir_` não sobrescreve, e rodar de novo depois de a
  * coordenação ter corrigido uma turma não desfaz a correção.
  *
  * NÃO apaga `cursos_fases`. A chave continua sendo o fallback de
  * `cursosFasesAtivos_` para o dia em que a coleção estiver vazia.
  */
 function migrarDisciplinas() {
-  var textos = configLista('cursos_fases');
-  var agoraStr = agora();
-  var usuario = usuarioAtual();
+  exigirDono_();
+  return migrarDisciplinas_();
+}
+
+/** O trabalho de `migrarDisciplinas`, depois da guarda. É esta que o código chama por dentro. */
+function migrarDisciplinas_() {
+  var textos = configLista_('cursos_fases');
+  var agoraStr = agora_();
+  var usuario = usuarioAtual_();
 
   var criadas = [];
   var jaExistiam = [];
@@ -1208,7 +1214,7 @@ function migrarDisciplinas() {
     var d = partirCursoFase_(texto);
     var chave = chaveDisciplina_(d);
 
-    var gravacao = inserir(DISCIPLINAS_COLECAO, {
+    var gravacao = inserir_(DISCIPLINAS_COLECAO, {
       curso: d.curso,
       turma: d.turma,
       semestre: '',
@@ -1234,7 +1240,7 @@ function migrarDisciplinas() {
   var coringa = null;
   if (!coringaAtivaOutra_('')) {
     var dc = normalizarDisciplina_({ curso: DISCIPLINA_CORINGA_PADRAO });
-    var gc = inserir(DISCIPLINAS_COLECAO, {
+    var gc = inserir_(DISCIPLINAS_COLECAO, {
       curso: dc.curso,
       turma: '',
       semestre: '',
@@ -1250,7 +1256,7 @@ function migrarDisciplinas() {
 
   invalidarCacheDisciplinas_();
   if (criadas.length || coringa) {
-    registrar('DISCIPLINAS_MIGRADAS', 'disciplina', '',
+    registrar_('DISCIPLINAS_MIGRADAS', 'disciplina', '',
       criadas.length + ' criada(s) a partir de cursos_fases' + (coringa ? ' + a coringa' : ''));
   }
 

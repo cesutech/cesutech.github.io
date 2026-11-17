@@ -148,11 +148,11 @@
  *      a trilha de auditoria veio cortada.
  *   3. No editor do Apps Script, escreva a função de restauração da vez — uma
  *      coleção por vez, começando pela que dói mais (em geral `matriculados` e
- *      `alunos`). Cada item traz `id` e `campos`; `escreverEmLote` (02_Repo.gs)
+ *      `alunos`). Cada item traz `id` e `campos`; `escreverEmLote_` (02_Repo.gs)
  *      grava em blocos de 500 e usa `_id` como nome do documento:
  *
  *          function restaurarUma(colecao, itens) {
- *            escreverEmLote(colecao, itens.map(function (d) {
+ *            escreverEmLote_(colecao, itens.map(function (d) {
  *              var o = {}; Object.keys(d.campos).forEach(function (k) { o[k] = d.campos[k]; });
  *              o._id = d.id; return o;
  *            }));
@@ -170,9 +170,14 @@
  *
  * ================================= AS FUNÇÕES ================================
  *
- *   fazerBackup()            é esta que o gatilho chama. Não lança nunca.
+ *   fazerBackup()            é esta que o gatilho chama. Só lança para recusar
+ *                            quem não é o acionador nem o dono no editor; o
+ *                            trabalho, `fazerBackup_`, não lança nunca.
  *   instalarGatilhoBackup()  rode UMA vez no editor. Idempotente.
  *   conferirBackup()         lê o backup mais recente e relata. NÃO restaura.
+ *
+ * As três são públicas porque o editor e o acionador precisam vê-las, e por isso
+ * a primeira linha de cada uma confere quem chama (07_Auth.gs).
  */
 
 /** Onde os arquivos moram. Criada pelo próprio script; ver `pastaBackup_`. */
@@ -269,18 +274,25 @@ var BACKUP_PRAZO_MS = 4 * 60 * 1000;
 var BACKUP_HORA = 6;
 
 /**
- * O nome da função que o gatilho chama. É `fazerBackup` mesmo, e não um
- * embrulho como `reconciliarAutomatico` (06_Reconciliacao.gs): aquele existe
- * porque `reconciliar()` LANÇA (o painel precisa do erro), e gatilho que lança
- * manda e-mail de falha para o dono todo dia. `fazerBackup` já engole a falha e
- * a registra, então o embrulho seria uma camada sem trabalho.
+ * O nome da função que o gatilho chama: a casca pública `fazerBackup`, que confere
+ * quem chama e passa a `fazerBackup_`. Não há um embrulho a mais como o de
+ * `reconciliarAutomatico` (06_Reconciliacao.gs): aquele existe porque
+ * `reconciliar_()` LANÇA (o painel precisa do erro), e gatilho que lança manda
+ * e-mail de falha para o dono todo dia. `fazerBackup_` já engole a falha e a
+ * registra.
+ *
+ * O NOME É FIXO: o acionador instalado chama por ele. Trocá-lo deixa o gatilho
+ * apontando para uma função que não existe, e o backup para em silêncio.
  */
 var GATILHO_BACKUP = 'fazerBackup';
 
 // ------------------------------------------------------------ A execução
 
 /**
- * O backup do dia. NUNCA lança — é o gatilho que chama.
+ * O backup do dia. É o gatilho que chama, e quem chama de outro jeito é recusado
+ * na primeira linha (`exigirGatilhoOuDono_`, 07_Auth.gs) — o acionador deste
+ * projeto passa, e o dono rodando no editor também, que é como se faz o primeiro.
+ * Essa recusa é o único lançamento: daqui para baixo (`fazerBackup_`) NADA lança.
  *
  * A sequência inteira, e a ordem é o desenho:
  *
@@ -302,7 +314,13 @@ var GATILHO_BACKUP = 'fazerBackup';
  * isso a tranca de verdade não é o lugar do `return`, é o RECIBO: `backupReciclar_`
  * recebe um comprovante e se recusa a fazer qualquer coisa sem ele.
  */
-function fazerBackup() {
+function fazerBackup(e) {
+  exigirGatilhoOuDono_(e);
+  return fazerBackup_();
+}
+
+/** O trabalho de `fazerBackup`, depois da guarda. É esta que o código chama por dentro. */
+function fazerBackup_() {
   var estado = {
     inicio: new Date().getTime(),
     documentos: 0,
@@ -317,7 +335,7 @@ function fazerBackup() {
 
   try {
     if (!backupLigado_()) {
-      // Sem `registrar()`: seria uma escrita por dia para dizer que nada
+      // Sem `registrar_()`: seria uma escrita por dia para dizer que nada
       // aconteceu, e "desliguei o backup" já foi registrado quando alguém salvou
       // a configuração. O registro de execução guarda o resto.
       Logger.log('fazerBackup: backup_ligado está em NAO — não gravo e não apago nada.');
@@ -379,9 +397,11 @@ function fazerBackup() {
   } catch (e) {
     // Daqui não sai arquivo nenhum, e portanto não existe "o backup de hoje" —
     // que é o que a regra 1 confere. O erro vai para o console (Stackdriver) e
-    // para a trilha, porque backup que falha calado é backup que não existe.
+    // para a trilha, porque backup que falha calado é backup que não existe. Na
+    // trilha, pela régua dela (`semIdDeDocumento_`, 04_Log.gs): o erro do Repo
+    // traz o caminho do documento, e a linha fica um ano no banco.
     console.error('fazerBackup: ' + e.message);
-    registrar('ERRO', 'backup', '', 'backup do dia falhou: ' + e.message +
+    registrar_('ERRO', 'backup', '', 'backup do dia falhou: ' + semIdDeDocumento_(e) +
       ' | documentos lidos até parar: ' + estado.documentos);
     Logger.log('fazerBackup FALHOU: %s', e.message);
     return {
@@ -405,7 +425,7 @@ function fazerBackup() {
   }
   resumo.reciclagem = reciclagem;
 
-  registrar('BACKUP', 'drive', resumo.id, JSON.stringify({
+  registrar_('BACKUP', 'drive', resumo.id, JSON.stringify({
     arquivo: resumo.arquivo,
     total: resumo.total,
     contagem: resumo.contagem,
@@ -555,7 +575,7 @@ function backupLerTudo_(colecoes, estado) {
  * decidido assim. O que não se admite é o corte em SILÊNCIO — daí `log_limitado`
  * no cabeçalho, o aviso no resumo, no registro de execução e na trilha.
  *
- * `criado_em` DESC, e não `__name__` DESC, pelo mesmo motivo de `ultimosRegistros`
+ * `criado_em` DESC, e não `__name__` DESC, pelo mesmo motivo de `ultimosRegistros_`
  * (04_Log.gs): o índice automático de `__name__` só cobre o sentido ascendente, e
  * a consulta descendente por nome é recusada pelo Firestore. `criado_em` é campo
  * de verdade, largura fixa em UTC, e tem índice de campo único de graça.
@@ -569,7 +589,7 @@ function backupLerLog_(estado) {
     // fora seria pagar leitura por documento que não entra no arquivo — e é a
     // leitura, não o arquivo, que é a cota escassa aqui.
     var falta = BACKUP_LOG_MAX - itens.length;
-    var pagina = listar(LOG_COLECAO, {
+    var pagina = listar_(LOG_COLECAO, {
       ordenarPor: 'criado_em',
       direcao: 'DESC',
       limite: Math.max(1, Math.min(BACKUP_BLOCO, falta)),
@@ -637,8 +657,8 @@ function backupMontarArquivo_(colecoes, lido, estado, nome, data) {
     formato: BACKUP_FORMATO,
     arquivo: nome,
     data: data,
-    gerado_em: agora(),
-    gerado_por: usuarioAtual(),
+    gerado_em: agora_(),
+    gerado_por: usuarioAtual_(),
     completo: true,
     log_limitado: Boolean(estado.logLimitado),
     log_teto: BACKUP_LOG_MAX,
@@ -887,7 +907,7 @@ function backupReciclar_(recibo) {
  * Quantos dias de backup guardar — ou por que não dá para saber.
  *
  * O padrão de `CONFIG_PADRAO` NÃO é aplicado aqui de propósito, e esta é a linha
- * mais importante da função. `config(chave, padrao)` trata chave vazia e chave
+ * mais importante da função. `config_(chave, padrao)` trata chave vazia e chave
  * ausente do mesmo jeito e devolveria 15 — o que é o contrato certo para tudo
  * neste sistema, MENOS para a única operação que apaga. "Não configurado" não
  * pode significar "pode apagar". Quem esvaziou o campo no painel talvez estivesse
@@ -898,7 +918,7 @@ function backupReciclar_(recibo) {
  * exclusão não tem lado seguro.
  */
 function backupDias_() {
-  var bruto = String(config('backup_dias', '')).trim();
+  var bruto = String(config_('backup_dias', '')).trim();
 
   if (bruto === '') {
     return {
@@ -1017,7 +1037,7 @@ function backupLigado_() {
   // `!== 'NAO'` e não `=== 'SIM'`, na mesma lógica de `validar_matricula`
   // (09_Projetos.gs): aqui o lado seguro do erro de digitação é CONTINUAR
   // copiando. Um 'S' no lugar de 'SIM' não pode parar o backup em silêncio.
-  return String(config('backup_ligado', 'SIM')).toUpperCase() !== 'NAO';
+  return String(config_('backup_ligado', 'SIM')).toUpperCase() !== 'NAO';
 }
 
 // ------------------------------------------------------------ O gatilho
@@ -1031,11 +1051,22 @@ function backupLigado_() {
  * dobro da cota) e nada disso aparece em lugar nenhum até alguém abrir a tela de
  * acionadores para procurar.
  *
+ * E idempotente SÓ PARA A CONTA QUE RODA, como lá: `ScriptApp.getProjectTriggers()`
+ * não devolve o acionador que outra conta instalou, e ele não é removido aqui.
+ * ANTES DE RODAR, confira a tela Acionadores do editor (o relógio, no menu da
+ * esquerda): se já houver um `fazerBackup`, de outra conta, não rode.
+ *
  * Para desligar temporariamente, não mexa no gatilho: ponha `backup_ligado` em
  * NAO no painel. É reversível, fica registrado e não depende de alguém lembrar de
  * reinstalar depois.
  */
 function instalarGatilhoBackup() {
+  exigirDono_();
+  return instalarGatilhoBackup_();
+}
+
+/** O trabalho de `instalarGatilhoBackup`, depois da guarda. É esta que o código chama por dentro. */
+function instalarGatilhoBackup_() {
   var removidos = 0;
 
   ScriptApp.getProjectTriggers().forEach(function (g) {
@@ -1055,12 +1086,15 @@ function instalarGatilhoBackup() {
   if (removidos) Logger.log('gatilhos antigos removidos: %s', removidos);
   Logger.log('backup diário instalado para rodar entre %sh e %sh.',
     BACKUP_HORA, BACKUP_HORA + 1);
+  Logger.log('Esta função só vê e só substitui os acionadores desta conta. Confira a tela ' +
+    'Acionadores (o relógio, no menu da esquerda): se houver outro fazerBackup, de outra ' +
+    'conta, apague um dos dois — com os dois, o banco é lido inteiro duas vezes por dia.');
   Logger.log('Depois da reconciliação (5h) e depois da virada da cota do Spark, ' +
     'que é meia-noite do Pacífico.');
   Logger.log('Os arquivos vão para a pasta "%s" no Drive desta conta, e NÃO são ' +
     'compartilhados: contêm dado pessoal de aluno.', BACKUP_PASTA);
   Logger.log('Guarda: %s dias (chave backup_dias, em Configurações).',
-    config('backup_dias', '(vazia — nada será reciclado)'));
+    config_('backup_dias', '(vazia — nada será reciclado)'));
   Logger.log('Para conferir depois, rode conferirBackup() aqui mesmo no editor.');
 }
 
@@ -1083,10 +1117,16 @@ function instalarGatilhoBackup() {
  * no arquivo — as duas significam backup que não está copiando tudo.
  *
  * Custo: uma listagem do Drive, uma leitura do arquivo, e as contagens do banco
- * em UMA ida (`contarVarios`, 02_Repo.gs — agregação no servidor, sem trazer
+ * em UMA ida (`contarVarios_`, 02_Repo.gs — agregação no servidor, sem trazer
  * documento). Não é o backup: é barato e pode ser rodado à vontade.
  */
 function conferirBackup() {
+  exigirDono_();
+  return conferirBackup_();
+}
+
+/** O trabalho de `conferirBackup`, depois da guarda. É esta que o código chama por dentro. */
+function conferirBackup_() {
   Logger.log('=== conferirBackup ===');
 
   var arquivos;
@@ -1138,7 +1178,7 @@ function conferirBackup() {
   });
   colecoes.sort();
 
-  var totais = contarVarios(colecoes.map(function (c) { return { colecao: c }; }));
+  var totais = contarVarios_(colecoes.map(function (c) { return { colecao: c }; }));
 
   var linhas = [];
   var somaArquivo = 0;

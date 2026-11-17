@@ -234,9 +234,12 @@ teste('autorizar() não ressuscita os escopos que acabaram de sair', () => {
   // `SpreadsheetApp.openById` e `DocumentApp.openById` com id inválido. Se
   // essas duas linhas ficassem, elas sozinhas fariam o Google exigir os escopos
   // de novo — a menção estática basta.
+  // O corpo que importa é o da implementação: `autorizar` é a casca pública de
+  // duas linhas (a guarda do editor e a chamada), e quem fala com o Drive é
+  // `autorizar_`.
   const prova = fs.readFileSync(path.join(PASTA_GS, '20_Prova.gs'), 'utf8');
-  const autorizar = /function autorizar\(\)[\s\S]*?\n}/.exec(prova);
-  verdadeiro(autorizar, 'autorizar() sumiu; se foi de propósito, apague este teste junto');
+  const autorizar = /function autorizar_\(\)[\s\S]*?\n}/.exec(prova);
+  verdadeiro(autorizar, 'autorizar_() sumiu; se foi de propósito, apague este teste junto');
 
   verdadeiro(/Drive\.Files\.list\(/.test(autorizar[0]),
     'sobrou drive.file para forçar, e é o único escopo que o Firestore não exercita');
@@ -273,7 +276,7 @@ teste('o Forms está DESLIGADO, e a mensagem manda procurar o escopo certo', () 
 
 // ============================================================ IMPEDE 2
 //
-// A importação chamava `reconciliar()` antes de responder, para o passo 3 já
+// A importação chamava `reconciliar_()` antes de responder, para o passo 3 já
 // mostrar os quatro números. As duas passavam a dividir UMA execução de 6
 // minutos: ~7 idas ao Firestore da importação mais 16 a 21 da reconciliação.
 // Estourar aí é o pior modo de falha do sistema, porque não é limpo — os
@@ -289,7 +292,7 @@ teste('o servidor não expõe mais a costura entre os dois', () => {
 
   verdadeiro(codigo.indexOf('resumoReconciliacao_') === -1,
     'a função de costura voltou');
-  verdadeiro(!/\breconciliar\s*\(/.test(codigo),
+  verdadeiro(!/\breconciliar_?\s*\(/.test(codigo),
     '05_Importacao.gs voltou a chamar reconciliar() — as duas dividem a execução de novo');
 });
 
@@ -297,7 +300,7 @@ teste('o painel não lê mais r.reconciliacao, e ganhou o botão', () => {
   // A conferência é sobre a RESPOSTA DA IMPORTAÇÃO, e por isso olha só o trecho
   // dela. Ela era uma busca pelo texto `r.reconciliacao` no arquivo inteiro, e
   // isso deixou de servir quando o botão Atualizar da aba Alunos passou a receber
-  // o resultado do cruzamento dentro da própria resposta (`atualizarAlunos`,
+  // o resultado do cruzamento dentro da própria resposta (`atualizarAlunos_`,
   // 10_Painel.gs) — ali o acoplamento é o desejado: uma execução em vez de duas,
   // e nada de dado gravado dependendo dele.
   const importacao = /chamar\('confirmarImportacao'[\s\S]*?\n  \}/.exec(ADMIN);
@@ -315,7 +318,7 @@ teste('o botão do passo 3 chama a função que existe no servidor', () => {
   verdadeiro(/chamar\('rodarReconciliacao'/.test(trecho), trecho.slice(0, 200));
 
   const painel = fs.readFileSync(path.join(PASTA_GS, '06_Reconciliacao.gs'), 'utf8');
-  verdadeiro(/function rodarReconciliacao\s*\(/.test(painel));
+  verdadeiro(/function rodarReconciliacao_\s*\(/.test(painel));
 });
 
 teste('falha na reconciliação diz que a importação continua valendo', () => {
@@ -349,7 +352,7 @@ teste('a aba Importações oferece o expurgo, e o servidor responde', () => {
   verdadeiro(/chamar\('expurgarLote'/.test(ADMIN));
 
   const importacao = fs.readFileSync(path.join(PASTA_GS, '05_Importacao.gs'), 'utf8');
-  verdadeiro(/function expurgarLote\s*\(/.test(importacao));
+  verdadeiro(/function expurgarLote_\s*\(/.test(importacao));
 });
 
 teste('a tela conta antes de perguntar, e pergunta antes de apagar', () => {
@@ -376,7 +379,7 @@ teste('a mensagem de recusa de colecaoCompleta_ agora tem um caminho de verdade'
   verdadeiro(/Importações/.test(recusa[0]), 'e a aba onde ele está');
 
   const importacao = fs.readFileSync(path.join(PASTA_GS, '05_Importacao.gs'), 'utf8');
-  verdadeiro(/function expurgarLote\s*\(/.test(importacao),
+  verdadeiro(/function expurgarLote_\s*\(/.test(importacao),
     'sem expurgo, a recusa da reconciliação vira um beco sem saída');
   verdadeiro(/Apagar matriculados/.test(ADMIN),
     'e o botão precisa existir na tela com esse mesmo nome');

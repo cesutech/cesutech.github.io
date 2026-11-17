@@ -16,7 +16,7 @@
  *   2. o transporte — envelope, cabeçalho, onde viaja o token;
  *   3. entrar com conta Google, do botão à sessão;
  *   4. a tela de quem tem acesso;
- *   5. o endereço antigo, que agora leva ao novo;
+ *   5. o endereço antigo, que hoje só responde JSON apontando para o novo;
  *   6. o site do ALUNO, que não pode ter sido tocado.
  *
  * O QUE NENHUM TESTE DAQUI PROVA, e está escrito para não ser confundido:
@@ -41,8 +41,6 @@ const { abrirPainel, jaResolvido, respostaHttp, travada } = require('./dom-paine
 const RAIZ = path.join(__dirname, '..');
 const PAGINA = fs.readFileSync(path.join(RAIZ, 'docs', 'painel', 'index.html'), 'utf8');
 const CSS_PAINEL = fs.readFileSync(path.join(RAIZ, 'docs', 'painel', 'estilos.css'), 'utf8');
-const ESTILOS_GS = fs.readFileSync(path.join(RAIZ, 'apps-script', 'Estilos.html'), 'utf8');
-const STUB = fs.readFileSync(path.join(RAIZ, 'apps-script', 'Admin.html'), 'utf8');
 const CONFIG_JS = fs.readFileSync(path.join(RAIZ, 'docs', 'assets', 'config.js'), 'utf8');
 const APP_JS = fs.readFileSync(path.join(RAIZ, 'docs', 'assets', 'app.js'), 'utf8');
 const INDEX = fs.readFileSync(path.join(RAIZ, 'docs', 'index.html'), 'utf8');
@@ -77,7 +75,7 @@ function telaDeLogin(opcoes) {
     respostas: cfg.respostas,
     semear: (api, amb) => {
       api.semearConfigPadrao_();
-      api.gravarConfig('admin_emails', cfg.allowlist === undefined ? 'coord@exemplo.com' : cfg.allowlist);
+      api.gravarConfig_('admin_emails', cfg.allowlist === undefined ? 'coord@exemplo.com' : cfg.allowlist);
       if (cfg.clientId !== null) amb.propriedades.set('GOOGLE_CLIENT_ID', cfg.clientId || CLIENT_ID);
 
       // O `apoio.js` nasceu antes de o sistema enviar e-mail e não tem `MailApp`.
@@ -123,7 +121,7 @@ function painelAberto(allowlist, usuario) {
     usuario: usuario || 'coord@exemplo.com',
     semear: (api) => {
       api.semearConfigPadrao_();
-      api.gravarConfig('admin_emails', allowlist);
+      api.gravarConfig_('admin_emails', allowlist);
     }
   });
 }
@@ -203,21 +201,6 @@ teste('as oito abas vieram inteiras para a casa nova', () => {
       verdadeiro(PAGINA.indexOf('data-aba="' + aba + '"') !== -1, 'sumiu a aba ' + aba);
       verdadeiro(PAGINA.indexOf('id="secao-' + aba + '"') !== -1, 'sumiu a seção da aba ' + aba);
     });
-});
-
-teste('o CSS do painel é o gêmeo EXATO do Estilos.html', () => {
-  // Duas cópias do mesmo CSS é o começo de duas telas que divergem em silêncio —
-  // e como não dá para servir o `Estilos.html` no Pages (é um include do Apps
-  // Script) nem servir o CSS do Pages dentro do iframe do Google Sites (que
-  // bloqueia recurso externo), a cópia é o preço. Este teste é o que impede que
-  // ela vire duas coisas diferentes: quem editar um lado tem de editar o outro,
-  // e o comando está escrito no cabeçalho do Estilos.html.
-  const miolo = ESTILOS_GS.slice(
-    ESTILOS_GS.indexOf('<style>') + '<style>\n'.length,
-    ESTILOS_GS.lastIndexOf('</style>')
-  );
-  igual(CSS_PAINEL, miolo,
-    'docs/painel/estilos.css saiu de sincronia com apps-script/Estilos.html');
 });
 
 teste('a página do painel pede para não ser indexada', () => {
@@ -528,7 +511,7 @@ teste('`{ ok: false }` não é repetido — o servidor respondeu, e a resposta �
  *
  * O que torna isto seguro é uma premissa sobre o SERVIDOR, conferida em
  * 08_Api.gs antes da mudança: `doGet` e `doPost` são os únicos pontos de entrada
- * e respondem sempre por `ContentService`/`HtmlService`, que saem como HTTP 200
+ * e respondem sempre por `ContentService`, que sai como HTTP 200
  * — o Apps Script não oferece como um web app devolver outro código, e não há
  * `setStatusCode` em lugar nenhum do repositório. Recusa nossa é `{ ok: false }`
  * com 200. Logo, um 404 no navegador é sempre do encanamento do Google.
@@ -989,14 +972,12 @@ teste('fundo e Esc saem pela mesma porta — e o Cancelar continua fechando dire
     'o × da janela mudou de comportamento sem que ninguém pedisse');
 });
 
-teste('o botão travado é visível como travado — e o estilo já existe nos dois gêmeos', () => {
+teste('o botão travado é visível como travado — e o estilo existe no CSS do painel', () => {
   // Nada de CSS novo foi preciso: `.btn:disabled` já apagava o botão, e o rótulo
-  // vira "Salvando…". Este teste é o que impede o estilo de sumir de um dos dois
-  // arquivos e deixar o sinal de vida invisível em uma das duas telas.
+  // vira "Salvando…". Este teste é o que impede o estilo de sumir e deixar o
+  // sinal de vida invisível.
   verdadeiro(/\.btn:disabled\s*\{[^}]*opacity/.test(CSS_PAINEL),
     'o botão travado deixou de parecer travado no painel');
-  verdadeiro(/\.btn:disabled\s*\{[^}]*opacity/.test(ESTILOS_GS),
-    'o botão travado deixou de parecer travado no formulário servido pelo Apps Script');
 
   verdadeiro(PAGINA.indexOf("var TEXTO_GRAVANDO = 'Salvando…';") !== -1,
     'o rótulo da espera sumiu — o `disabled` sozinho é mudo para quem não olha a cor');
@@ -1121,14 +1102,14 @@ teste('o período e a ordem (19/09) estão ligados, e os campos moram fora do qu
 });
 
 teste('o carimbo é do fuso de São Paulo, e o período compara só o dia', () => {
-  // A premissa da comparação de texto: `criado_em` nasce de `agora()` com
+  // A premissa da comparação de texto: `criado_em` nasce de `agora_()` com
   // `APP.timezone`, e NÃO em UTC. Se um dia o servidor passar a gravar UTC, o
   // dia do carimbo deixa de ser o dia do professor a partir das 21h — e esta é a
   // linha que tem de acusar.
   const UTILS = fs.readFileSync(path.join(RAIZ, 'apps-script', '01_Utils.gs'), 'utf8');
   const CONFIG = fs.readFileSync(path.join(RAIZ, 'apps-script', '00_Config.gs'), 'utf8');
-  verdadeiro(/function agora\(\) \{\s*return Utilities\.formatDate\(new Date\(\), APP\.timezone, 'yyyy-MM-dd HH:mm:ss'\);/
-    .test(UTILS), 'agora() mudou de formato ou de fuso — a comparação de texto do período depende dos dois');
+  verdadeiro(/function agora_\(\) \{\s*return Utilities\.formatDate\(new Date\(\), APP\.timezone, 'yyyy-MM-dd HH:mm:ss'\);/
+    .test(UTILS), 'agora_() mudou de formato ou de fuso — a comparação de texto do período depende dos dois');
   verdadeiro(/timezone: 'America\/Sao_Paulo'/.test(CONFIG), 'o fuso do sistema deixou de ser o do professor');
 
   // E do lado da tela, a conta é sobre os dez primeiros caracteres, e não sobre
@@ -1509,7 +1490,7 @@ teste('quem entra pelo Google já entra com a fita do NÍVEL dela', () => {
   // Mutação que derruba: tirar `nivel` do retorno de `entrarComGoogle`, ou
   // chamar `abrirPainel()` sem passá-lo adiante.
   const cena = telaDeLogin({ allowlist: 'coord@exemplo.com, professora@exemplo.com' });
-  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+  cena.api.gravarConfig_('coordenadores_gerais', 'coord@exemplo.com');
   tokenBom(cena, 'coord@exemplo.com');
 
   cena.entrarComGoogle(ID_TOKEN);
@@ -1520,7 +1501,7 @@ teste('quem entra pelo Google já entra com a fita do NÍVEL dela', () => {
 
 teste('e a professora entra pela mesma porta, com cinco abas e a linha que explica', () => {
   const cena = telaDeLogin({ allowlist: 'coord@exemplo.com, professora@exemplo.com' });
-  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+  cena.api.gravarConfig_('coordenadores_gerais', 'coord@exemplo.com');
   tokenBom(cena, 'professora@exemplo.com');
 
   cena.entrarComGoogle(ID_TOKEN);
@@ -1996,7 +1977,7 @@ teste('o link por e-mail também entrega o nível — a fita nasce certa', () =>
   // Mutação que derruba: tirar `nivel` do retorno de `entrarComLink`.
   const caixa = [];
   const cena = telaDeLogin({ emails: caixa, allowlist: 'coord@exemplo.com, professora@exemplo.com' });
-  cena.api.gravarConfig('coordenadores_gerais', 'coord@exemplo.com');
+  cena.api.gravarConfig_('coordenadores_gerais', 'coord@exemplo.com');
 
   cena.js.abrirPedidoDeLink();
   cena.digitar('email-link', 'coord@exemplo.com');
@@ -2050,7 +2031,7 @@ teste('`?sessao=` entra direto, sem confirmação nenhuma', () => {
     busca: (token) => '?sessao=' + token,
     semear: (api) => {
       api.semearConfigPadrao_();
-      api.gravarConfig('admin_emails', 'coord@exemplo.com');
+      api.gravarConfig_('admin_emails', 'coord@exemplo.com');
     }
   });
 
@@ -2070,7 +2051,7 @@ teste('a sessão do link é GUARDADA, senão a primeira recarga joga a pessoa fo
     busca: (token) => '?sessao=' + token,
     semear: (api) => {
       api.semearConfigPadrao_();
-      api.gravarConfig('admin_emails', 'coord@exemplo.com');
+      api.gravarConfig_('admin_emails', 'coord@exemplo.com');
     }
   });
 
@@ -2084,7 +2065,7 @@ teste('`?sessao=` com token morto cai no login, e não num painel de mentira', (
     busca: '?sessao=JA_VENCIDA',
     semear: (api) => {
       api.semearConfigPadrao_();
-      api.gravarConfig('admin_emails', 'coord@exemplo.com');
+      api.gravarConfig_('admin_emails', 'coord@exemplo.com');
     }
   });
 
@@ -2129,7 +2110,7 @@ teste('incluir grava de verdade e a lista redesenha sem outra ida ao servidor', 
     'redesenhar a lista com o que a resposta já trouxe custa zero leitura a mais');
   verdadeiro(cena.texto('conteudo-acesso').indexOf('nova.pessoa@exemplo.com') !== -1,
     'o e-mail entrou normalizado em minúsculas — é a mesma conta no Google');
-  igual(cena.api.config('admin_emails'), 'coord@exemplo.com, nova.pessoa@exemplo.com');
+  igual(cena.api.config_('admin_emails'), 'coord@exemplo.com, nova.pessoa@exemplo.com');
 });
 
 teste('remover pergunta antes, e a pergunta diz o que vai acontecer', () => {
@@ -2140,19 +2121,19 @@ teste('remover pergunta antes, e a pergunta diz o que vai acontecer', () => {
   cena.js.removerAcesso('outra@exemplo.com');
 
   verdadeiro(cena.confirmacoes[0].indexOf('encerrada na hora') !== -1, cena.confirmacoes[0]);
-  igual(cena.api.config('admin_emails'), 'coord@exemplo.com, outra@exemplo.com',
+  igual(cena.api.config_('admin_emails'), 'coord@exemplo.com, outra@exemplo.com',
     'recusar a pergunta removeu assim mesmo');
 });
 
 teste('remover derruba a sessão da pessoa na mesma chamada', () => {
   const cena = painelAberto('coord@exemplo.com, outra@exemplo.com');
   const tokenDela = cena.api.criarSessao_('outra@exemplo.com');
-  igual(cena.api.sessaoAtiva(tokenDela).ok, true);
+  igual(cena.api.sessaoAtiva_(tokenDela).ok, true);
 
   cena.js.trocarAba('config');
   cena.js.removerAcesso('outra@exemplo.com');
 
-  igual(cena.api.sessaoAtiva(tokenDela).ok, false,
+  igual(cena.api.sessaoAtiva_(tokenDela).ok, false,
     'tirar da lista e deixar entrar por mais 8 horas é não ter tirado');
   verdadeiro(cena.texto('mensagem-global').indexOf('sessão dele foi encerrada') !== -1);
 });
@@ -2177,7 +2158,7 @@ teste('o último da lista não sai, e a recusa do servidor chega à tela', () =>
 
   const msg = cena.texto('mensagem-global');
   verdadeiro(msg.indexOf('único e-mail autorizado') !== -1, msg);
-  igual(cena.api.config('admin_emails'), 'coord@exemplo.com', 'a lista foi esvaziada');
+  igual(cena.api.config_('admin_emails'), 'coord@exemplo.com', 'a lista foi esvaziada');
   verdadeiro(escondido(cena, 'tela-login'), 'a recusa derrubou a sessão sem precisar');
 });
 
@@ -2196,7 +2177,8 @@ teste('listar quem tem acesso não faz o painel esquecer as outras abas', () => 
 
 teste('o endereço do painel mostrado em Configurações é o NOVO', () => {
   // É onde a coordenação vem procurar o link para salvar. Mostrar o `?p=admin`
-  // faria o favorito nascer velho, apontando para a página que só redireciona.
+  // faria o favorito nascer velho, apontando para um endereço que só responde
+  // JSON.
   const cena = painelAberto('coord@exemplo.com');
   // `urlDoWebApp_` pergunta ao Apps Script qual é o endereço desta implantação;
   // fora de uma implantação publicada ele devolve '' e o cartão nem aparece.
@@ -2211,49 +2193,47 @@ teste('o endereço do painel mostrado em Configurações é o NOVO', () => {
   igual(texto.indexOf('?p=admin'), -1, 'o painel ainda anuncia o endereço antigo');
 });
 
+teste('o cartão de endereços não oferece o /exec como página', () => {
+  // Até 16/11/2026 o `/exec` servia o formulário interno, e este cartão o
+  // chamava de "Formulário público" e mandava pô-lo no Google Sites. Hoje ele só
+  // responde JSON: oferecido como página, viraria texto técnico incorporado no
+  // lugar de um formulário. Ele continua no cartão — é o que se confere contra
+  // o `config.js` depois de uma implantação nova —, mas sem link e com o aviso.
+  //
+  // Mutação que derruba: voltar o rótulo "Formulário público", o link para o
+  // `/exec` ou a instrução de incorporá-lo.
+  const EXEC = 'https://script.google.com/macros/s/AAA/exec';
+  const cena = painelAberto('coord@exemplo.com');
+  cena.api.ScriptApp = {
+    getOAuthToken: () => 'token-de-mentira',
+    getService: () => ({ getUrl: () => EXEC })
+  };
+  cena.js.trocarAba('config');
+
+  const texto = cena.texto('conteudo-config');
+  const html = cena.html('conteudo-config');
+  verdadeiro(texto.indexOf(EXEC) !== -1, 'o endereço do servidor sumiu do cartão: ' + texto.slice(0, 300));
+  igual(texto.indexOf('Formulário público'), -1, 'o /exec voltou a ser anunciado como formulário');
+  igual(texto.indexOf('Incorporar'), -1, 'o cartão voltou a mandar incorporar um endereço');
+  igual(html.indexOf('href="' + EXEC), -1, 'o /exec voltou a ser link: ' + html.slice(0, 400));
+  verdadeiro(texto.indexOf('não abre página') !== -1, 'sumiu o aviso de que o servidor não é página');
+});
+
 // ============================================== 5. O endereço antigo
 
-grupo('o /exec?p=admin, que agora só leva ao painel novo');
+grupo('o /exec?p=admin, que hoje só responde JSON apontando para cá');
 
-teste('o Admin.html não é mais o painel', () => {
-  // Se ele continuasse sendo, seriam duas telas com os mesmos 22 botões falando
-  // com o mesmo servidor — e a que ninguém abre é a que deixa de ser corrigida.
-  igual(STUB.indexOf('data-aba="alunos"'), -1, 'sobrou painel no arquivo que deveria só redirecionar');
-  igual(/google\.script\.run\s*[.[]/.test(STUB), false);
-  verdadeiro(STUB.length < 8000, 'o redirecionamento não deveria ter ' + STUB.length + ' bytes');
-});
-
-teste('ele mostra o endereço novo escrito, e não só redireciona', () => {
-  // Redirecionar calado leva a pessoa ao lugar certo e a deixa com o link velho
-  // para sempre. E, dentro do iframe do Apps Script, a navegação automática do
-  // topo costuma ser bloqueada — o link clicável é o mecanismo, não o enfeite.
-  verdadeiro(/target="_top"/.test(STUB), 'sem _top o painel abriria dentro do iframe do Apps Script');
-  verdadeiro(/<strong>https:\/\/[^<]*\/painel\/<\/strong>/.test(STUB),
-    'o endereço precisa estar visível para ser copiado');
-  // O stub precisa contar QUAL é a saída quando o botão do Google recusa a
-  // conta — é a pergunta que traz alguém a este endereço antigo. Antes ele
-  // apontava para o PIN; o PIN foi removido, e apontar para uma porta que não
-  // existe mais é pior do que não apontar para nenhuma.
-  verdadeiro(/Não consigo entrar com o Google/.test(STUB),
-    'a página tem de nomear a porta de recuperação que existe hoje');
-  verdadeiro(!/entre pelo PIN/.test(STUB),
-    'o stub não pode mandar ninguém para o PIN, que não existe mais');
-});
-
-teste('o endereço do stub é o mesmo BASE_SITE do painel', () => {
+teste('o endereço que o servidor anuncia é o mesmo BASE_SITE do painel', () => {
+  // O `?p=admin` foi, até 16/11/2026, uma página do Apps Script que levava até
+  // aqui. O servidor não serve mais página nenhuma: quem abre o endereço antigo
+  // recebe um JSON com o endereço do painel (`ENDERECO_DO_PAINEL`, 08_Api.gs),
+  // e é ele que precisa bater com o BASE_SITE desta página.
   const doPainel = /var BASE_SITE = '([^']+)'/.exec(PAGINA)[1];
-  const doStub = /href="([^"]+\/painel\/)"/.exec(STUB)[1];
-  igual(doStub, doPainel + '/painel/',
+  const servidor = fs.readFileSync(path.join(RAIZ, 'apps-script', '08_Api.gs'), 'utf8');
+  const anunciado = /var ENDERECO_DO_PAINEL = '([^']+)'/.exec(servidor);
+  verdadeiro(anunciado !== null, 'ENDERECO_DO_PAINEL sumiu de 08_Api.gs');
+  igual(anunciado[1], doPainel + '/painel/',
     'os dois endereços divergiram — um deles leva a lugar nenhum');
-});
-
-teste('o formulário interno continua servido pelo mesmo caminho', () => {
-  // `paginaHtml_` (08_Api.gs) serve `Cadastro` para tudo que não é `?p=admin`, e
-  // esta fase não tocou nele. O Cadastro.html continua usando o include que
-  // acabou de ganhar um gêmeo no Pages.
-  verdadeiro(/<\?!= include\('Estilos'\) \?>/.test(
-    fs.readFileSync(path.join(RAIZ, 'apps-script', 'Cadastro.html'), 'utf8')),
-  'o formulário interno perdeu o estilo');
 });
 
 // ======================================= 6. O site do aluno, intocado
@@ -2345,8 +2325,8 @@ teste('imprimir esconde a tela inteira, e só com a classe no body', () => {
     'a folha não é mostrada na impressão');
 
   // A classe no body é o que impede este bloco de valer para todo Ctrl+P. Sem
-  // ela, o `Cadastro.html` — que é o GÊMEO deste CSS e não tem contêiner de
-  // impressão nenhum — imprimiria folha em branco no balcão.
+  // ela, imprimir a própria tela do painel sairia em folha em branco: fora do
+  // clique em Exportar PDF, o contêiner de impressão está vazio.
   verdadeiro(!/^\s*> \*:not\(#area-impressao\)/m.test(CSS_PAINEL),
     'a regra de impressão passou a valer sem a classe do body');
   verdadeiro(/#area-impressao\s*\{\s*display:\s*none;\s*\}/.test(CSS_PAINEL),

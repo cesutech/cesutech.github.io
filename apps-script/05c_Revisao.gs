@@ -76,7 +76,7 @@
  * -------------------------------------------------- Cancelar e Excluir
  *
  * CANCELAR grava QUATRO campos no documento de `matriculados` — a marca lida por
- * `cadastroCancelado_` (04_Inscricoes.gs) — por `atualizarEmLote` (02_Repo.gs):
+ * `cadastroCancelado_` (04_Inscricoes.gs) — por `atualizarEmLote_` (02_Repo.gs):
  * um `:commit` com máscara de exatamente esses campos e `exists:true`. Nada do
  * documento é reescrito, e um documento que sumiu entre a tela e o clique
  * derruba o bloco inteiro em vez de criar fantasma. Desfazer é a REIMPORTAÇÃO:
@@ -96,7 +96,7 @@
  * a vaga tem de ser liberada, e o cancelado fica fora da lista padrão. As
  * inscrições são descobertas AQUI, no instante do Aplicar — e não recebidas da
  * tela —, para uma inscrição feita entre abrir a janela e clicar não ficar viva
- * por baixo da marca. Anular passa inteira por `anularInscricoes`
+ * por baixo da marca. Anular passa inteira por `anularInscricoes_`
  * (13_Auditorio.gs): relê, copia para a quarentena, apaga, libera a vaga por
  * construção e grava a linha dela no log.
  *
@@ -160,7 +160,7 @@
  *   9. cache do Painel e marca da reconciliação.
  *
  * Entre a releitura (2) e o apaga (5) ou o patch (6) passam SEGUNDOS a MINUTOS:
- * `anularInscricoes` relê cada inscrição em fila, ~0,5 s cada, até 200. Uma
+ * `anularInscricoes_` relê cada inscrição em fila, ~0,5 s cada, até 200. Uma
  * reimportação que entra nessa janela reescreve o documento do aluno com o
  * `lote_id` novo — e `exists:true` deixaria o patch marcar como cancelado quem
  * está na lista oficial mais nova (invisível a qualquer revisão depois: o
@@ -195,7 +195,7 @@
  * primeira escrita não é revisão, e não deixa linha.
  *
  * SEM `LockService`, de propósito: a revisão só LIBERA vaga (o caso 1 do
- * cabeçalho de 13_Auditorio.gs). Quem ocupa vaga é `reservarVaga`, e ela conta
+ * cabeçalho de 13_Auditorio.gs). Quem ocupa vaga é `reservarVaga_`, e ela conta
  * depois, lá dentro.
  *
  * -------------------------------------------------- Custo
@@ -214,7 +214,7 @@
  * Turma de 40 com 3 sumidos, hoje: contar ≈ 91 leituras; completo ≈ 406; o
  * Aplicar ≈ 320 leituras e ~20 escritas. Teto absoluto do revisar: 1 + 500 +
  * 50 + 2000 + 500 ≈ 3.051. Abrir as treze turmas de uma sexta ≈ 5.300
- * leituras, ~11% do dia. O painel dá 15 s a `revisarLote`
+ * leituras, ~11% do dia. O painel dá 15 s a `revisarLote_`
  * (LIMITE_DE_LEITURA_POR_FUNCAO_MS): ela lê quatro coleções e é a leitura mais
  * lenta do painel depois da de disciplinas — e abortada, a tentativa seguinte
  * paga a conta inteira de novo. As fichas custam T leituras numa ida, e não
@@ -228,7 +228,7 @@
  * Cloud, o começo da trilha para quem quiser sondar. A limpeza do caminho é
  * `semCaminhoDeDocumento_` (02_Repo.gs, ao lado de `fsErro_`, que é quem monta
  * a mensagem com ele), e é a mesma régua do Auditório. TODO caminho de erro
- * passa por ela: o `catch` daqui, a recusa de `anularInscricoes` (que já sai
+ * passa por ela: o `catch` daqui, a recusa de `anularInscricoes_` (que já sai
  * limpa de lá, e passa de novo aqui — custa nada, e o dia em que alguém trocar
  * o Auditório este arquivo continua limpo), a frase da trilha parcial e a do
  * `console.error`. Nenhum `err.message` cru sai deste arquivo.
@@ -247,7 +247,7 @@ var REVISAO_LOTE_MAXIMO = 100;
 /**
  * Quantos matriculados da turma são lidos, e quantas inscrições são varridas.
  *
- * Os MESMOS tetos de `matriculadosDaDisciplina` (12_Disciplinas.gs), repetidos
+ * Os MESMOS tetos de `matriculadosDaDisciplina_` (12_Disciplinas.gs), repetidos
  * aqui porque este arquivo carrega antes daquele; existe teste que lê os dois
  * e falha se divergirem. As duas telas cruzam a mesma turma com a mesma
  * varredura, e precisam concordar sobre onde o corte está.
@@ -271,17 +271,17 @@ var REVISAO_ACOES = ['CANCELAR', 'EXCLUIR'];
  *                   janela dizem sempre o mesmo número.
  *
  * Leitura pura. Está em `SO_LEITURA`, com 15 s de limite, e por isso não pode
- * gravar nem a turma deduzida de um lote antigo (quem grava é `aplicarRevisao`).
+ * gravar nem a turma deduzida de um lote antigo (quem grava é `aplicarRevisao_`).
  */
-function revisarLote(payload) {
+function revisarLote_(payload) {
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
 
     var loteId = String(payload.loteId || '').trim();
     if (!loteId) return { ok: false, erro: 'Informe qual importação deve ser revisada.' };
 
-    var lote = ler(LOTES_COLECAO, loteId);
+    var lote = ler_(LOTES_COLECAO, loteId);
     var recusa = recusaDoLote_(lote);
     if (recusa) return { ok: false, erro: recusa };
 
@@ -289,10 +289,10 @@ function revisarLote(payload) {
     var turma = turmaDaRevisao_(lote, loteId, payload.turma, lidas);
     if (!turma.ok) return turma;
 
-    // UM filtro de igualdade, sem ordenação declarada: `listar` cai em
+    // UM filtro de igualdade, sem ordenação declarada: `listar_` cai em
     // `__name__` ascendente, coberto pelo índice automático de campo único — a
-    // consulta de `matriculadosDaDisciplina`, pelo mesmo motivo.
-    var oficiais = listar(MATRICULADOS_COLECAO, {
+    // consulta de `matriculadosDaDisciplina_`, pelo mesmo motivo.
+    var oficiais = listar_(MATRICULADOS_COLECAO, {
       campo: 'turma', valor: turma.turma, limite: REVISAO_MAX_TURMA
     }).itens;
     lidas.matriculados += oficiais.length;
@@ -313,12 +313,12 @@ function revisarLote(payload) {
 
     // Os lotes só são lidos quando há candidato para atribuir a um: é neles que
     // se descobre se a pessoa veio em OUTRA lista deste mesmo semestre. É a
-    // consulta de `listarLotes` (10_Painel.gs), com o teto dela: os 50 mais
+    // consulta de `listarLotes_` (10_Painel.gs), com o teto dela: os 50 mais
     // recentes cobrem um semestre inteiro de importações; um lote de origem
     // mais velho que isso vira candidato sem arquivo, com o aviso de virada.
     var lotes = {};
     if (classes.brutos.length) {
-      var listaDeLotes = listar(LOTES_COLECAO, {
+      var listaDeLotes = listar_(LOTES_COLECAO, {
         ordenarPor: 'criado_em', direcao: 'DESC', limite: PAINEL_LIMITE_LOTES
       }).itens;
       lidas.lotes += listaDeLotes.length;
@@ -442,7 +442,7 @@ function revisarLote(payload) {
     if (varredura.truncado) {
       // A agregação só acontece aqui, e é o único lugar em que ela se paga: o
       // aviso precisa dizer o TAMANHO do buraco.
-      var total = contar(INSCRICOES_COLECAO);
+      var total = contar_(INSCRICOES_COLECAO);
       resposta.avisos.push(
         'Li as ' + varredura.lidas + ' primeiras inscrições de ' + total + '. Quem estiver nas ' +
         Math.max(0, total - varredura.lidas) + ' restantes aparece aqui como SEM PROJETO sem estar — ' +
@@ -470,7 +470,7 @@ function revisarLote(payload) {
  */
 function turmaDaRevisao_(lote, loteId, informada, lidas) {
   var digitada = String(informada === null || informada === undefined ? '' : informada).trim();
-  var chave = normalizarTurma(digitada).slice(0, TURMA_CABECALHO_MAX);
+  var chave = normalizarTurma_(digitada).slice(0, TURMA_CABECALHO_MAX);
   var doLote = String(lote.turma_cabecalho || '');
 
   if (chave && chave !== doLote) {
@@ -502,8 +502,8 @@ function turmaDaRevisao_(lote, loteId, informada, lidas) {
   }
 
   // Lote sem chave: a maioria das linhas que SOBRARAM com este lote_id. É a
-  // consulta de `expurgarLote`, uma ida.
-  var restos = listar(MATRICULADOS_COLECAO, {
+  // consulta de `expurgarLote_`, uma ida.
+  var restos = listar_(MATRICULADOS_COLECAO, {
     campo: 'lote_id', valor: loteId, limite: REVISAO_MAX_TURMA
   }).itens;
   lidas.matriculados += restos.length;
@@ -611,17 +611,17 @@ function varreduraDeInscricoes_(lidas) {
 
 /**
  * As fichas de `alunos` da turma que apontam uma inscrição, por `matricula_id`
- * — só para a janela INFORMAR (`possiveisDe_`); `aplicarRevisao` não as lê,
+ * — só para a janela INFORMAR (`possiveisDe_`); `aplicarRevisao_` não as lê,
  * porque elas não decidem nada. UMA consulta de igualdade pela turma (a ficha
  * copia a turma do matriculado), e não uma por candidato: cada ida custa
- * ~0,5 s e o painel dá 15 s a `revisarLote`.
+ * ~0,5 s e o painel dá 15 s a `revisarLote_`.
  */
 function fichasDaTurma_(turma, lidas) {
   var fichas = {};
-  var itens = listar(ALUNOS_COLECAO, { campo: 'turma', valor: turma, limite: REVISAO_MAX_TURMA }).itens;
+  var itens = listar_(ALUNOS_COLECAO, { campo: 'turma', valor: turma, limite: REVISAO_MAX_TURMA }).itens;
   lidas.fichas = (lidas.fichas || 0) + itens.length;
   itens.forEach(function (ficha) {
-    var m = normalizarMatricula(ficha.matricula_id);
+    var m = normalizarMatricula_(ficha.matricula_id);
     if (!m || !ficha.inscricao_id) return;
     if (!Object.prototype.hasOwnProperty.call(fichas, m)) fichas[m] = [];
     fichas[m].push(ficha);
@@ -634,7 +634,7 @@ function fichasDaTurma_(turma, lidas) {
  * SÓ elas. É esta lista que o Aplicar anula.
  */
 function inscricoesDe_(varredura, m) {
-  var chave = normalizarMatricula(m.matricula || m._id);
+  var chave = normalizarMatricula_(m.matricula || m._id);
   if (!chave || !Object.prototype.hasOwnProperty.call(varredura.porMatricula, chave)) return [];
 
   return varredura.porMatricula[chave].map(function (i) {
@@ -659,11 +659,11 @@ function inscricoesDe_(varredura, m) {
  * 'Nome exato'...) e `status` diz se a própria cascata teve certeza
  * (CONFIRMADO) ou não (DIVERGENCIA). A ficha resolvida à mão como "não é a
  * mesma pessoa" fica de fora: SO_INSCRITO/SO_MATRICULADO com os dois ids só
- * nasce de `resolverAluno` (10_Painel.gs) — a cascata não produz isso —, e a
+ * nasce de `resolverAluno_` (10_Painel.gs) — a cascata não produz isso —, e a
  * decisão humana manda.
  */
 function possiveisDe_(varredura, fichas, m) {
-  var chave = normalizarMatricula(m.matricula || m._id);
+  var chave = normalizarMatricula_(m.matricula || m._id);
   if (!chave || !Object.prototype.hasOwnProperty.call(fichas, chave)) return [];
 
   var saida = [];
@@ -673,7 +673,7 @@ function possiveisDe_(varredura, fichas, m) {
     if (status !== STATUS.CONFIRMADO && status !== STATUS.DIVERGENCIA) return;
     var apontada = varredura.porId[String(ficha.inscricao_id)];
     if (!apontada) return;
-    if (normalizarMatricula(apontada.matricula) === chave) return;
+    if (normalizarMatricula_(apontada.matricula) === chave) return;
     if (Object.prototype.hasOwnProperty.call(vistas, apontada.id)) return;
     vistas[apontada.id] = true;
     saida.push({
@@ -710,7 +710,7 @@ function itemDaRevisao_(m, lote, inscricoes, possiveis) {
 }
 
 function porNome_(a, b) {
-  return chaveNome(a.nome).localeCompare(chaveNome(b.nome));
+  return chaveNome_(a.nome).localeCompare(chaveNome_(b.nome));
 }
 
 /** O JSON gravado no lote pela revisão anterior, ou null quando ilegível. */
@@ -755,7 +755,7 @@ function recusaDoLote_(lote) {
  * Fora de `SO_LEITURA`: não é repetida pelo painel, e a chave `idem` cobre a
  * resposta perdida acima de 32 s.
  */
-function aplicarRevisao(payload) {
+function aplicarRevisao_(payload) {
   // O que o `catch` precisa para a trilha parcial (ver o cabeçalho) fica FORA
   // do try, preenchido conforme os passos avançam: os contadores, e QUEM foi
   // tocado por ação. `var` dentro do try seria visível no catch, mas
@@ -766,11 +766,11 @@ function aplicarRevisao(payload) {
     cancelar: [], excluir: [], pulados: [], jaCancelados: [], anuladas: [] };
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
     var quem = passo.quem = quemMexeu_(payload.token);
 
     var loteId = passo.loteId = String(payload.loteId || '').trim();
-    var turma = passo.turma = normalizarTurma(payload.turma).slice(0, TURMA_CABECALHO_MAX);
+    var turma = passo.turma = normalizarTurma_(payload.turma).slice(0, TURMA_CABECALHO_MAX);
     passo.origemTurma = payload.origemTurma;
     if (!loteId || !turma) return { ok: false, erro: 'Faltou a importação ou a turma da revisão.' };
 
@@ -779,13 +779,13 @@ function aplicarRevisao(payload) {
     decisoes = decisoes.lista;
 
     // 1. O lote.
-    var lote = passo.lote = ler(LOTES_COLECAO, loteId);
+    var lote = passo.lote = ler_(LOTES_COLECAO, loteId);
     var recusa = recusaDoLote_(lote);
     if (recusa) return { ok: false, erro: recusa };
 
     // 2. A releitura: UMA consulta, e cada decisão conferida contra o agora.
     var oficiais = {};
-    listar(MATRICULADOS_COLECAO, { campo: 'turma', valor: turma, limite: REVISAO_MAX_TURMA })
+    listar_(MATRICULADOS_COLECAO, { campo: 'turma', valor: turma, limite: REVISAO_MAX_TURMA })
       .itens.forEach(function (m) { oficiais[m._id] = m; });
 
     var carimbo = carimboDoLote_(loteId);
@@ -858,7 +858,7 @@ function aplicarRevisao(payload) {
     // de lá já vem sem o caminho do documento, e passa por `fraseSegura_` de
     // novo antes de sair — nenhum texto de erro sai cru daqui.
     if (idsAnular.length) {
-      var an = anularInscricoes({ token: payload.token, ids: idsAnular });
+      var an = anularInscricoes_({ token: payload.token, ids: idsAnular });
       if (!an.ok) {
         return {
           ok: false, anuladas: 0, cancelados: 0, excluidos: 0, fichasApagadas: 0,
@@ -872,11 +872,11 @@ function aplicarRevisao(payload) {
       passo.anuladas = aAnular.filter(function (a) { return anuladas.indexOf(a.id) !== -1; });
     }
 
-    var carimboAgora = agora();
+    var carimboAgora = agora_();
 
     // 5. EXCLUIR: cópia → apaga → fichas órfãs.
     if (excluir.length) {
-      escreverEmLote(MATRICULADOS_EXCLUIDOS_COLECAO, excluir.map(function (doc) {
+      escreverEmLote_(MATRICULADOS_EXCLUIDOS_COLECAO, excluir.map(function (doc) {
         var copia = {};
         Object.keys(doc).forEach(function (k) { copia[k] = doc[k]; });
         copia.excluido_em = carimboAgora;
@@ -887,7 +887,7 @@ function aplicarRevisao(payload) {
       // Apaga o documento RELIDO (a versão vai junto): reescrito no meio tempo
       // por uma reimportação, o delete é recusado e a cópia acima fica sobrando
       // — nunca uma pessoa a menos.
-      feito.excluidos = excluirEmLote(MATRICULADOS_COLECAO, excluir.map(function (doc) {
+      feito.excluidos = excluirEmLote_(MATRICULADOS_COLECAO, excluir.map(function (doc) {
         return { _id: doc._id, _versao: doc._versao };
       }));
       feito.fichasApagadas = apagarFichasOrfas_(excluir, idsAnular);
@@ -896,7 +896,7 @@ function aplicarRevisao(payload) {
     // 6. CANCELAR: o patch em lote — exatamente quatro campos, e a versão
     // relida como precondição (ver "A ordem do Aplicar").
     if (cancelar.length) {
-      feito.cancelados = atualizarEmLote(MATRICULADOS_COLECAO, cancelar.map(function (doc) {
+      feito.cancelados = atualizarEmLote_(MATRICULADOS_COLECAO, cancelar.map(function (doc) {
         return {
           _id: doc._id,
           _versao: doc._versao,
@@ -912,7 +912,7 @@ function aplicarRevisao(payload) {
     marcarLoteRevisado_(passo, feito, carimboAgora, '');
 
     // 8. A trilha: matrículas por ação, sem nome.
-    registrar('LOTE_REVISADO', 'lote', loteId, detalheDaTrilha_(passo, feito, ''));
+    registrar_('LOTE_REVISADO', 'lote', loteId, detalheDaTrilha_(passo, feito, ''));
 
     // 9. Os números do Painel e o freio do Atualizar: cancelar não muda contagem
     // nenhuma, e sem isto a próxima rodada leria "nada mudou".
@@ -951,8 +951,8 @@ function aplicarRevisao(payload) {
     if (feito.anuladas || feito.excluidos || feito.cancelados) {
       resposta.avisos = avisosDoParcial_(resposta.parcial);
       try {
-        marcarLoteRevisado_(passo, feito, agora(), 'PARCIAL');
-        registrar('LOTE_REVISADO_PARCIAL', 'lote', passo.loteId, detalheDaTrilha_(passo, feito, frase));
+        marcarLoteRevisado_(passo, feito, agora_(), 'PARCIAL');
+        registrar_('LOTE_REVISADO_PARCIAL', 'lote', passo.loteId, detalheDaTrilha_(passo, feito, frase));
         invalidarCachePainel_();
         esquecerMarcaDaReconciliacao_();
       } catch (e) {
@@ -967,7 +967,7 @@ function aplicarRevisao(payload) {
 
 /**
  * A marca do lote (revisado_em/por/turma/resumo; e a turma, se o lote não
- * tinha). Em try/catch como a marca de `expurgarLote`: os alunos já foram
+ * tinha). Em try/catch como a marca de `expurgarLote_`: os alunos já foram
  * tocados, e um patch que falhou não pode virar "falhou" na tela.
  *
  * `situacao` é '' na revisão inteira e 'PARCIAL' na interrompida — é o que a
@@ -990,7 +990,7 @@ function marcarLoteRevisado_(passo, feito, carimbo, situacao) {
       marca.turma_cabecalho = passo.turma;
       marca.turma_origem = passo.origemTurma === 'LINHAS' ? 'LINHAS' : 'INFORMADA';
     }
-    atualizar(LOTES_COLECAO, passo.loteId, marca);
+    atualizar_(LOTES_COLECAO, passo.loteId, marca);
   } catch (e) {
     console.error('aplicarRevisao (marca do lote): ' + fraseSegura_(e));
   }
@@ -1001,7 +1001,7 @@ function marcarLoteRevisado_(passo, feito, carimbo, situacao) {
  * nome — decisão de 21/09; o precedente é `registrarEdicao_`, 10_Painel.gs).
  *
  * QUEM revisou não vem mais no fim da frase: é a coluna `usuario` da linha,
- * preenchida pelo operador que `exigirAdmin` anota (04_Log.gs). `passo.quem`
+ * preenchida pelo operador que `exigirAdmin_` anota (04_Log.gs). `passo.quem`
  * continua sendo lido porque ele vira `cancelado_por`, `excluido_por` e a marca
  * do lote NOS DOCUMENTOS — que a tela de Importações mostra e que sobrevivem ao
  * ano de retenção do log.
@@ -1072,7 +1072,7 @@ function decisoesDoPayload_(brutas) {
   for (var i = 0; i < brutas.length; i++) {
     var d = brutas[i] || {};
     var acao = String(d.acao || '').toUpperCase();
-    var matricula = normalizarMatricula(d.matricula);
+    var matricula = normalizarMatricula_(d.matricula);
     if (REVISAO_ACOES.indexOf(acao) === -1) {
       return { ok: false, erro: 'Ação desconhecida na linha ' + (i + 1) + ': "' + String(d.acao || '').slice(0, 20) + '".' };
     }
@@ -1106,14 +1106,14 @@ function decisoesDoPayload_(brutas) {
 function apagarFichasOrfas_(excluidos, idsAnulados) {
   var ids = [];
   excluidos.forEach(function (doc) {
-    var m = normalizarMatricula(doc.matricula || doc._id);
+    var m = normalizarMatricula_(doc.matricula || doc._id);
     if (!m) return;
-    listar(ALUNOS_COLECAO, { campo: 'matricula_id', valor: m, limite: 5 }).itens.forEach(function (ficha) {
+    listar_(ALUNOS_COLECAO, { campo: 'matricula_id', valor: m, limite: 5 }).itens.forEach(function (ficha) {
       var inscricao = String(ficha.inscricao_id || '');
       if (!inscricao || idsAnulados.indexOf(inscricao) !== -1) ids.push(ficha._id);
     });
   });
-  return ids.length ? excluirEmLote(ALUNOS_COLECAO, ids) : 0;
+  return ids.length ? excluirEmLote_(ALUNOS_COLECAO, ids) : 0;
 }
 
 function matriculasDe_(docs) {
@@ -1145,7 +1145,7 @@ function mensagemDosPulados_(pulados) {
  * Aplicar significam uma coisa só, e ela é dita com uma frase fixa; qualquer
  * outra mensagem perde o caminho antes de sair daqui (`semCaminhoDeDocumento_`,
  * 02_Repo.gs — a régua é uma só, e mora ao lado de quem monta a mensagem).
- * Aceita o Error ou só o texto (a recusa de `anularInscricoes` é texto).
+ * Aceita o Error ou só o texto (a recusa de `anularInscricoes_` é texto).
  */
 function fraseSegura_(err) {
   var status = String((err && err.status) || '');

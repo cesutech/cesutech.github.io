@@ -3,21 +3,23 @@
  *
  * Este arquivo é o ÚNICO caminho de dados do sistema. Não existe planilha por
  * baixo, não existe segundo repositório: tudo que é lido ou gravado passa por
- * `inserir`, `ler`, `listar`, `atualizar`, `excluir`, `contar`,
- * `escreverEmLote`, `excluirEmLote`, `atualizarEmLote` e `escreverAtomico`
- * (mais `contarVarios`, que é `contar` em paralelo). Se uma função de negócio
+ * `inserir_`, `ler_`, `listar_`, `atualizar_`, `excluir_`, `contar_`,
+ * `escreverEmLote_`, `excluirEmLote_`, `atualizarEmLote_` e `escreverAtomico_`
+ * (mais `contarVarios_`, que é `contar_` em paralelo). Se uma função de negócio
  * precisa tocar em dado, ela chama uma destas.
  *
  * Todas menos uma são recortes do mesmo pedido: um verbo, uma coleção.
- * `escreverAtomico` é a exceção e a única escrita multidocumento atômica que
+ * `escreverAtomico_` é a exceção e a única escrita multidocumento atômica que
  * existe aqui — verbos e coleções diferentes num `:commit` só, tudo ou nada.
  *
- * A API pública é deliberadamente a mesma que o projeto irmão
- * (o sistema anterior, sobre Google Sheets) expõe sobre o Google Sheets. Lá
+ * A API é deliberadamente a mesma que o projeto irmão (o sistema anterior,
+ * sobre Google Sheets) expõe sobre o Google Sheets. Lá
  * `lerTudo`/`inserir`/`atualizar`/`excluirLinha` fazem, sobre abas, o que
- * `listar`/`inserir`/`atualizar`/`excluir` fazem aqui sobre coleções. Manter os
- * nomes é o que permite trazer as regras de negócio de lá com desvio de chamada,
- * e não com reescrita.
+ * `listar_`/`inserir_`/`atualizar_`/`excluir_` fazem aqui sobre coleções. Manter
+ * os nomes e as assinaturas é o que permite trazer as regras de negócio de lá
+ * com desvio de chamada, e não com reescrita. O `_` no fim é a única diferença,
+ * e é de 16/11/2026: é como o Apps Script marca função PRIVADA, e nenhuma destas
+ * pode ser alcançável de fora do projeto (ver testes/portas.js).
  *
  * Por que REST e não uma biblioteca pronta: o Apps Script não tem serviço
  * avançado de Firestore. As bibliotecas de terceiros que existem exigem colar
@@ -186,7 +188,7 @@ function fsFetch_(metodo, caminho, corpo) {
     // bate — e volta FAILED_PRECONDITION/ALREADY_EXISTS. Sem a marca, quem lê
     // esse status conclui "outra pessoa mexeu" e anuncia "nada foi feito" sobre
     // um efeito que ENTROU. Com ela, o estado é o que é: indeterminado. Ver
-    // `escreverAtomico`, que a repassa, e os dois promotores, que a traduzem.
+    // `escreverAtomico_`, que a repassa, e os dois promotores, que a traduzem.
     erro.retentou = tentativa > 1;
 
     if (!fsValeRetentar_(erro)) throw erro;
@@ -361,10 +363,10 @@ function semCaminhoDeDocumento_(erro) {
  * Mora aqui, e não em cada chamador, para 13 e 10 não precisarem importar o
  * arquivo da revisão só por causa de dois nomes de status — e para que a régua
  * seja UMA quando os status forem medidos contra o banco de verdade
- * (`escreverAtomico` diz, por escrito, que eles são A MEDIR).
+ * (`escreverAtomico_` diz, por escrito, que eles são A MEDIR).
  *
  * Decide por `status`, NUNCA por texto: a mensagem já sai limpa de
- * `escreverAtomico` (D-27), e quem a lê para decidir erra na primeira vez em que
+ * `escreverAtomico_` (D-27), e quem a lê para decidir erra na primeira vez em que
  * ela mudar de idioma ou de forma.
  */
 function corridaDeEscrita_(erro) {
@@ -443,15 +445,15 @@ function paraDocumento_(objeto) {
 /**
  * Documento do Firestore -> objeto do sistema.
  * Devolve sempre texto, inclusive quando o campo veio tipado — é o mesmo
- * contrato de `lerTudo` no projeto atual, que garante que nada além de string
- * circula pelo `google.script.run`.
+ * contrato de `lerTudo` no projeto irmão, sobre Sheets, que garante que nada
+ * além de string circula pelo `google.script.run` de lá.
  *
  * `_versao` é o `updateTime` que o banco carimbou na última escrita do
  * documento — metadado de leitura como `_id` e `_nome` (prefixo `_`: não volta
  * para o banco, não entra em backup nem em máscara). Quem relê um documento e
  * quer gravar SÓ se ele ainda for aquele passa a versão de volta em
- * `atualizarEmLote`/`excluirEmLote`, e o `:commit` recusa se alguém escreveu
- * no meio tempo. Vem tanto de `ler` quanto de `listar` (o `:runQuery` devolve
+ * `atualizarEmLote_`/`excluirEmLote_`, e o `:commit` recusa se alguém escreveu
+ * no meio tempo. Vem tanto de `ler_` quanto de `listar_` (o `:runQuery` devolve
  * o documento inteiro, com o carimbo).
  */
 function paraObjeto_(documento) {
@@ -507,9 +509,9 @@ function fsIdAleatorio_() {
  * no `:commit`; aqui ela seria redundante.)
  *
  * Duplicata é resultado esperado, não falha: devolve `jaExistia` em vez de
- * lançar, do mesmo jeito que `gravarInscricao` devolve `duplicada`.
+ * lançar, do mesmo jeito que `gravarInscricao_` devolve `duplicada`.
  */
-function inserir(colecao, objeto, idOpcional) {
+function inserir_(colecao, objeto, idOpcional) {
   var caminho = '/' + encodeURIComponent(colecao);
   if (idOpcional) caminho += '?documentId=' + encodeURIComponent(idOpcional);
 
@@ -530,7 +532,7 @@ function inserir(colecao, objeto, idOpcional) {
  * o Repo sobre Sheets toma ao reler a linha antes de gravar — só que aqui a
  * releitura não é necessária, porque a máscara diz ao banco o que preservar.
  */
-function atualizar(colecao, id, objeto) {
+function atualizar_(colecao, id, objeto) {
   var documento = paraDocumento_(objeto);
   var chaves = Object.keys(documento.fields);
   if (!chaves.length) return 0;
@@ -548,7 +550,7 @@ function atualizar(colecao, id, objeto) {
 }
 
 /** Remove um documento. Idempotente: apagar o que não existe responde 200. */
-function excluir(colecao, id) {
+function excluir_(colecao, id) {
   fsFetch_('delete', '/' + encodeURIComponent(colecao) + '/' + encodeURIComponent(id));
 }
 
@@ -561,9 +563,9 @@ function excluir(colecao, id) {
  *
  * `update` sem precondição é upsert: cria ou sobrescreve. É o que se quer numa
  * carga de lista oficial, onde reimportar o mesmo arquivo deve dar o mesmo
- * resultado. Quem precisa de unicidade usa `inserir`.
+ * resultado. Quem precisa de unicidade usa `inserir_`.
  */
-function escreverEmLote(colecao, objetos) {
+function escreverEmLote_(colecao, objetos) {
   if (!objetos || !objetos.length) return 0;
 
   // Nome de RECURSO, sem host — ver fsRecurso_(). URL aqui faz o :commit
@@ -586,18 +588,18 @@ function escreverEmLote(colecao, objetos) {
 }
 
 /**
- * PATCH em massa, em blocos de 500 — o `atualizar` de muitos documentos numa
- * requisição, e com uma precondição que `atualizar` não tem.
+ * PATCH em massa, em blocos de 500 — o `atualizar_` de muitos documentos numa
+ * requisição, e com uma precondição que `atualizar_` não tem.
  *
  * Nasceu para a revisão de divergências (05c_Revisao.gs): cancelar N alunos da
  * lista oficial é gravar QUATRO campos em N documentos que já existem. Os dois
  * caminhos que já havia servem mal, cada um por um motivo:
  *
- *   `atualizar` ........ um PATCH por documento — N requisições em fila, e um
+ *   `atualizar_` ........ um PATCH por documento — N requisições em fila, e um
  *                        PATCH no Firestore CRIA o documento que não existe: a
  *                        tela de revisão aberta desde antes de uma exclusão
  *                        gravaria um matriculado fantasma só com a marca;
- *   `escreverEmLote` ... um `:commit`, mas `update` SEM `updateMask` substitui o
+ *   `escreverEmLote_` ... um `:commit`, mas `update` SEM `updateMask` substitui o
  *                        documento inteiro — para não perder nome, CPF e
  *                        `raw_json` seria preciso reler cada documento e mandar
  *                        tudo de volta, e o que foi relido pode já estar velho
@@ -626,7 +628,7 @@ function escreverEmLote(colecao, objetos) {
  *
  * `_id` é obrigatório em todo objeto e é conferido ANTES de qualquer requisição:
  * um patch sem endereço não tem o que atualizar, e sortear um id (como
- * `escreverEmLote` faz) só criaria uma escrita fadada ao 404 — ou, sem a
+ * `escreverEmLote_` faz) só criaria uma escrita fadada ao 404 — ou, sem a
  * precondição, um fantasma. Objeto sem campo nenhum além dos metadados é pulado
  * (não há o que mandar), e não conta no total devolvido.
  *
@@ -636,7 +638,7 @@ function escreverEmLote(colecao, objetos) {
  * e o segundo pode falhar depois de o primeiro ter entrado. Devolve quantos
  * patches foram enviados.
  */
-function atualizarEmLote(colecao, objetos) {
+function atualizarEmLote_(colecao, objetos) {
   if (!objetos || !objetos.length) return 0;
 
   // Nome de RECURSO, sem host — ver fsRecurso_().
@@ -678,11 +680,11 @@ function fsPrecondicao_(objeto) {
 }
 
 /**
- * Remoção em massa, em blocos de 500 — o espelho de `escreverEmLote`.
+ * Remoção em massa, em blocos de 500 — o espelho de `escreverEmLote_`.
  *
- * Existe por um motivo só, e é bom que seja o único: `expurgarLote`
+ * Existe por um motivo só, e é bom que seja o único: `expurgarLote_`
  * (05_Importacao.gs) precisa apagar milhares de matriculados de uma lista velha,
- * e `excluir()` um a um seriam 2.500 requisições, muito além dos 6 minutos de
+ * e `excluir_()` um a um seriam 2.500 requisições, muito além dos 6 minutos de
  * execução. Em blocos são 5.
  *
  * Cada item é um id (texto) OU um objeto `{ _id, _versao }` lido do banco. Com
@@ -692,13 +694,13 @@ function fsPrecondicao_(objeto) {
  * o que uma reimportação acabou de gravar no mesmo id. Sem versão o delete é o
  * de sempre: sem precondição, apagar o que não existe é 200.
  *
- * Como o `escreverEmLote`, NÃO é atômico entre blocos: o terceiro pode falhar
+ * Como o `escreverEmLote_`, NÃO é atômico entre blocos: o terceiro pode falhar
  * depois de dois terem apagado. Aqui isso é aceitável de um jeito que não era na
  * importação — apagar é idempotente, e repetir a operação termina o serviço sem
  * efeito colateral. Por isso devolve quantos SAÍRAM, e quem chama relata o
  * número real em vez de prometer o pedido.
  */
-function excluirEmLote(colecao, ids) {
+function excluirEmLote_(colecao, ids) {
   if (!ids || !ids.length) return 0;
 
   // Nome de RECURSO, sem host — ver fsRecurso_().
@@ -734,9 +736,9 @@ function excluirEmLote(colecao, ids) {
  * presa). O `:commit` é o que garante o EFEITO inteiro contra qualquer falha.
  *
  * Nenhuma das primitivas em lote acima serve, e é bom dizer por quê antes que
- * alguém tente de novo: `escreverEmLote` é update-only e sem precondição
- * nenhuma; `atualizarEmLote` é PATCH de UMA coleção e sempre com precondição;
- * `excluirEmLote` é delete-only. Nenhuma delas MISTURA verbos, e nenhuma
+ * alguém tente de novo: `escreverEmLote_` é update-only e sem precondição
+ * nenhuma; `atualizarEmLote_` é PATCH de UMA coleção e sempre com precondição;
+ * `excluirEmLote_` é delete-only. Nenhuma delas MISTURA verbos, e nenhuma
  * atravessa coleções na mesma chamada. Marcar a antiga como anulada no próprio
  * documento, em vez de apagá-la, também está fechado: `contarInscritos_`
  * (09_Projetos.gs) conta por igualdade em `projeto_id` só, e um segundo filtro
@@ -745,8 +747,8 @@ function excluirEmLote(colecao, ids) {
  * Os três verbos, e a precondição de cada um:
  *
  *   { criar:  { colecao, id, objeto } } ........ update + `exists:false` — o
- *                 mesmo 409 de `inserir`, na forma explícita: o `createDocument`
- *                 que `inserir` usa é um endpoint próprio, e dentro de um
+ *                 mesmo 409 de `inserir_`, na forma explícita: o `createDocument`
+ *                 que `inserir_` usa é um endpoint próprio, e dentro de um
  *                 `:commit` a precondição tem de vir escrita;
  *   { gravar: { colecao, id, objeto, versao } } . update sem `updateMask`, isto
  *                 é, o documento INTEIRO: upsert, cria ou substitui. Com
@@ -788,7 +790,7 @@ function excluirEmLote(colecao, ids) {
  *   transaction'), e é mais barato e mais claro recusar aqui, com o nome do
  *   defeito, do que gastar a ida para receber um INVALID_ARGUMENT genérico.
  *
- * Retorno simétrico a `inserir`, porque a unicidade é a mesma: ALREADY_EXISTS
+ * Retorno simétrico a `inserir_`, porque a unicidade é a mesma: ALREADY_EXISTS
  * é resultado esperado e volta como `{ jaExistia: true }` sem lançar; qualquer
  * outra recusa (NOT_FOUND, FAILED_PRECONDITION) lança. 429, 503 e ABORTED já
  * são retentados por `fsFetch_`, e isto aqui não muda nada disso.
@@ -819,7 +821,7 @@ function excluirEmLote(colecao, ids) {
  * quando houve um — e como há no máximo um, ele é o único que o 409 pode ter
  * recusado.
  */
-function escreverAtomico(escritas) {
+function escreverAtomico_(escritas) {
   if (!escritas || !escritas.length) {
     return { aplicado: false, jaExistia: false, retentou: false, id: '', escritas: 0 };
   }
@@ -916,7 +918,7 @@ function escreverAtomico(escritas) {
 // ---------------------------------------------------------------- Leitura
 
 /** Lê um documento pelo id. Devolve null quando não existe. */
-function ler(colecao, id) {
+function ler_(colecao, id) {
   try {
     return paraObjeto_(
       fsFetch_('get', '/' + encodeURIComponent(colecao) + '/' + encodeURIComponent(id))
@@ -940,7 +942,7 @@ function ler(colecao, id) {
  * mensagem de erro traz o link que cria o índice em um clique. Vale conhecer
  * antes de descobrir isso no dia do evento.
  */
-function listar(colecao, opcoes) {
+function listar_(colecao, opcoes) {
   opcoes = opcoes || {};
 
   // Sem ordenação explícita o Firestore usa o id do documento; declarar isso
@@ -1011,12 +1013,12 @@ function fsCursor_(documento, campoOrdem) {
  * Repare no `fsTexto_` embaixo: a contagem chega como `integerValue: "37"`, em
  * texto. É a demonstração viva do motivo de o conversor gravar tudo como string.
  */
-function contar(colecao, filtro) {
+function contar_(colecao, filtro) {
   return fsTotalContado_(fsFetch_('post', ':runAggregationQuery', consultaDeContagem_(colecao, filtro)));
 }
 
 /**
- * A mesma contagem de `contar`, para VÁRIOS filtros, em uma ida só.
+ * A mesma contagem de `contar_`, para VÁRIOS filtros, em uma ida só.
  *
  * pedidos: [{ colecao, campo, valor }] — devolve [n1, n2, ...] NA MESMA ORDEM.
  *
@@ -1025,14 +1027,14 @@ function contar(colecao, filtro) {
  * continua sendo uma agregação de UM filtro de igualdade — o índice automático
  * que o Firestore já mantém —, então nada aqui pede passo de console.
  *
- * NÃO substitui `contar`: quem conta uma coisa só continua chamando ela, e é o
- * caso de `reservarVaga` (09_Projetos.gs), que conta dentro do lock e não pode
+ * NÃO substitui `contar_`: quem conta uma coisa só continua chamando ela, e é o
+ * caso de `reservarVaga_` (09_Projetos.gs), que conta dentro do lock e não pode
  * ter o desenho mexido por causa de tela nenhuma. As duas passam pelo MESMO
  * montador de consulta e pelo mesmo leitor de resposta, logo abaixo, para não
  * existir uma segunda maneira de contar — que seria uma segunda verdade sobre
  * vagas.
  */
-function contarVarios(pedidos) {
+function contarVarios_(pedidos) {
   if (!pedidos || !pedidos.length) return [];
 
   var corpos = pedidos.map(function (pedido) {

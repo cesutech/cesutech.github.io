@@ -961,8 +961,16 @@ function abrirPainel(opcoes) {
    *
    * Só as alcançáveis pelo navegador são embrulhadas — a lista branca do
    * servidor mais as de login. Embrulhar tudo encheria a lista com as chamadas
-   * internas de cada função (`reconciliar` dentro de `rodarReconciliacao`, por
+   * internas de cada função (`reconciliar_` dentro de `rodarReconciliacao_`, por
    * exemplo), e aí `cena.chamadas` deixaria de responder "o que o painel pediu".
+   *
+   * DOIS NOMES POR FUNÇÃO, desde 16/11/2026: o do FIO, que o painel manda
+   * (`'listarAlunos'`), e o da função que roda (`listarAlunos_` — todo o servidor
+   * é privado). O embrulho troca a global da FUNÇÃO e anota o nome do FIO, que é
+   * o que o painel pediu e o que os testes conferem. Para a lista branca, quem
+   * diz qual é a função é o próprio mapa (o nome declarado do valor); para as de
+   * login, que `rotaDeLogin_` despacha num `if` por nome, é a regra do `_` no
+   * fim — a mesma que testes/portas.js confere nos dois despachos.
    *
    * `autenticar` saiu da lista com o PIN. As duas do link por e-mail entraram, e
    * hoje não casam com função nenhuma do sandbox (07b_LinkPorEmail.gs não está em
@@ -970,15 +978,16 @@ function abrirPainel(opcoes) {
    * ignora sozinho, e elas passam a ser observadas no dia em que o servidor as
    * alcançar, sem ninguém precisar lembrar deste arquivo.
    */
-  const observaveis = Object.keys(api.funcoesDoPainel_())
+  const doPainel = api.funcoesDoPainel_();
+  const observaveis = Object.keys(doPainel).map((fio) => [fio, doPainel[fio].name])
     .concat(['entrarComGoogle', 'modoDeAcesso', 'sair', 'sessaoAtiva',
-      'pedirLinkDeAcesso', 'entrarComLink']);
+      'pedirLinkDeAcesso', 'entrarComLink'].map((fio) => [fio, fio + '_']));
 
-  observaveis.forEach((nome) => {
-    const original = api[nome];
+  observaveis.forEach(([fio, funcao]) => {
+    const original = api[funcao];
     if (typeof original !== 'function') return;
-    api[nome] = function () {
-      cena.chamadas.push({ funcao: nome, args: Array.prototype.slice.call(arguments) });
+    api[funcao] = function () {
+      cena.chamadas.push({ funcao: fio, args: Array.prototype.slice.call(arguments) });
       return original.apply(null, arguments);
     };
   });
@@ -1331,5 +1340,5 @@ function abrirPainel(opcoes) {
 }
 
 module.exports = {
-  abrirPainel, textoDe, GS, jaResolvido, jaRejeitado, respostaHttp, semResposta, travada
+  abrirPainel, textoDe, GS, jaResolvido, jaRejeitado, respostaHttp, semResposta, travada, desescapar
 };

@@ -3,7 +3,7 @@
  * tocar no Google.
  *
  * O que se prova aqui, em ordem de importância:
- *   1. O CONTRATO. O que a importação grava é lido por `matriculaConhecida`
+ *   1. O CONTRATO. O que a importação grava é lido por `matriculaConhecida_`
  *      (04_Inscricoes.gs) — o teste grava pela importação de verdade e consulta
  *      pela função de verdade, com a matrícula digitada com pontuação, como o
  *      aluno digita. Se o id do documento deixar de ser a matrícula normalizada,
@@ -488,7 +488,7 @@ function ambiente(opcoes) {
     parse: (texto) => ({ getRootElement: () => analisarXml(texto) })
   };
 
-  // Sessão válida sem passar pelo PIN: `exigirAdmin` só olha a propriedade.
+  // Sessão válida sem passar pelo PIN: `exigirAdmin_` só olha a propriedade.
   amb.propriedades.set('sess_' + TOKEN, JSON.stringify({
     email: 'prof@unicesusc.br',
     expira_em: new Date().getTime() + 3600000
@@ -504,7 +504,7 @@ function base64De(texto) {
 }
 
 function analisar(api, texto, nome) {
-  return api.analisarArquivo({
+  return api.analisarArquivo_({
     token: TOKEN,
     filename: nome || 'lista.csv',
     mimeType: 'text/csv',
@@ -520,7 +520,7 @@ function importar(api, texto, opcoes) {
 
   return {
     analise,
-    resultado: api.confirmarImportacao({
+    resultado: api.confirmarImportacao_({
       token: TOKEN,
       tempId: analise.tempId,
       arquivo: analise.arquivo,
@@ -570,7 +570,7 @@ grupo('O contrato com 04_Inscricoes.gs');
 
 // O teste que este arquivo existe para ter. Grava pela importação de verdade,
 // consulta pela função de verdade: se o id do documento parar de ser a matrícula
-// normalizada, `matriculaConhecida` passa a devolver false para todo mundo e,
+// normalizada, `matriculaConhecida_` passa a devolver false para todo mundo e,
 // com modo_validacao_matricula=BLOQUEAR, nenhum aluno consegue se inscrever.
 teste('o que a importação grava, matriculaConhecida encontra', () => {
   const { api } = ambiente();
@@ -579,9 +579,9 @@ teste('o que a importação grava, matriculaConhecida encontra', () => {
   igual(r.ok, true, 'importação: ' + r.erro);
   igual(r.importadas, 3);
 
-  verdadeiro(api.matriculaConhecida('09110001'), 'matrícula da primeira linha');
-  verdadeiro(api.matriculaConhecida('09110003'), 'matrícula da última linha');
-  igual(api.matriculaConhecida('99999999'), false, 'quem não está na lista');
+  verdadeiro(api.matriculaConhecida_('09110001'), 'matrícula da primeira linha');
+  verdadeiro(api.matriculaConhecida_('09110003'), 'matrícula da última linha');
+  igual(api.matriculaConhecida_('99999999'), false, 'quem não está na lista');
 });
 
 teste('encontra mesmo com a matrícula digitada com pontuação e espaço', () => {
@@ -589,10 +589,10 @@ teste('encontra mesmo com a matrícula digitada com pontuação e espaço', () =
   importar(api, CSV_TRES);
 
   // É assim que o aluno digita, e é por isso que as duas pontas passam por
-  // `normalizarMatricula`: a importação para formar o id, o formulário para
+  // `normalizarMatricula_`: a importação para formar o id, o formulário para
   // consultar.
-  verdadeiro(api.matriculaConhecida(' 091.100-01 '), 'pontuação e espaço');
-  verdadeiro(api.matriculaConhecida('09110001\n'), 'quebra de linha colada');
+  verdadeiro(api.matriculaConhecida_(' 091.100-01 '), 'pontuação e espaço');
+  verdadeiro(api.matriculaConhecida_('09110001\n'), 'quebra de linha colada');
 });
 
 teste('o id do documento É a matrícula normalizada', () => {
@@ -634,7 +634,7 @@ teste('a matrícula também é gravada como campo, e igual ao id', () => {
 });
 
 // O painel abre o comparativo "Lista oficial (importada)" lendo campo por campo
-// do documento de matriculado (10_Painel.gs, `resolverAluno`/detalhe). Campo que
+// do documento de matriculado (10_Painel.gs, `resolverAluno_`/detalhe). Campo que
 // eu renomear aqui vira célula vazia lá, sem erro nenhum — daí o formato ficar
 // escrito num teste, e não só no schema herdado de 00_Config.gs.
 teste('o documento de matriculado tem o formato que as outras fases leem', () => {
@@ -720,13 +720,13 @@ teste('importada como "Ads11", ela é achada pelo cruzamento da disciplina ADS11
   const { api } = ambiente();
   importar(api, csv(['MARIA DE SOUZA;09110001;ADS;Ads11']));
 
-  api.incluirDisciplinas({
+  api.incluirDisciplinas_({
     token: TOKEN,
     linhas: [{ curso: 'PRATICA EXTENSIONISTA', turma: 'ADS11', semestre: '1', ano: '2026' }]
   });
-  const disciplina = api.listarDisciplinas({ token: TOKEN }).itens[0];
+  const disciplina = api.listarDisciplinas_({ token: TOKEN }).itens[0];
 
-  const r = api.matriculadosDaDisciplina({ token: TOKEN, id: disciplina.id });
+  const r = api.matriculadosDaDisciplina_({ token: TOKEN, id: disciplina.id });
 
   igual(r.ok, true, r.erro);
   igual(r.lidas.matriculados, 1, 'a turma da lista oficial não casou com a do cadastro');
@@ -741,12 +741,12 @@ teste('a mesma régua nos dois lados, e ela mora num lugar só', () => {
   // aparece numa lista vazia. Foi assim que este defeito nasceu.
   const fonte = (arquivo) => fs.readFileSync(path.join(PASTA_GS, arquivo), 'utf8');
 
-  verdadeiro(/reg\.turma = normalizarTurma\(/.test(fonte('05_Importacao.gs')),
-    'a importação parou de usar normalizarTurma — a turma volta a divergir do cadastro');
-  verdadeiro(/turma: normalizarTurma\(/.test(fonte('12_Disciplinas.gs')),
-    'o cadastro de disciplinas parou de usar normalizarTurma');
-  verdadeiro(/function normalizarTurma\(/.test(fonte('01_Utils.gs')),
-    'normalizarTurma sumiu de 01_Utils.gs');
+  verdadeiro(/reg\.turma = normalizarTurma_\(/.test(fonte('05_Importacao.gs')),
+    'a importação parou de usar normalizarTurma_ — a turma volta a divergir do cadastro');
+  verdadeiro(/turma: normalizarTurma_\(/.test(fonte('12_Disciplinas.gs')),
+    'o cadastro de disciplinas parou de usar normalizarTurma_');
+  verdadeiro(/function normalizarTurma_\(/.test(fonte('01_Utils.gs')),
+    'normalizarTurma_ sumiu de 01_Utils.gs');
 });
 
 // ------------------------------------------------------------ Orçamento
@@ -839,7 +839,7 @@ teste('sem coluna de nome, recusa', () => {
 teste('arquivo em que nenhuma linha tem matrícula utilizável é recusado', () => {
   const { api, falso } = ambiente();
 
-  // Matrícula de 3 dígitos: a mesma régua de `validarInscricao`, que recusaria
+  // Matrícula de 3 dígitos: a mesma régua de `validarInscricao_`, que recusaria
   // o aluno antes mesmo de o banco ser consultado.
   const r = importar(api, csv(['MARIA DA SILVA;123;Administração;ADM21'])).resultado;
 
@@ -868,11 +868,11 @@ teste('linhas sem nome e sem matrícula são contadas, e as boas entram', () => 
 teste('sem token válido, nada acontece', () => {
   const { api, falso } = ambiente();
 
-  const r = api.analisarArquivo({ filename: 'lista.csv', dataBase64: base64De(CSV_TRES) });
+  const r = api.analisarArquivo_({ filename: 'lista.csv', dataBase64: base64De(CSV_TRES) });
   igual(r.ok, false);
   verdadeiro(/Sess.o expirada/.test(r.erro), r.erro);
 
-  const c = api.confirmarImportacao({ tempId: 'drv_1', mapeamento: { nome: 0, matricula: 1 } });
+  const c = api.confirmarImportacao_({ tempId: 'drv_1', mapeamento: { nome: 0, matricula: 1 } });
   igual(c.ok, false);
   igual(falso.requisicoes.length, 0);
 });
@@ -895,7 +895,7 @@ teste('arquivo só com cabeçalho é recusado', () => {
 
 teste('pré-visualização expirada não vira importação vazia', () => {
   const { api } = ambiente();
-  const r = api.confirmarImportacao({
+  const r = api.confirmarImportacao_({
     token: TOKEN, tempId: 'drv_inexistente', mapeamento: { nome: 0, matricula: 1 }
   });
 
@@ -940,7 +940,7 @@ teste('"substituir" não apaga quem ficou de fora, e diz isso', () => {
   igual(r.ok, true, r.erro);
   igual(r.substituiu, false, 'a resposta não pode deixar acreditar que apagou');
   verdadeiro(r.aviso.indexOf('NÃO apagou') !== -1, r.aviso);
-  verdadeiro(api.matriculaConhecida('09110001'), 'quem já estava continua na lista');
+  verdadeiro(api.matriculaConhecida_('09110001'), 'quem já estava continua na lista');
   igual(chaves(falso, 'matriculados').length, 4);
 });
 
@@ -969,10 +969,11 @@ teste('matrícula repetida no arquivo vira UMA escrita, e vale a última linha',
 grupo('Commit parcial');
 
 /**
- * Intercepta o `:commit` de número `qual` e devolve erro não retentável.
+ * Intercepta o `:commit` de número `qual` e devolve erro não retentável, com a
+ * `mensagem` do Google quando ela importa para o teste.
  * Não substitui o Firestore falso: só se põe na frente dele.
  */
-function falharNoCommit(amb, qual) {
+function falharNoCommit(amb, qual, mensagem) {
   const original = amb.api.UrlFetchApp.fetch;
   let commits = 0;
 
@@ -985,7 +986,8 @@ function falharNoCommit(amb, qual) {
           return {
             getResponseCode: () => 400,
             getContentText: () => JSON.stringify({
-              error: { code: 400, status: 'INVALID_ARGUMENT', message: 'falha simulada no bloco ' + qual }
+              error: { code: 400, status: 'INVALID_ARGUMENT',
+                message: mensagem || 'falha simulada no bloco ' + qual }
             })
           };
         }
@@ -1007,7 +1009,7 @@ teste('a gravação que para no meio relata quantos entraram, e não finge', () 
   const analise = analisar(api, csv(linhas));
   falharNoCommit(amb, 2);
 
-  const r = api.confirmarImportacao({
+  const r = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, arquivo: analise.arquivo,
     tipo: analise.tipo, mapeamento: analise.mapeamento
   });
@@ -1018,7 +1020,7 @@ teste('a gravação que para no meio relata quantos entraram, e não finge', () 
   verdadeiro(r.erro.indexOf('500 de 1200') !== -1, r.erro);
   verdadeiro(r.erro.indexOf('mesmo arquivo') !== -1, 'a mensagem tem de ensinar a retomada');
   igual(chaves(falso, 'matriculados').length, 500);
-  verdadeiro(api.matriculaConhecida('2000000'), 'quem entrou, entrou');
+  verdadeiro(api.matriculaConhecida_('2000000'), 'quem entrou, entrou');
 });
 
 teste('o lote fica registrado como PARCIAL, e o temporário sobrevive para a retomada', () => {
@@ -1033,7 +1035,7 @@ teste('o lote fica registrado como PARCIAL, e o temporário sobrevive para a ret
   const analise = analisar(api, csv(linhas));
   falharNoCommit(amb, 1);
 
-  const r = api.confirmarImportacao({
+  const r = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, arquivo: 'parcial.csv'
   });
 
@@ -1052,11 +1054,50 @@ teste('o lote fica registrado como PARCIAL, e o temporário sobrevive para a ret
   // roteador, e não o UrlFetchApp cru do apoio.js — o passo 2 precisa do Drive
   // para reler o temporário.
   amb.api.UrlFetchApp = amb.roteador;
-  const segunda = api.confirmarImportacao({
+  const segunda = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, arquivo: 'parcial.csv'
   });
   igual(segunda.ok, true, segunda.erro);
   igual(segunda.importadas, 600);
+});
+
+teste('a linha IMPORTACAO_PARCIAL e o detalhe técnico da tela não levam o nome do documento', () => {
+  // O texto do Google que recusa um `:commit` pode nomear o documento inteiro,
+  // como o INVALID_ARGUMENT de tamanho: 'projects/<id do projeto>/.../
+  // matriculados/<matrícula>'. A trilha fica um ano no banco e vai para o
+  // backup: régua da trilha (`semIdDeDocumento_`, 04_Log.gs). A tela leva a
+  // régua da tela (`semCaminhoDeDocumento_`, 02_Repo.gs). Matrícula só na forma.
+  //
+  // Mutação que derruba: qualquer das duas voltar a `escrita.falha.message`.
+  const amb = ambiente();
+  const { api, falso } = amb;
+
+  const linhas = [];
+  for (let i = 0; i < 3; i++) {
+    linhas.push('ALUNO NUMERO ' + i + ';' + (9110007 + i) + ';Administração;ADM21');
+  }
+
+  const analise = analisar(api, csv(linhas));
+  falharNoCommit(amb, 1, 'Document projects/projeto-de-teste/databases/(default)/documents/' +
+    'matriculados/9110009 cannot be written because its size exceeds the maximum allowed size.');
+
+  const r = api.confirmarImportacao_({
+    token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, arquivo: 'parcial.csv'
+  });
+  igual(r.ok, false);
+  igual(r.importadas, 0);
+
+  const parcial = chaves(falso, 'log').map((k) => documento(falso, 'log', k.split('/')[1]))
+    .filter((l) => l.acao === 'IMPORTACAO_PARCIAL')[0];
+  verdadeiro(parcial, 'nenhum registro IMPORTACAO_PARCIAL no log');
+  igual(parcial.detalhe.indexOf('0 de 3 gravados; Firestore 400 INVALID_ARGUMENT em POST '), 0,
+    parcial.detalhe);
+  igual(JSON.stringify(parcial).indexOf('9110009'), -1, 'a matrícula foi para a trilha: ' + parcial.detalhe);
+  igual(parcial.detalhe.indexOf('projects/'), -1, 'o nome do documento foi para a trilha: ' + parcial.detalhe);
+
+  verdadeiro(r.erro.indexOf('Detalhe técnico: Firestore 400 INVALID_ARGUMENT em POST ') !== -1, r.erro);
+  igual(r.erro.indexOf('9110009'), -1, 'a matrícula foi para a tela: ' + r.erro);
+  igual(r.erro.indexOf('projects/'), -1, 'o nome do documento foi para a tela: ' + r.erro);
 });
 
 // ------------------------------------------------------------ Lote e trilha
@@ -1123,7 +1164,7 @@ teste('limparTemporariosAntigos remove o que passou de um dia', () => {
   const antigo = Array.from(drive.arquivos.values())[1];
   antigo.createdTime = new Date(new Date().getTime() - 48 * 3600 * 1000).toISOString();
 
-  igual(api.limparTemporariosAntigos(), 1);
+  igual(api.limparTemporariosAntigos_(), 1);
   igual(antigo.trashed, true);
 });
 
@@ -1205,12 +1246,12 @@ teste('turma com ESPAÇO é lida (ADM 41), e não sai vazia', () => {
 
   const r = analisar(api, texto, 'adm.csv');
   igual(r.ok, true, r.erro);
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: r.tempId, arquivo: r.arquivo, tipo: r.tipo, mapeamento: r.mapeamento
   });
   igual(c.ok, true, c.erro);
   // Extraída como 'ADM 41' e gravada como 'ADM41': o extrator lê o que o
-  // relatório escreve, e `normalizarTurma` reduz à chave. O que importa aqui é
+  // relatório escreve, e `normalizarTurma_` reduz à chave. O que importa aqui é
   // que NÃO saiu vazia, que era o defeito.
   igual(documento(falso, 'matriculados', '9920158').turma, 'ADM41');
 });
@@ -1224,7 +1265,7 @@ teste('turma com qualificador cai na MESMA chave da turma sem ele', () => {
   ].join('\n') + '\n';
 
   const r = analisar(api, texto, 'adm.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: r.tempId, arquivo: r.arquivo, tipo: r.tipo, mapeamento: r.mapeamento
   });
   igual(c.ok, true, c.erro);
@@ -1295,7 +1336,7 @@ teste('a ficha NÃO sai com o nome de um aluno e o telefone de outro', () => {
   // ÚLTIMO telefone dela — o do último aluno da mesma linha, outra pessoa.
   igual(primeiro[1], '09921827');
   igual(primeiro[3], '48900010014', 'ficou com o telefone de outro aluno');
-  igual(api.normalizarTurma(primeiro[2]), 'ADM31');
+  igual(api.normalizarTurma_(primeiro[2]), 'ADM31');
 });
 
 teste('EMPATE fica com o leitor por linha, e o NOME é a diferença', () => {
@@ -1373,7 +1414,7 @@ teste('a linha de baixo NÃO troca celular por fixo', () => {
 
   const linhas = api.extrairAcademicoDeTexto_(texto);
   igual(linhas[1][3], '48900010009', 'o fixo da linha de baixo atropelou o celular');
-  igual(api.normalizarTurma(linhas[1][2]), 'ADM31', 'a turma ainda tinha de vir');
+  igual(api.normalizarTurma_(linhas[1][2]), 'ADM31', 'a turma ainda tinha de vir');
 });
 
 teste('aluno com telefone residencial tem a turma na LINHA DE BAIXO, e ela é lida', () => {
@@ -1392,11 +1433,11 @@ teste('aluno com telefone residencial tem a turma na LINHA DE BAIXO, e ela é li
 
   const linhas = api.extrairAcademicoDeTexto_(texto);
   igual(linhas.length, 3, 'a linha de continuação não pode virar um aluno');
-  igual(api.normalizarTurma(linhas[0][2]), 'ADM41');
-  igual(api.normalizarTurma(linhas[1][2]), 'ADM41', 'a turma da linha de baixo não foi lida');
+  igual(api.normalizarTurma_(linhas[0][2]), 'ADM41');
+  igual(api.normalizarTurma_(linhas[1][2]), 'ADM41', 'a turma da linha de baixo não foi lida');
   // A Roberta é ADM 61, e não o ADM 41 do cabeçalho: por isso a turma sai da
   // linha de continuação, e não do título do relatório.
-  igual(api.normalizarTurma(linhas[2][2]), 'ADM61', 'pegou a turma do cabeçalho, não a dela');
+  igual(api.normalizarTurma_(linhas[2][2]), 'ADM61', 'pegou a turma do cabeçalho, não a dela');
 });
 
 teste('a linha de continuação NÃO sobrescreve a turma de quem já tem', () => {
@@ -1409,25 +1450,25 @@ teste('a linha de continuação NÃO sobrescreve a turma de quem já tem', () =>
   ].join('\n');
 
   const linhas = api.extrairAcademicoDeTexto_(texto);
-  igual(api.normalizarTurma(linhas[1][2]), 'ADM31', 'a continuação atropelou uma turma boa');
+  igual(api.normalizarTurma_(linhas[1][2]), 'ADM31', 'a continuação atropelou uma turma boa');
 });
 
 teste('a régua da turma: espaço, qualificador, e o DDD que NÃO pode entrar', () => {
   const { api } = ambiente();
 
-  igual(api.turmaDoTexto('ADS21   48900010005'), 'ADS21');
-  igual(api.turmaDoTexto('ADM 41   4890001010'), 'ADM 41', 'turma com espaço');
-  igual(api.turmaDoTexto('ADM 41 (MATRIZ NOVA)   48900010001'), 'ADM 41 (MATRIZ NOVA)',
+  igual(api.turmaDoTexto_('ADS21   48900010005'), 'ADS21');
+  igual(api.turmaDoTexto_('ADM 41   4890001010'), 'ADM 41', 'turma com espaço');
+  igual(api.turmaDoTexto_('ADM 41 (MATRIZ NOVA)   48900010001'), 'ADM 41 (MATRIZ NOVA)',
     'o qualificador de currículo tem de vir junto');
 
   // A linha real do ads11.pdf. `(48)` é a armadilha: sem exigir que o
   // qualificador comece com LETRA, a turma sairia 'ADS11 (48)'.
-  igual(api.turmaDoTexto('ADS11   (48)90001-0013'), 'ADS11', 'o DDD entrou na turma');
-  igual(api.turmaDoTexto('ADS11 (48)90001-0013'), 'ADS11', 'o DDD entrou na turma (colado)');
+  igual(api.turmaDoTexto_('ADS11   (48)90001-0013'), 'ADS11', 'o DDD entrou na turma');
+  igual(api.turmaDoTexto_('ADS11 (48)90001-0013'), 'ADS11', 'o DDD entrou na turma (colado)');
 
-  igual(api.turmaDoTexto('   48900010005'), '', 'telefone sozinho não é turma');
-  igual(api.turmaDoTexto(''), '');
-  igual(api.turmaDoTexto(null), '');
+  igual(api.turmaDoTexto_('   48900010005'), '', 'telefone sozinho não é turma');
+  igual(api.turmaDoTexto_(''), '');
+  igual(api.turmaDoTexto_(null), '');
 });
 
 teste('TELEFONE COM DDD ENTRE PARÊNTESES não vira parte da turma', () => {
@@ -1443,7 +1484,7 @@ teste('TELEFONE COM DDD ENTRE PARÊNTESES não vira parte da turma', () => {
   ].join('\n') + '\n';
 
   const r = analisar(api, texto, 'ads.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: r.tempId, arquivo: r.arquivo, tipo: r.tipo, mapeamento: r.mapeamento
   });
   igual(c.ok, true, c.erro);
@@ -1459,7 +1500,7 @@ teste('turma sem espaço continua lida como sempre foi', () => {
   ].join('\n') + '\n';
 
   const r = analisar(api, texto, 'ads.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: r.tempId, arquivo: r.arquivo, tipo: r.tipo, mapeamento: r.mapeamento
   });
   igual(c.ok, true, c.erro);
@@ -1483,12 +1524,12 @@ teste('o relatório do sistema acadêmico é reconhecido e separado', () => {
   verdadeiro(r.tipo.indexOf('formato acadêmico') !== -1, r.tipo);
   igual(r.cabecalhos, ['Nome completo', 'Matrícula', 'Turma', 'Telefone']);
 
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: r.tempId, arquivo: r.arquivo, tipo: r.tipo, mapeamento: r.mapeamento
   });
   igual(c.ok, true, c.erro);
   igual(c.importadas, 3);
-  verdadeiro(api.matriculaConhecida('09110002'), 'nome e matrícula foram separados');
+  verdadeiro(api.matriculaConhecida_('09110002'), 'nome e matrícula foram separados');
   igual(documento(falso, 'matriculados', '9110002').nome, 'Bruno Exemplo da Silva');
 });
 
@@ -1528,7 +1569,7 @@ teste('a linha original é guardada em raw_json', () => {
 grupo('A importação NÃO reconcilia — são duas execuções');
 
 // Estes três testes trocaram de lado em 06/08. Antes eles provavam que
-// `confirmarImportacao` chamava `reconciliar()` e repassava os quatro números.
+// `confirmarImportacao_` chamava `reconciliar_()` e repassava os quatro números.
 // Provar isso era provar o problema: as duas coisas dividiam UMA execução de 6
 // minutos, ~23 idas ao Firestore numa só, e estourar deixava os matriculados
 // gravados com a tela dizendo "Falha na importação" — do que o professor
@@ -1538,7 +1579,7 @@ grupo('A importação NÃO reconcilia — são duas execuções');
 teste('confirmarImportacao não chama reconciliar(), nem quando ela existe', () => {
   const { api } = ambiente();
   let chamadas = 0;
-  api.reconciliar = () => { chamadas++; return { confirmado: 3 }; };
+  api.reconciliar_ = () => { chamadas++; return { confirmado: 3 }; };
 
   const r = importar(api, CSV_TRES).resultado;
 
@@ -1573,7 +1614,7 @@ teste('a importação inteira cabe em requisições de escrita, sem uma leitura'
 
 grupo('expurgarLote — a saída que faltava para matriculados diminuir');
 
-// Até 06/08 `matriculados` só crescia: a gravação é upsert, `excluir` nunca era
+// Até 06/08 `matriculados` só crescia: a gravação é upsert, `excluir_` nunca era
 // chamada nesta coleção, e não havia botão nem função para reduzi-la. Como
 // `colecaoCompleta_` recusa acima de 8.000 documentos, o quarto semestre pararia
 // a reconciliação — e a mensagem de recusa mandava "reduza a coleção" sem
@@ -1591,7 +1632,7 @@ teste('apaga os matriculados daquela importação, e só eles', () => {
 
   igual(chaves(falso, 'matriculados').length, 3);
 
-  const r = api.expurgarLote({ token: TOKEN, loteId: primeira.loteId });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: primeira.loteId });
 
   igual(r.ok, true, r.erro);
   igual(r.apagados, 3);
@@ -1614,7 +1655,7 @@ teste('quem voltou na lista NOVA não é tocado pelo expurgo da VELHA', () => {
   igual(loteDe(falso, '9110001'), novo.loteId, 'quem voltou pertence ao lote novo');
   igual(loteDe(falso, '9110002'), velho.loteId, 'quem não voltou continua no velho');
 
-  const r = api.expurgarLote({ token: TOKEN, loteId: velho.loteId });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: velho.loteId });
 
   igual(r.apagados, 2, 'só BRUNO e CARLA, que não vieram na lista nova');
   igual(chaves(falso, 'matriculados').sort(),
@@ -1629,7 +1670,7 @@ teste('contarApenas responde o número sem apagar e sem varrer', () => {
   const lote = importar(api, CSV_TRES).resultado.loteId;
 
   const antes = falso.requisicoes.length;
-  const r = api.expurgarLote({ token: TOKEN, loteId: lote, contarApenas: true });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: lote, contarApenas: true });
   const feitas = falso.requisicoes.slice(antes);
 
   igual(r.ok, true);
@@ -1643,9 +1684,9 @@ teste('contarApenas responde o número sem apagar e sem varrer', () => {
 teste('expurgo de lote já vazio não erra, e explica por quê', () => {
   const { api } = ambiente();
   const lote = importar(api, CSV_TRES).resultado.loteId;
-  api.expurgarLote({ token: TOKEN, loteId: lote });
+  api.expurgarLote_({ token: TOKEN, loteId: lote });
 
-  const r = api.expurgarLote({ token: TOKEN, loteId: lote });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: lote });
   igual(r.ok, true);
   igual(r.apagados, 0);
   verdadeiro(/mais nova/.test(r.mensagem),
@@ -1659,8 +1700,8 @@ teste('as inscrições NÃO são apagadas junto', () => {
   const { api, falso } = ambiente();
   const lote = importar(api, CSV_TRES).resultado.loteId;
 
-  api.inserir('inscricoes', { matricula: '09110001', nome: 'BEATRIZ' }, 'insc1');
-  api.expurgarLote({ token: TOKEN, loteId: lote });
+  api.inserir_('inscricoes', { matricula: '09110001', nome: 'BEATRIZ' }, 'insc1');
+  api.expurgarLote_({ token: TOKEN, loteId: lote });
 
   igual(chaves(falso, 'inscricoes'), ['inscricoes/insc1']);
 });
@@ -1669,7 +1710,7 @@ teste('o lote vira EXPURGADO em vez de sumir, e o log registra', () => {
   const { api, falso } = ambiente();
   const lote = importar(api, CSV_TRES).resultado.loteId;
 
-  api.expurgarLote({ token: TOKEN, loteId: lote });
+  api.expurgarLote_({ token: TOKEN, loteId: lote });
 
   igual(documento(falso, 'lotes', lote).status, 'EXPURGADO',
     'a trilha de quem importou o quê não pode ser apagada pelo expurgo');
@@ -1681,7 +1722,7 @@ teste('o lote vira EXPURGADO em vez de sumir, e o log registra', () => {
 
 teste('apaga em blocos de 500, e não uma requisição por documento', () => {
   // 2.500 exclusões uma a uma seriam 2.500 requisições — muito além dos 6
-  // minutos de execução. É a razão de `excluirEmLote` existir.
+  // minutos de execução. É a razão de `excluirEmLote_` existir.
   const { api, falso } = ambiente();
   const linhas = [];
   for (let i = 0; i < 1200; i++) {
@@ -1690,7 +1731,7 @@ teste('apaga em blocos de 500, e não uma requisição por documento', () => {
   const lote = importar(api, csv(linhas)).resultado.loteId;
 
   const antes = falso.requisicoes.length;
-  const r = api.expurgarLote({ token: TOKEN, loteId: lote });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: lote });
   const commits = falso.requisicoes.slice(antes).filter(COMMIT);
 
   igual(r.apagados, 1200);
@@ -1702,7 +1743,7 @@ teste('sem sessão de administrador, não apaga nada', () => {
   const { api, falso } = ambiente();
   const lote = importar(api, CSV_TRES).resultado.loteId;
 
-  const r = api.expurgarLote({ token: 'token-inventado', loteId: lote });
+  const r = api.expurgarLote_({ token: 'token-inventado', loteId: lote });
 
   igual(r.ok, false);
   igual(chaves(falso, 'matriculados').length, 3);
@@ -1712,7 +1753,7 @@ teste('sem lote informado, recusa antes de custar leitura', () => {
   const { api, falso } = ambiente();
   const antes = falso.requisicoes.length;
 
-  const r = api.expurgarLote({ token: TOKEN, loteId: '  ' });
+  const r = api.expurgarLote_({ token: TOKEN, loteId: '  ' });
 
   igual(r.ok, false);
   igual(falso.requisicoes.length, antes, 'recusa não pode custar consulta');
@@ -1723,7 +1764,7 @@ teste('a consulta do expurgo não pede índice composto nem __name__ DESCENDENTE
   const lote = importar(api, CSV_TRES).resultado.loteId;
 
   const antes = falso.requisicoes.length;
-  api.expurgarLote({ token: TOKEN, loteId: lote });
+  api.expurgarLote_({ token: TOKEN, loteId: lote });
 
   falso.requisicoes.slice(antes).forEach((r) => {
     const q = r.corpo && (r.corpo.structuredQuery ||
@@ -1850,7 +1891,7 @@ const NS_RELS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationship
 const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function analisarBinario(api, bytes, nome, mime) {
-  return api.analisarArquivo({
+  return api.analisarArquivo_({
     token: TOKEN,
     filename: nome,
     mimeType: mime || MIME_XLSX,
@@ -2003,7 +2044,7 @@ teste('data com formato de data vira aaaa-mm-dd, e número continua número', ()
 
   // 37385 é 09/05/2002. O estilo 1 aponta para o formato embutido 14 (data
   // curta); o estilo 0 é geral. Sem olhar o estilo, a data de nascimento
-  // chegaria à tela como "37385" e `normalizarData` devolveria vazio.
+  // chegaria à tela como "37385" e `normalizarData_` devolveria vazio.
   const r = analisarBinario(api, montarXlsx({
     textos: ['Nascimento', 'Matrícula'],
     estilos: [0, 14],
@@ -2147,15 +2188,15 @@ teste('de ponta a ponta: o xlsx importado é o que matriculaConhecida encontra',
 
   igual(analise.ok, true, analise.erro);
 
-  const r = api.confirmarImportacao({
+  const r = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, arquivo: analise.arquivo,
     tipo: analise.tipo, mapeamento: analise.mapeamento
   });
 
   igual(r.ok, true, r.erro);
   igual(r.importadas, 2);
-  verdadeiro(api.matriculaConhecida('09110001'), 'matrícula com pontuação na planilha');
-  verdadeiro(api.matriculaConhecida('09110003'));
+  verdadeiro(api.matriculaConhecida_('09110001'), 'matrícula com pontuação na planilha');
+  verdadeiro(api.matriculaConhecida_('09110003'));
   igual(documento(falso, 'matriculados', '9110001').nome, 'Beatriz Exemplo Martins');
 });
 
@@ -2254,7 +2295,7 @@ teste('token negado pelo Drive vira "a pré-visualização expirou", e não erro
     }
   };
 
-  const r = api.confirmarImportacao({
+  const r = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento
   });
 
@@ -2338,32 +2379,32 @@ grupo('zero à esquerda — formatação, não identidade');
 
 teste('as duas formas normalizam para a mesma chave', () => {
   const { api } = ambiente();
-  igual(api.normalizarMatricula('09110700'), '9110700');
-  igual(api.normalizarMatricula('9110700'), '9110700');
-  igual(api.normalizarMatricula('0009110700'), '9110700');
+  igual(api.normalizarMatricula_('09110700'), '9110700');
+  igual(api.normalizarMatricula_('9110700'), '9110700');
+  igual(api.normalizarMatricula_('0009110700'), '9110700');
 });
 
 teste('matrícula com letra NÃO perde o zero — ali ele pode significar algo', () => {
   const { api } = ambiente();
-  igual(api.normalizarMatricula('A0123'), 'A0123');
-  igual(api.normalizarMatricula('0A123'), '0A123');
+  igual(api.normalizarMatricula_('A0123'), 'A0123');
+  igual(api.normalizarMatricula_('0A123'), '0A123');
 });
 
 teste('matrícula toda de zeros sobra um dígito, e não vira vazio', () => {
   const { api } = ambiente();
   // '' é o valor de "não informou"; devolver isso faria o sistema tratar a
   // matrícula como ausente em vez de inválida.
-  igual(api.normalizarMatricula('000'), '0');
+  igual(api.normalizarMatricula_('000'), '0');
 });
 
 teste('quem foi importado com zero é encontrado por quem digita sem', () => {
   const { api } = ambiente();
   importar(api, csv(['BEATRIZ EXEMPLO MARTINS;09110700;Multimídia;PMM21']));
 
-  verdadeiro(api.matriculaConhecida('9110700'), 'digitou sem o zero');
-  verdadeiro(api.matriculaConhecida('09110700'), 'digitou com o zero');
-  verdadeiro(api.matriculaConhecida('091.107-00'), 'digitou com pontuação');
-  verdadeiro(!api.matriculaConhecida('9110701'), 'matrícula que não existe continua recusada');
+  verdadeiro(api.matriculaConhecida_('9110700'), 'digitou sem o zero');
+  verdadeiro(api.matriculaConhecida_('09110700'), 'digitou com o zero');
+  verdadeiro(api.matriculaConhecida_('091.107-00'), 'digitou com pontuação');
+  verdadeiro(!api.matriculaConhecida_('9110701'), 'matrícula que não existe continua recusada');
 });
 
 teste('a forma OFICIAL fica guardada para o painel exibir', () => {
@@ -2393,7 +2434,7 @@ teste('a chave de dedup é a mesma com e sem o zero', () => {
  * arquivo — e não a turma de cada linha, que é a do aluno. O mesmo arquivo lista
  * aluno de outra fase cursando junto (o ADM 31 dentro do relatório de ADM 41);
  * comparar pela linha apontaria esse aluno como sumido do relatório da turma
- * DELE. A chave é gravada no lote, no mesmo `inserir` — 0 leituras a mais.
+ * DELE. A chave é gravada no lote, no mesmo `inserir_` — 0 leituras a mais.
  *
  * Cada teste diz qual mutação o derruba, porque é assim que se sabe que ele
  * prova alguma coisa.
@@ -2562,7 +2603,7 @@ teste('confirmarImportacao grava os sete campos do cabeçalho no lote, e conta s
 teste('a turma informada no passo 2 vence o cabeçalho, como INFORMADA', () => {
   const { api, falso } = ambiente();
   const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento,
     // Digitada como o professor digita; a chave sai normalizada.
     turmaCabecalho: 'ads 42'
@@ -2581,7 +2622,7 @@ teste('o campo do passo 2 devolvido igual ao lido NÃO vira INFORMADA', () => {
   // A tela manda o valor do campo sempre; mudança é diferença, não presença.
   const { api, falso } = ambiente();
   const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, turmaCabecalho: 'ads41'
   });
   igual(documento(falso, 'lotes', c.loteId).turma_origem, 'CABECALHO');
@@ -2590,7 +2631,7 @@ teste('o campo do passo 2 devolvido igual ao lido NÃO vira INFORMADA', () => {
 teste('campo apagado de propósito importa SEM turma — recusa não se sobrepõe', () => {
   const { api, falso } = ambiente();
   const analise = analisar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), 'ads41.csv');
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento, turmaCabecalho: ''
   });
   igual(c.ok, true, c.erro);
@@ -2604,7 +2645,7 @@ teste('campo apagado de propósito importa SEM turma — recusa não se sobrepõ
 teste('a turma informada é cortada no mesmo teto do painel', () => {
   const { api, falso } = ambiente();
   const analise = analisar(api, CSV_TRES);
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento,
     turmaCabecalho: 'X'.repeat(200)
   });
@@ -2687,7 +2728,7 @@ teste('o cabeçalho viaja no temporário do Drive, e não de volta pelo payload'
   igual(analise.cabecalho.turma, 'ADS41', 'a resposta também leva, para o passo 2 mostrar');
 
   // E é o temporário que o passo 2 lê: o payload não carrega origem nenhuma.
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento
   });
   igual(documento(falso, 'lotes', c.loteId).turma_origem, 'CABECALHO');
@@ -2718,14 +2759,14 @@ teste('PDF: o cabeçalho sai do texto do OCR, e o lote ganha a chave', () => {
   const { api, drive, falso } = ambiente();
   drive.definirOcr(PDF_ACHATADO);
 
-  const analise = api.analisarArquivo({
+  const analise = api.analisarArquivo_({
     token: TOKEN, filename: 'pmm21.pdf', mimeType: 'application/pdf', dataBase64: base64De('%PDF-1.4')
   });
   igual(analise.ok, true, analise.erro);
   igual(analise.cabecalho.turma, 'PMM21');
   igual(analise.cabecalho.semestre, '2026/2');
 
-  const c = api.confirmarImportacao({
+  const c = api.confirmarImportacao_({
     token: TOKEN, tempId: analise.tempId, mapeamento: analise.mapeamento
   });
   igual(c.ok, true, c.erro);
@@ -2752,27 +2793,27 @@ teste('a chave do lote continua custando 0 leituras', () => {
 grupo('a reimportação reativa o cancelado — e avisa o Atualizar da aba Alunos');
 
 teste('reimportar apaga a marca de cancelamento: o documento volta inteiro, sem os 4 campos', () => {
-  // A reativação do desenho, sem função: `escreverEmLote` substitui o documento
+  // A reativação do desenho, sem função: `escreverEmLote_` substitui o documento
   // e `montarRegistro_` não conhece a marca. Mutação que derruba: gravar os
-  // matriculados por `atualizarEmLote` (mescla) — a marca sobreviveria à lista
+  // matriculados por `atualizarEmLote_` (mescla) — a marca sobreviveria à lista
   // nova e a pessoa reenviada pela secretaria continuaria fora do formulário.
   const { api } = ambiente();
   importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41.csv' });
-  const antes = api.listar('matriculados', { limite: 1 }).itens[0];
-  api.atualizarEmLote('matriculados', [{
+  const antes = api.listar_('matriculados', { limite: 1 }).itens[0];
+  api.atualizarEmLote_('matriculados', [{
     _id: antes._id, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L0'
   }]);
-  igual(api.matriculaConhecida(antes._id), false);
+  igual(api.matriculaConhecida_(antes._id), false);
 
   importar(api, csvAcademico('ADS41 - 2026/2 Relação de Alunos', SEIS_ADS41), { nome: 'ads41-de-novo.csv' });
-  const depois = api.ler('matriculados', antes._id);
+  const depois = api.ler_('matriculados', antes._id);
   igual(depois.situacao_cadastro, undefined);
   igual(depois.cancelado_em, undefined);
   igual(depois.cancelado_por, undefined);
   igual(depois.cancelado_lote_id, undefined);
   verdadeiro(depois.lote_id !== antes.lote_id, 'a prova da volta é o lote novo');
-  igual(api.matriculaConhecida(antes._id), true);
+  igual(api.matriculaConhecida_(antes._id), true);
 });
 
 teste('confirmarImportacao esquece a marca da reconciliação — com -1, preservando dia, gasto e custo', () => {

@@ -18,7 +18,7 @@
  *   entra no lugar que abriu. Sem a promoção, anular só devolveria vagas vazias e
  *   quem ficou na espera continuaria na espera: o conserto seria pela metade.
  *
- * São cinco funções, e as cinco pedem token (`exigirAdmin` na primeira linha) e
+ * São cinco funções, e as cinco pedem token (`exigirAdmin_` na primeira linha) e
  * estão na lista branca de `funcoesDoPainel_` (08_Api.gs):
  *
  *   inscricoesRecentes   as últimas que chegaram — é onde se reconhece o lixo
@@ -38,11 +38,11 @@
  * 1. NÃO SE PEGA O LOCK PARA ANULAR. É o mesmo `getScriptLock()` por onde passa a
  *    inscrição de cada aluno; segurá-lo para fazer limpeza é parar a fila do
  *    auditório para varrer o chão. E não é preciso: apagar só LIBERA vaga, e quem
- *    decide vaga é `reservarVaga`, que conta DEPOIS, lá dentro. O pior que a
+ *    decide vaga é `reservarVaga_`, que conta DEPOIS, lá dentro. O pior que a
  *    concorrência produz aqui é uma vaga que aparece um instante depois.
  *
  *    PROMOVER é o contrário: ela OCUPA vaga, então conta e escreve dentro do
- *    lock, como `reservarVaga`. Uma vez para o lote inteiro — cem `waitLock`
+ *    lock, como `reservarVaga_`. Uma vez para o lote inteiro — cem `waitLock`
  *    seguidos no meio do evento é o que trava a inscrição do aluno.
  *
  * 2. NÃO SE ORDENA POR UM CAMPO E FILTRA POR OUTRO. Isso exige índice composto,
@@ -50,7 +50,7 @@
  *    cada ambiente novo — descoberto no pior dia possível. Aqui a consulta leva
  *    UM campo (ordenação OU filtro), e o resto é feito em JavaScript, sobre
  *    poucos documentos. Nem `__name__` DESC: o índice automático de `__name__` só
- *    cobre ascendente (a cicatriz está em `ultimosRegistros`, 04_Log.gs).
+ *    cobre ascendente (a cicatriz está em `ultimosRegistros_`, 04_Log.gs).
  *
  * 3. NÃO SE PAGINA POR CURSOR. A janela das inscrições é UMA consulta, e quando
  *    ela vem cheia a resposta confere o `total` do banco antes de dizer
@@ -58,14 +58,14 @@
  *    perdem alguma coisa, cada uma do seu jeito:
  *
  *    por `criado_em`, o cursor recomeça ESTRITAMENTE depois do último valor lido
- *    (`fsCursor_` monta `startAt` com `before: false`, 02_Repo.gs) e `agora()`
+ *    (`fsCursor_` monta `startAt` com `before: false`, 02_Repo.gs) e `agora_()`
  *    grava com resolução de SEGUNDO (01_Utils.gs) — duas inscrições do mesmo
  *    segundo na virada da página, e a segunda fica de fora, calada. A cicatriz
- *    já está escrita: `reconciliar` (06_Reconciliacao.gs) pagina por `__name__`
+ *    já está escrita: `reconciliar_` (06_Reconciliacao.gs) pagina por `__name__`
  *    e ordena na memória exatamente por causa disso;
  *
  *    por `__name__`, a paginação é exata e a ORDEM deixa de ser a de chegada: o
- *    id é `hash(...)` (`chaveDedup_`, 04_Inscricoes.gs), então "as últimas que
+ *    id é `hash_(...)` (`chaveDedup_`, 04_Inscricoes.gs), então "as últimas que
  *    chegaram" viraria "as primeiras do alfabeto do hash".
  *
  *    Truncar DIZENDO que truncou é o menor dos três males: a coordenação vê que
@@ -76,7 +76,7 @@
  *
  * Anular COPIA para `inscricoes_anuladas` e só então apaga de `inscricoes`.
  * A ordem é o desenho inteiro: morrer entre a cópia e a exclusão deixa uma
- * duplicata — inofensiva, e `restaurarInscricoes` a limpa. A ordem inversa
+ * duplicata — inofensiva, e `restaurarInscricoes_` a limpa. A ordem inversa
  * perderia a inscrição de um aluno de verdade num clique errado, e não existe
  * desfazer para isso.
  *
@@ -90,7 +90,7 @@
  * Esta coleção deixou de ser só desta aba. Escrevem nela:
  *
  *   esta aba ............. `anulado_por` = o e-mail de quem clicou;
- *   a revisão de divergências (05c_Revisao.gs, que chama `anularInscricoes`)
+ *   a revisão de divergências (05c_Revisao.gs, que chama `anularInscricoes_`)
  *                          ..... o e-mail de quem aplicou a revisão;
  *   O PRÓPRIO ALUNO, pela troca de projeto (04_Inscricoes.gs, com
  *   `aluno_projeto_unico` em SIM) ..... `anulado_por` = 'aluno', uma SENTINELA
@@ -105,16 +105,16 @@
  * DOIS SENTIDOS DE INTERCALAÇÃO, e os dois são de TRILHA, nunca do aluno:
  *
  *   (i) a troca comita primeiro — a coordenação (ou a revisão) grava a cópia
- *       dela por cima, e `escreverEmLote` é update SEM `updateMask`, isto é,
+ *       dela por cima, e `escreverEmLote_` é update SEM `updateMask`, isto é,
  *       substituição inteira: `anulado_motivo` e `trocado_para` somem, e o
- *       `excluirEmLote` seguinte apaga o que já não existe (no-op de 200) e
+ *       `excluirEmLote_` seguinte apaga o que já não existe (no-op de 200) e
  *       relata "anulada" uma inscrição que ele não tirou;
  *  (ii) a coordenação anula primeiro — a cópia da troca sobrescreve a dela, e a
  *       marca de QUEM anulou se perde.
  *
  * Nos dois sentidos o ALUNO fica correto: ele está no projeto novo, e restaurar
  * recusa devolver a inscrição antiga enquanto ele estiver em outro projeto ativo
- * (ver `restaurarUma_`). A cópia órfã que sobra o próprio `restaurarInscricoes`
+ * (ver `restaurarUma_`). A cópia órfã que sobra o próprio `restaurarInscricoes_`
  * cura sozinho, tratando-a como `jaEstavam`. O que se perde é a TRILHA — e é por
  * isso que a linha `INSCRICAO_TROCADA` do log (04_Inscricoes.gs) deixou de ser
  * redundante e passou a ser a ÚNICA prova durável da troca.
@@ -124,11 +124,11 @@
  * releitura e o apaga (05c_Revisao.gs) que transforma a intercalação de caso
  * raro em caso provável.
  *
- * `anularInscricoes` NÃO foi convertida para `escreverAtomico`, e continua
- * passando ids CRUS ao `excluirEmLote`: com versão, um único documento mexido
+ * `anularInscricoes_` NÃO foi convertida para `escreverAtomico_`, e continua
+ * passando ids CRUS ao `excluirEmLote_`: com versão, um único documento mexido
  * derrubaria o lote de 200 DEPOIS de as cópias já terem sido escritas, deixando
  * cópias órfãs numa coleção que o painel não lista em lugar nenhum — e, dentro
- * de `aplicarRevisao`, recusaria a revisão inteira no passo 4. Trocar um caso
+ * de `aplicarRevisao_`, recusaria a revisão inteira no passo 4. Trocar um caso
  * raro de trilha perdida por uma recusa total com lixo invisível é o negócio
  * errado.
  */
@@ -179,16 +179,16 @@ var AUDITORIO_RECENTES_PADRAO = 50;
  *   defeito que este teto existe para não repetir. 1000 cobre duas janelas.
  *
  *   CUSTO. Uma abertura da aba são DUAS chamadas, e cada uma é uma execução
- *   separada — o cache de `config()` não atravessa de uma para a outra. A conta,
+ *   separada — o cache de `config_()` não atravessa de uma para a outra. A conta,
  *   linha por linha do que o código realmente pede:
  *
  *     inscricoesRecentes (o painel pede sempre no talo, 1000)
- *       `exigirAdmin` ................ 0   (a sessão vive em ScriptProperties)
+ *       `exigirAdmin_` ................ 0   (a sessão vive em ScriptProperties)
  *       a janela ..................... uma leitura por inscrição que couber
  *       o `total` .................... 1 agregação, e SÓ com a janela cheia
  *
  *     filaDeEspera
- *       `exigirAdmin` ................ 0
+ *       `exigirAdmin_` ................ 0
  *       a fila ....................... uma leitura por quem espera (teto 500)
  *       a coleção de projetos ........ 5 hoje (vêm todos, ativos e inativos)
  *       a configuração ............... 1 (`contar_ocupacao_na_lista`)
@@ -216,7 +216,7 @@ var AUDITORIO_RECENTES_MAXIMO = 1000;
  * Teto da fila lida de uma vez.
  *
  * A fila inteira cabe numa tela de conferência; 500 é folga de três vezes o
- * auditório. Quando a consulta volta cheia, `filaDeEspera` diz `truncada: true` —
+ * auditório. Quando a consulta volta cheia, `filaDeEspera_` diz `truncada: true` —
  * uma fila cortada em silêncio faria a coordenação promover "os primeiros" de uma
  * lista que não é a lista.
  */
@@ -228,7 +228,7 @@ var AUDITORIO_FILA_MAXIMA = 500;
  * As últimas inscrições, da mais nova para a mais velha.
  *
  * Ordena por `criado_em` DESC — campo de verdade, largura fixa, índice automático
- * de campo único, exatamente como `ultimosRegistros` (04_Log.gs) faz com o log.
+ * de campo único, exatamente como `ultimosRegistros_` (04_Log.gs) faz com o log.
  *
  * UMA consulta, sem cursor, no teto de `AUDITORIO_RECENTES_MAXIMO` — o porquê de
  * não paginar está no cabeçalho.
@@ -255,13 +255,13 @@ var AUDITORIO_FILA_MAXIMA = 500;
  * clique. O parâmetro fica de pé para quem ainda o mandar — filtrar no servidor
  * é que custaria índice composto (ver o cabeçalho).
  */
-function inscricoesRecentes(payload) {
+function inscricoesRecentes_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var limite = tetoDaLeitura_(payload.limite, AUDITORIO_RECENTES_PADRAO);
-    var lidas = listar(INSCRICOES_COLECAO, {
+    var lidas = listar_(INSCRICOES_COLECAO, {
       ordenarPor: 'criado_em',
       direcao: 'DESC',
       limite: limite
@@ -315,7 +315,7 @@ function inscricoesRecentes(payload) {
  * É UMA SEGUNDA IDA À REDE, e o `try` daqui existe por causa disso. Quando esta
  * função é chamada, a janela JÁ FOI LIDA e está na memória — até mil linhas, que
  * são a tela com que a coordenação reconhece o lixo e anula. Deixar a agregação
- * dentro do `try` de `inscricoesRecentes` fazia o `catch` de lá responder
+ * dentro do `try` de `inscricoesRecentes_` fazia o `catch` de lá responder
  * `ok: false` e jogar as mil fora: a tela inteira do evento morria por causa do
  * número do rodapé, que é a informação menos importante da resposta. E ela falha
  * por conta própria — cota de leitura estourada, 503 do Firestore, a execução
@@ -328,7 +328,7 @@ function inscricoesRecentes(payload) {
  */
 function totalDeInscricoes_() {
   try {
-    return contar(INSCRICOES_COLECAO);
+    return contar_(INSCRICOES_COLECAO);
   } catch (err) {
     console.error('inscricoesRecentes: o total não veio — ' + err.message);
     return null;
@@ -344,7 +344,7 @@ function totalDeInscricoes_() {
  * do aluno que chegou antes e ficou atrás. Ordem de chegada não precisa.
  *
  * A consulta leva UM campo (`em_espera == SIM`) e nenhuma ordenação declarada:
- * `listar` desempata por `__name__` ASC, que todo índice automático de campo
+ * `listar_` desempata por `__name__` ASC, que todo índice automático de campo
  * único já cobre. A ordem de chegada é feita aqui, em JavaScript, sobre os poucos
  * documentos da fila — pedir ao banco `where em_espera` mais `orderBy criado_em`
  * seria o índice composto que este arquivo se proibiu.
@@ -352,13 +352,13 @@ function totalDeInscricoes_() {
  * `projetos` traz TODOS os ativos, com fila ou sem — ver `projetosDoAuditorio_`.
  * `fila` traz só quem espera de fato.
  */
-function filaDeEspera(payload) {
+function filaDeEspera_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var alvo = String(payload.projeto_id || '').trim();
-    var lidas = listar(INSCRICOES_COLECAO, {
+    var lidas = listar_(INSCRICOES_COLECAO, {
       campo: 'em_espera',
       valor: 'SIM',
       limite: AUDITORIO_FILA_MAXIMA
@@ -387,7 +387,7 @@ function filaDeEspera(payload) {
       // servidor é a fonte: o painel já se blindou, e blindar só o consumidor
       // deixa a origem produzindo lixo.
       //
-      // Id de produção é `uid('proj')` ou hash hexadecimal, então isto não
+      // Id de produção é `uid_('proj')` ou hash hexadecimal, então isto não
       // acontece hoje — é o custo de uma linha para não depender disso.
       quantosPorProjeto[pid] = (Object.prototype.hasOwnProperty.call(quantosPorProjeto, pid)
         ? quantosPorProjeto[pid] : 0) + 1;
@@ -405,7 +405,7 @@ function filaDeEspera(payload) {
     return {
       ok: true,
       truncada: lidas.length >= AUDITORIO_FILA_MAXIMA,
-      // O mesmo teto de escrita que `inscricoesRecentes` devolve: as duas listas
+      // O mesmo teto de escrita que `inscricoesRecentes_` devolve: as duas listas
       // da aba têm barra de ação, e a da fila promove. Mandá-lo de um lado só
       // deixaria metade da tela oferecendo lote que o servidor recusa.
       lote_maximo: AUDITORIO_LOTE_MAXIMO,
@@ -425,7 +425,7 @@ function filaDeEspera(payload) {
  * problema existir. Mostrar só quem já tem fila é mostrar o incêndio depois de
  * ele pegar.
  *
- * `listarProjetos(true)` traz a contagem de cada ativo pela MESMA função que
+ * `listarProjetos_(true)` traz a contagem de cada ativo pela MESMA função que
  * decide a vaga dentro do lock (`contarInscritos_`) — nenhuma segunda maneira de
  * contar vaga, que seria uma segunda verdade sobre vagas.
  *
@@ -434,7 +434,7 @@ function filaDeEspera(payload) {
  * nome viraria travessão.
  *
  * ESTA ABA NÃO ABRE MÃO DA CONTAGEM. `contar_ocupacao_na_lista` em NAO faz
- * `listarProjetos` devolver `inscritos` null — é chave de diagnóstico do tempo
+ * `listarProjetos_` devolver `inscritos` null — é chave de diagnóstico do tempo
  * da lista PÚBLICA (09_Projetos.gs). Aqui o número não é enfeite: `cabem` sai
  * dele, e é por ele que a coordenação decide quem promover. Sem contagem, `cabem`
  * viraria "a fila inteira" e a tela ofereceria um botão que o servidor nega
@@ -444,13 +444,13 @@ function filaDeEspera(payload) {
  */
 function projetosDoAuditorio_(quantosPorProjeto, alvo) {
   // Pedindo UM projeto, é dele que se fala — e aí nem se paga a contagem dos
-  // outros, que `listarProjetos` faria por dentro para jogar fora.
+  // outros, que `listarProjetos_` faria por dentro para jogar fora.
   if (alvo) return [resumoDoProjeto_(alvo, contagemDe_(quantosPorProjeto, alvo))];
 
   var saida = [];
   var vistos = {};
 
-  listarProjetos(true).forEach(function (p) {
+  listarProjetos_(true).forEach(function (p) {
     vistos[p.id] = true;
     var emEspera = contagemDe_(quantosPorProjeto, p.id);
     saida.push(p.inscritos === null
@@ -481,7 +481,7 @@ function linhaDoProjeto_(projeto, emEspera) {
     confirmados: projeto.inscritos,
     emEspera: emEspera,
     situacao: projeto.situacao,
-    // Projeto que não está ABERTO não recebe promoção — `promoverDaEspera`
+    // Projeto que não está ABERTO não recebe promoção — `promoverDaEspera_`
     // recusa —, então dizer que cabe alguém ali seria oferecer à coordenação um
     // botão que o servidor vai negar. Zero aqui é a mesma resposta, dada antes
     // do clique.
@@ -493,9 +493,9 @@ function linhaDoProjeto_(projeto, emEspera) {
   };
 }
 
-/** O mesmo resumo para um projeto que `listarProjetos` não trouxe. */
+/** O mesmo resumo para um projeto que `listarProjetos_` não trouxe. */
 function resumoDoProjeto_(projetoId, emEspera) {
-  var projeto = projetoPorId(projetoId);
+  var projeto = projetoPorId_(projetoId);
   var vagas = Number((projeto && projeto.vagas) || 0);
   var confirmados = contarInscritos_(projetoId);
 
@@ -519,7 +519,7 @@ function resumoDoProjeto_(projetoId, emEspera) {
  *      `anulado_por`;
  *   2. exclusão em lote de `inscricoes`;
  *   3. trilha.
- * Morrer entre 1 e 2 deixa uma duplicata, que `restaurarInscricoes` limpa.
+ * Morrer entre 1 e 2 deixa uma duplicata, que `restaurarInscricoes_` limpa.
  * Morrer entre 2 e 1 — a ordem inversa — perderia a inscrição.
  *
  * SEM LOCK, de propósito: ver o cabeçalho do arquivo.
@@ -539,9 +539,9 @@ function resumoDoProjeto_(projetoId, emEspera) {
  * esta resposta vai para a tela do Auditório e, pela revisão, para a janela
  * dela.
  */
-function anularInscricoes(payload) {
+function anularInscricoes_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var ids = idsDoPayload_(payload.ids);
@@ -553,16 +553,16 @@ function anularInscricoes(payload) {
     // Para `anulado_por` NA CÓPIA da inscrição, e só para isso: na trilha, quem
     // anulou passou a ser a coluna `usuario` (04_Log.gs).
     var quem = quemMexeu_(payload.token);
-    var carimbo = agora();
+    var carimbo = agora_();
 
     var copias = [];
     var naoEncontradas = 0;
 
     ids.forEach(function (id) {
-      var inscricao = ler(INSCRICOES_COLECAO, id);
+      var inscricao = ler_(INSCRICOES_COLECAO, id);
       if (!inscricao) { naoEncontradas++; return; }
 
-      // `_id` vem da leitura e é o que `escreverEmLote` usa como nome do
+      // `_id` vem da leitura e é o que `escreverEmLote_` usa como nome do
       // documento — a cópia nasce com o id original, que é a chave de dedup.
       inscricao.anulado_em = carimbo;
       inscricao.anulado_por = quem;
@@ -581,14 +581,14 @@ function anularInscricoes(payload) {
 
     var apagar = copias.map(function (c) { return c._id; });
 
-    escreverEmLote(INSCRICOES_ANULADAS_COLECAO, copias);
-    excluirEmLote(INSCRICOES_COLECAO, apagar);
+    escreverEmLote_(INSCRICOES_ANULADAS_COLECAO, copias);
+    excluirEmLote_(INSCRICOES_COLECAO, apagar);
 
-    // Quem anulou está na coluna `usuario` da linha, desde que `exigirAdmin`
+    // Quem anulou está na coluna `usuario` da linha, desde que `exigirAdmin_`
     // anota o operador (04_Log.gs). `quem` continua acima porque ele vira
     // `anulado_por` NA CÓPIA da inscrição — que sobrevive ao ano de retenção do
     // log e é o que a restauração lê.
-    registrar('INSCRICOES_ANULADAS', 'inscricao', apagar[0],
+    registrar_('INSCRICOES_ANULADAS', 'inscricao', apagar[0],
       apagar.length + ' anulada(s)' +
       (naoEncontradas ? ' (' + naoEncontradas + ' já não existia(m))' : '') +
       ' — ids: ' + apagar.join(','));
@@ -602,7 +602,7 @@ function anularInscricoes(payload) {
       // Os NÚMEROS vão em campos, e a frase fica com o que a tela não tem como
       // saber. "Anulei 3 de 3" a tela monta sozinha com o que já recebeu;
       // repetir a conta aqui a faria aparecer duas vezes na mesma linha — é a
-      // mesma divisão de trabalho de `promoverDaEspera` e `restaurarInscricoes`.
+      // mesma divisão de trabalho de `promoverDaEspera_` e `restaurarInscricoes_`.
       mensagem: naoEncontradas
         ? naoEncontradas + ' já não estava(m) lá: a lista da tela é de antes.'
         : ''
@@ -618,7 +618,7 @@ function anularInscricoes(payload) {
  *
  * A conferência não é zelo: sem ela o desfazer fura o limite de vagas, e o limite
  * de vagas é a única coisa que este sistema promete de verdade. Cada restauração
- * passa por `reservarVaga`, que é o único portão por onde uma vaga é consumida —
+ * passa por `reservarVaga_`, que é o único portão por onde uma vaga é consumida —
  * reusá-lo é o que impede o desfazer de inventar um segundo caminho para
  * ultrapassar o teto.
  *
@@ -633,9 +633,9 @@ function anularInscricoes(payload) {
  * registro da anulação. Quem quiser a história tem a trilha. O que conta como
  * marca, e o que é campo da inscrição e sobrevive, está em `restaurarUma_`.
  */
-function restaurarInscricoes(payload) {
+function restaurarInscricoes_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var ids = idsDoPayload_(payload.ids);
@@ -650,7 +650,7 @@ function restaurarInscricoes(payload) {
     var recusadas = [];
 
     ids.forEach(function (id) {
-      var guardada = ler(INSCRICOES_ANULADAS_COLECAO, id);
+      var guardada = ler_(INSCRICOES_ANULADAS_COLECAO, id);
       if (!guardada) {
         recusadas.push({ id: id, motivo: 'não está entre as anuladas' });
         return;
@@ -659,8 +659,8 @@ function restaurarInscricoes(payload) {
       // Já voltou? Então isto é o segundo passo de uma restauração que morreu no
       // meio: não disputa vaga nenhuma, só limpa a quarentena. Conferir aqui evita
       // relatar "não coube" para quem já está lá dentro.
-      if (ler(INSCRICOES_COLECAO, id)) {
-        excluir(INSCRICOES_ANULADAS_COLECAO, id);
+      if (ler_(INSCRICOES_COLECAO, id)) {
+        excluir_(INSCRICOES_ANULADAS_COLECAO, id);
         jaEstavam++;
         return;
       }
@@ -671,7 +671,7 @@ function restaurarInscricoes(payload) {
         return;
       }
 
-      excluir(INSCRICOES_ANULADAS_COLECAO, id);
+      excluir_(INSCRICOES_ANULADAS_COLECAO, id);
       if (resultado.em_espera) emEspera++;
       else restauradas++;
     });
@@ -681,7 +681,7 @@ function restaurarInscricoes(payload) {
       // Sem `quemMexeu_`: quem restaurou é a coluna `usuario` (04_Log.gs), e
       // aqui o e-mail não vira campo de documento nenhum — a leitura da sessão
       // que ele custava deixou de ser necessária.
-      registrar('INSCRICOES_RESTAURADAS', 'inscricao', ids[0],
+      registrar_('INSCRICOES_RESTAURADAS', 'inscricao', ids[0],
         mexidas + ' de ' + ids.length + ' restaurada(s)' +
         (emEspera ? ' (' + emEspera + ' em espera)' : '') +
         (recusadas.length ? ' — ' + recusadas.length + ' não coube(ram)' : ''));
@@ -715,7 +715,7 @@ function restaurarInscricoes(payload) {
  * Uma restauração, pelo portão das vagas.
  *
  * Inscrição SEM projeto não disputa vaga com ninguém (é o formulário interno) e
- * grava direto, do mesmo jeito que `submeterInscricao` faz com ela.
+ * grava direto, do mesmo jeito que `submeterInscricao_` faz com ela.
  *
  * As marcas de fila são recalculadas, e não copiadas: quem foi anulado estando na
  * espera e encontra vaga aberta na volta entra CONFIRMADO; quem estava
@@ -758,11 +758,11 @@ function restaurarUma_(id, guardada) {
 
   var projetoId = String(campos.projeto_id || '');
   if (!projetoId) {
-    var solta = inserir(INSCRICOES_COLECAO, campos, id);
+    var solta = inserir_(INSCRICOES_COLECAO, campos, id);
     return { ok: true, em_espera: false, duplicada: solta.jaExistia };
   }
 
-  return reservarVaga(projetoId, function (projeto, emEspera) {
+  return reservarVaga_(projetoId, function (projeto, emEspera) {
     var ocupado = outroProjetoAtivoDe_(campos, projetoId);
     if (ocupado) return { ok: false, erro: 'já está em outro projeto ativo (' + ocupado + ')' };
 
@@ -770,7 +770,7 @@ function restaurarUma_(id, guardada) {
       campos.em_espera = 'SIM';
       campos.espera_de = projetoId;
     }
-    var gravacao = inserir(INSCRICOES_COLECAO, campos, id);
+    var gravacao = inserir_(INSCRICOES_COLECAO, campos, id);
     return { ok: true, duplicada: gravacao.jaExistia, id: id, em_espera: Boolean(emEspera) };
   });
 }
@@ -790,11 +790,11 @@ function restaurarUma_(id, guardada) {
  * São poucas leituras, uma ação de coordenação, fora do pico.
  */
 function outroProjetoAtivoDe_(campos, projetoId) {
-  if (String(config('aluno_projeto_unico', 'NAO')).toUpperCase() !== 'SIM') return '';
+  if (String(config_('aluno_projeto_unico', 'NAO')).toUpperCase() !== 'SIM') return '';
 
   var ctx = {
-    matricula: normalizarMatricula(campos.matricula),
-    email: normalizarEmail(campos.email),
+    matricula: normalizarMatricula_(campos.matricula),
+    email: normalizarEmail_(campos.email),
     alvo: String(projetoId),
     trocarDe: [],
     cancelada: false,
@@ -892,7 +892,7 @@ var PROMOCAO_INDETERMINADA = { indeterminada: true };
 /**
  * Promove quem está na fila para vaga de verdade.
  *
- * Promover OCUPA vaga, então isto é `reservarVaga` para um lote: conta e escreve
+ * Promover OCUPA vaga, então isto é `reservarVaga_` para um lote: conta e escreve
  * dentro do `LockService`, e o lock é pego UMA VEZ para o lote inteiro. Um
  * `waitLock` por pessoa faria cada aluno do auditório esperar a fila de promoções
  * inteira, uma promoção de cada vez.
@@ -905,13 +905,13 @@ var PROMOCAO_INDETERMINADA = { indeterminada: true };
  *
  * A ordem é a que a coordenação mandou: os ids são promovidos na ordem em que
  * vieram, e quando o projeto enche, os seguintes são recusados com o motivo. A
- * tela é quem sabe qual é a ordem justa (`filaDeEspera` devolve por chegada); o
+ * tela é quem sabe qual é a ordem justa (`filaDeEspera_` devolve por chegada); o
  * servidor não reordena o que a pessoa viu antes de clicar.
  *
  * Idempotente: promover quem já está confirmado não escreve nem conta — a marca
  * de fila é o que se olha, e ela some na primeira promoção.
  *
- * POR QUE NÃO SE RECONCILIA AQUI (22/09). Desde que `incluirInscricao`
+ * POR QUE NÃO SE RECONCILIA AQUI (22/09). Desde que `incluirInscricao_`
  * (10_Painel.gs) recalcula a ficha do aluno no mesmo clique
  * (`reconciliarPessoa_`, 06_Reconciliacao.gs), a ausência desta chamada aqui
  * parece esquecimento — e não é: `alunos` NÃO deriva de `em_espera`.
@@ -924,9 +924,9 @@ var PROMOCAO_INDETERMINADA = { indeterminada: true };
  * Pela mesma razão a marca da reconciliação NÃO é esquecida aqui: não há ficha
  * velha para o próximo Atualizar consertar.
  */
-function promoverDaEspera(payload) {
+function promoverDaEspera_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var ids = idsDoPayload_(payload.ids);
@@ -940,7 +940,7 @@ function promoverDaEspera(payload) {
     var candidatos = [];
 
     ids.forEach(function (id) {
-      var inscricao = ler(INSCRICOES_COLECAO, id);
+      var inscricao = ler_(INSCRICOES_COLECAO, id);
       if (!inscricao) {
         recusadas.push({ id: id, motivo: 'inscrição não encontrada' });
         return;
@@ -952,13 +952,13 @@ function promoverDaEspera(payload) {
       candidatos.push(inscricao);
     });
 
-    // Os projetos, lidos uma vez cada, FORA do lock — como `reservarVaga` faz.
+    // Os projetos, lidos uma vez cada, FORA do lock — como `reservarVaga_` faz.
     // INATIVO e FECHADO não dependem da contagem e recusam aqui.
     var projetos = {};
     candidatos = candidatos.filter(function (inscricao) {
       var pid = String(inscricao.projeto_id || '');
       if (!Object.prototype.hasOwnProperty.call(projetos, pid)) {
-        projetos[pid] = projetoPorId(pid);
+        projetos[pid] = projetoPorId_(pid);
       }
       var projeto = projetos[pid];
 
@@ -1004,15 +1004,15 @@ function promoverDaEspera(payload) {
       // lados e manda fazer a única coisa que resolve: olhar a lista.
       //
       // E a linha do log sai MESMO ASSIM, porque num ramo indeterminado o efeito
-      // pode ter entrado sem nenhuma trilha — o `registrar` de sucesso fica
+      // pode ter entrado sem nenhuma trilha — o `registrar_` de sucesso fica
       // depois daqui, e quem sai por este caminho passaria por fora dele. São
       // TRÊS os ramos com essa propriedade, e todos registram antes de
       // responder: este, a promoção do Incluir aluno (10_Painel.gs) e a troca de
-      // projeto do aluno (`decorarComATroca_`, 04_Inscricoes.gs). `registrar` é
+      // projeto do aluno (`decorarComATroca_`, 04_Inscricoes.gs). `registrar_` é
       // à prova de falha (04_Log.gs) e a linha diz o que se sabe: o que foi
-      // tentado, quem tentou — na coluna `usuario`, que `exigirAdmin` preenche
+      // tentado, quem tentou — na coluna `usuario`, que `exigirAdmin_` preenche
       // — e que o resultado não foi confirmado.
-      registrar('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
+      registrar_('PROMOCAO_ESPERA', 'inscricao', candidatos[0]._id,
         'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
         'pode ter entrado — candidatos: ' + candidatos.map(function (i) { return i._id; }).join(','));
 
@@ -1024,7 +1024,7 @@ function promoverDaEspera(payload) {
     }
 
     if (promovidas.length) {
-      registrar('PROMOCAO_ESPERA', 'inscricao', promovidas[0],
+      registrar_('PROMOCAO_ESPERA', 'inscricao', promovidas[0],
         promovidas.length + ' de ' + ids.length + ' promovida(s) — ids: ' + promovidas.join(','));
     }
 
@@ -1060,7 +1060,7 @@ function promoverDaEspera(payload) {
  * A escrita SUBSTITUI o documento inteiro — por isso o que vai é o documento
  * LIDO, campo por campo, com as duas marcas de fila mudadas. Mandar só os dois
  * campos apagaria todo o resto da inscrição. É a mesma faca que a `updateMask`
- * do `atualizar` embainha; aqui ela fica exposta, em troca de UMA requisição
+ * do `atualizar_` embainha; aqui ela fica exposta, em troca de UMA requisição
  * para o lote inteiro em vez de uma por pessoa dentro do lock.
  *
  * ------------------------------------------- A precondição, e por que é VERSÃO
@@ -1082,7 +1082,7 @@ function promoverDaEspera(payload) {
  * (`escritaIndeterminada_`, 02_Repo.gs), em que a única frase verdadeira é
  * "não consigo confirmar; recarregue e confira".
  *
- * A janela existia e não era inofensiva. `escreverEmLote` sem precondição
+ * A janela existia e não era inofensiva. `escreverEmLote_` sem precondição
  * nenhuma REESCREVE o documento lido por cima do que houver: reverte a edição de
  * outra aba, ressuscita a inscrição que o `anular` acabou de mandar para a
  * quarentena e — desde a troca de projeto (item 4) — devolve à vida a inscrição
@@ -1093,7 +1093,7 @@ function promoverDaEspera(payload) {
  * carimbo já vem de graça de toda leitura.
  *
  * É VERSÃO e não `exists:true` porque `exists:true` não distingue "o mesmo
- * documento" de "o documento REESCRITO" — a frase é de `atualizarEmLote`
+ * documento" de "o documento REESCRITO" — a frase é de `atualizarEmLote_`
  * (02_Repo.gs), e é a mesma escolha que a revisão de divergências já fez.
  *
  * O preço, dito: um lote de 200 é recusado inteiro quando UMA das 200 mudou.
@@ -1103,14 +1103,14 @@ function promoverDaEspera(payload) {
  *
  * E é UM `:commit` só, sem fatiar: `AUDITORIO_LOTE_MAXIMO` é 200 e o teto do
  * `:commit` é 500, então o lote da tela sempre cabe inteiro numa requisição —
- * que é a condição para "ninguém é promovido" ser verdade. `escreverAtomico`
+ * que é a condição para "ninguém é promovido" ser verdade. `escreverAtomico_`
  * recusa antes de mandar se algum dia esses dois números se cruzarem.
  *
  * O invariante NÃO depende dessa janela: quem decide vaga é a contagem lida aqui
  * dentro. Duas promoções simultâneas da mesma pessoa gastam saldo duas vezes na
  * conta de quem promove — o que recusa alguém a mais, nunca aceita.
  *
- * `incluirInscricao` (10_Painel.gs) promove UMA inscrição do mesmo jeito — as
+ * `incluirInscricao_` (10_Painel.gs) promove UMA inscrição do mesmo jeito — as
  * duas marcas apagadas, o documento lido reescrito inteiro —, sem o lock e por
  * fora do teto e da situação, porque é a coordenação decidindo por fora. Quem
  * mudar o que "promover" escreve no documento muda nos dois lugares — inclusive
@@ -1123,7 +1123,7 @@ function promoverDaEspera(payload) {
  */
 function promoverDentroDoLock_(candidatos, projetos, recusadas) {
   // A pergunta da fila é feita AQUI, antes do `waitLock`, e não é para usar a
-  // resposta: é para o cache de execução de `config()` já estar quente quando
+  // resposta: é para o cache de execução de `config_()` já estar quente quando
   // `contarInscritos_` a repetir lá dentro. Configuração fria custa uma leitura,
   // e leitura fria dentro da região protegida é a fila do auditório esperando a
   // limpeza — o oposto do que esta aba existe para fazer.
@@ -1157,7 +1157,7 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
       saldo[pid]--;
 
       // As marcas são APAGADAS, e não zeradas: o documento de quem ocupa vaga
-      // não tem esses campos (ver `gravarInscricao`, 04_Inscricoes.gs), e quem
+      // não tem esses campos (ver `gravarInscricao_`, 04_Inscricoes.gs), e quem
       // foi promovido ocupa vaga. Deixar `em_espera: NAO` gravado criaria uma
       // terceira forma de documento — nem fila, nem inscrição comum — e a
       // primeira pessoa a filtrar por "tem o campo" leria a fila errada.
@@ -1168,7 +1168,7 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
 
     if (promover.length) {
       try {
-        escreverAtomico(promover.map(function (inscricao) {
+        escreverAtomico_(promover.map(function (inscricao) {
           return {
             gravar: {
               colecao: INSCRICOES_COLECAO,
@@ -1183,7 +1183,7 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
         // Alguém mexeu numa delas enquanto a tela estava aberta. Nada foi
         // aplicado — nem as que vieram antes no lote —, e quem chama devolve a
         // recusa que manda recarregar. Qualquer outro erro (rede, cota) segue
-        // subindo para o `catch` de `promoverDaEspera`, que é onde ele sempre
+        // subindo para o `catch` de `promoverDaEspera_`, que é onde ele sempre
         // terminou.
         if (!corridaDeEscrita_(err)) throw err;
         // E se houve RETENTATIVA antes da recusa, nem isso se sabe: o 503 pode
@@ -1215,8 +1215,8 @@ function promoverDentroDoLock_(candidatos, projetos, recusadas) {
  * (`erroDeLoteGrandeDemais_`). Esta função responde uma pergunta só — quais ids
  * vieram —, e quem tem dois contratos é quem produz o próximo defeito calado.
  *
- * A barra é recusada porque id de documento não tem barra: `excluirEmLote` e
- * `escreverEmLote` colam o id no caminho do recurso, e uma barra ali mudaria a
+ * A barra é recusada porque id de documento não tem barra: `excluirEmLote_` e
+ * `escreverEmLote_` colam o id no caminho do recurso, e uma barra ali mudaria a
  * coleção alvo em vez de errar.
  */
 /** Quanto o mapa tem para esta chave, sem cair na herança de Object.prototype. */
