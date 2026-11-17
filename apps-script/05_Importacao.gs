@@ -406,7 +406,10 @@ function confirmarImportacao_(payload) {
 
     var loteId = loteId_();
     var quando = agora_();
-    var quem = usuarioAtual_();
+    // Quem importou é a SESSÃO (`quemMexeu_`, 07_Auth.gs). No web app publicado,
+    // `usuarioAtual_()` volta 'anonimo' (04_Log.gs), e era o que o lote e cada
+    // matriculado gravavam em `importado_por`.
+    var quem = quemMexeu_(payload.token);
 
     var preparo = prepararRegistros_(temp.linhas, mapeamento, {
       loteId: loteId, quando: quando, quem: quem
@@ -965,7 +968,8 @@ function expurgarLote_(payload) {
       atualizar_(LOTES_COLECAO, loteId, {
         status: 'EXPURGADO',
         expurgado_em: agora_(),
-        expurgado_por: usuarioAtual_()
+        // Pela sessão, como o `importado_por` de `confirmarImportacao_`.
+        expurgado_por: quemMexeu_(payload.token)
       });
     } catch (e) {
       console.error('expurgarLote (marca do lote): ' + e.message);

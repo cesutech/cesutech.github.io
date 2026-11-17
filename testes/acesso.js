@@ -590,6 +590,36 @@ teste('uma enxurrada de tokens de mentira NÃO freia o link por e-mail', () => {
     'o link ficou na fila por tentativas que não eram dele');
 });
 
+teste('cada conta recusada tem o seu freio: duas contas, duas linhas, e o "+N" de cada uma', () => {
+  // A aba Histórico mostra em "Quem" o e-mail da linha LOGIN_NEGADO. Com a
+  // chave do freio fixa, a segunda conta recusada na janela não deixava linha,
+  // e o "(+N iguais ...)" da linha seguinte contava as tentativas dela debaixo
+  // do e-mail de outra pessoa.
+  //
+  // Mutação que derruba: a chave fixa 'login_google_negado' de volta em
+  // `entrarComGoogle_`.
+  const amb = comRelogio();
+  const recusar = (email) => {
+    responder(amb, tokenBom({ email: email }));
+    igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
+  };
+
+  recusar('a@exemplo.com');
+  recusar('b@exemplo.com');
+  amb.relogio.avancar(60 * 1000);
+  recusar('b@exemplo.com');                 // a mesma conta, dentro da janela dela
+  amb.relogio.avancar(10 * 60 * 1000);
+  recusar('b@exemplo.com');                 // a janela dela passou: vira linha, com o +1
+
+  const negadas = linhasDoLog(amb).filter((l) => l.acao === 'LOGIN_NEGADO')
+    .map((l) => [l.entidade_id, l.detalhe]).sort();
+  igual(negadas, [
+    ['a@exemplo.com', 'conta Google fora da allowlist'],
+    ['b@exemplo.com', 'conta Google fora da allowlist'],
+    ['b@exemplo.com', 'conta Google fora da allowlist (+1 iguais desde a última anotação)']
+  ]);
+});
+
 // ================================================== O link por e-mail: pedir
 
 grupo('pedirLinkDeAcesso — o pedido');

@@ -706,7 +706,9 @@ function salvarProjeto_(payload) {
     var novoId = uid_('proj');
     var novo = Object.assign({
       criado_em: agoraStr,
-      criado_por: usuarioAtual_()
+      // Pela sessão (`quemMexeu_`, 07_Auth.gs): no web app publicado,
+      // `usuarioAtual_()` volta 'anonimo'.
+      criado_por: quemMexeu_(payload.token)
     }, comum);
 
     // Id sorteado de um UUID: colisão é teórica. Mas `inserir_` não sobrescreve,

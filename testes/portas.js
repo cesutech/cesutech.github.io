@@ -1531,6 +1531,72 @@ teste('com a guarda satisfeita, a casca entrega a implementação inteira — ar
   igual(furos, []);
 });
 
+// ======================================================================
+
+grupo('6. quem agiu é a sessão — a identidade da execução, só onde não há sessão');
+
+/**
+ * As funções que podem ler `usuarioAtual_()` (04_Log.gs), e por quê.
+ *
+ * No web app publicado ela volta 'anonimo': o painel chama o servidor a partir
+ * do GitHub Pages, sem conta, e o servidor roda como quem implantou. Quem sabe
+ * quem opera é a SESSÃO, e o campo de documento que diz quem agiu
+ * (`importado_por`, `criado_por`, `revisado_por`, `expurgado_por`...) sai dela,
+ * por `quemMexeu_` (07_Auth.gs). Até 17/11/2026 seis funções do painel gravavam o
+ * autor por `usuarioAtual_()`, e a aba Importações dizia "Por: anonimo" em todo
+ * lote. Os testes de cada uma rodavam com o usuário do ambiente igual ao da
+ * sessão, e por isso passavam.
+ *
+ * A lista é fechada: função nova que leia a identidade da execução reprova
+ * aqui, e quem a acrescentar escreve o motivo, que é o momento de perguntar se
+ * ali existe sessão.
+ */
+const LEEM_A_EXECUCAO = {
+  quemOperou_: 'a trilha, quando a execução não tem operador: acionadores, editor e formulário (04_Log.gs)',
+  autenticar_: 'a entrada pela identidade da execução, na implantação que a entrega (07_Auth.gs)',
+  modoDeAcesso_: 'a tela de entrada pergunta se a execução tem identidade visível (07_Auth.gs)',
+  incluirInscricao_: 'só depois da sessão: `emailDaSessao_(token) || usuarioAtual_()` (10_Painel.gs)',
+  migrarDisciplinas_: 'roda pelo editor, com a conta de quem está com o projeto aberto (12_Disciplinas.gs)',
+  backupMontarArquivo_: 'o backup roda pelo acionador ou pelo editor, nunca pelo painel (14_Backup.gs)',
+  autorizar_: 'ferramenta de editor que mostra a conta autorizada (20_Prova.gs)'
+};
+
+teste('só a lista fechada lê a identidade da execução', () => {
+  // Qualquer menção conta, e não só a chamada: a função passada adiante
+  // (`var quem = usuarioAtual_`) é o mesmo caminho por outra porta.
+  const quem = new Set();
+  funcoesGlobais().forEach((f) => {
+    if (f.nome === 'usuarioAtual_') return;
+    andar(f.no, (no) => {
+      if (no.type === 'Identifier' && no.name === 'usuarioAtual_') quem.add(f.nome);
+    });
+  });
+  igual(Array.from(quem).sort(), Object.keys(LEEM_A_EXECUCAO).sort(),
+    'função fora da lista lê `usuarioAtual_()`: se ela grava quem agiu, o autor vem da sessão (`quemMexeu_`)');
+});
+
+teste('fora das funções da lista, ninguém lê a identidade da execução', () => {
+  // O grupo 2 aceita no nível do programa `var` e atribuição a propriedade, e
+  // nelas cabe função que o teste acima não percorre: um objeto
+  // (`var X = { quem: function () { ... } }`), uma propriedade
+  // (`X.deQuem = function () { ... }`) e uma função que roda na carga
+  // (`var Q = (function () { ... })()`), que gravaria 'anonimo' antes de
+  // qualquer sessão. O passeio para só nas funções globais que o teste acima
+  // já conferiu, e desce em todo o resto.
+  //
+  // Mutação que derruba: qualquer uma das três formas, com `usuarioAtual_()`
+  // dentro, num `.gs`.
+  const globais = new Set(funcoesGlobais().map((f) => f.no));
+  const soltas = [];
+  function foraDasGlobais(no, a) {
+    if (globais.has(no)) return;
+    if (no.type === 'Identifier' && no.name === 'usuarioAtual_') soltas.push(a.nome + ':' + no.loc.start.line);
+    filhos(no).forEach((f) => foraDasGlobais(f, a));
+  }
+  GS.forEach((a) => foraDasGlobais(a.arvore, a));
+  igual(soltas, []);
+});
+
 // ---------------------------------------------------------------- Resultado
 
 process.exit(resultado());

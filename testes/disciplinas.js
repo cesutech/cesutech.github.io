@@ -1159,6 +1159,62 @@ teste('a edição CARREGA criado_em e criado_por para o endereço novo', () => {
   igual(nova.criado_por, 'coordenacao@exemplo.com');
 });
 
+teste('no painel publicado, quem inclui a disciplina é a SESSÃO, e não "anonimo"', () => {
+  // `usuario: ''` é o GitHub Pages: ali `usuarioAtual_()` volta 'anonimo'
+  // (04_Log.gs), e era o que `criado_por` gravava. Com o usuário do ambiente
+  // igual ao da sessão, como nos testes acima, o defeito passava verde.
+  //
+  // Mutação que derruba: `var usuario = usuarioAtual_()` de volta em
+  // `incluirDisciplinas_`.
+  const { api } = ambiente({ usuario: '' });
+  const token = tokenAdmin(api);
+  igual(incluir(api, token, [linha('WORK EXPERIENCE', 'ADM51')]).ok, true);
+
+  igual(api.listarDisciplinas_({ token: token }).itens[0].criado_por, 'coordenacao@exemplo.com');
+});
+
+teste('editar disciplina de outra pessoa mantém quem a criou', () => {
+  // A edição muda o endereço do documento e regrava tudo, e o autor viaja do
+  // documento velho. Com a mesma conta criando e editando, como no teste "a
+  // edição CARREGA criado_em e criado_por", trocar o autor pelo de quem edita
+  // passava verde.
+  //
+  // Mutações que derrubam: `criado_por: quemMexeu_(payload.token)` ou
+  // `quemMexeu_(payload.token) || antiga.criado_por` em `editarDisciplina_`.
+  const { api } = ambiente({ usuario: '' });
+  const autora = api.criarSessao_('autora@exemplo.com');
+  const editora = api.criarSessao_('editora@exemplo.com');
+  incluir(api, autora, [linha('WORK EXPERIENCE', 'ADM51')]);
+  const antigo = api.listarDisciplinas_({ token: autora }).itens[0];
+
+  const r = api.editarDisciplina_({
+    token: editora, id: antigo.id, disciplina: linha('WORK EXPERIENCE', 'ADM61')
+  });
+
+  igual(r.ok, true, r.erro);
+  igual(api.listarDisciplinas_({ token: editora }).itens[0].criado_por, 'autora@exemplo.com');
+});
+
+teste('editar disciplina sem autor gravado assina pela sessão, e não "anonimo"', () => {
+  // O `criado_por` vazio é o documento de antes da autoria: a edição o
+  // preenche com quem edita, e esse alguém é a SESSÃO.
+  //
+  // Mutação que derruba: `antiga.criado_por || usuarioAtual_()` de volta em
+  // `editarDisciplina_`.
+  const { api } = ambiente({ usuario: '' });
+  const token = tokenAdmin(api);
+  incluir(api, token, [linha('WORK EXPERIENCE', 'ADM51')]);
+  const antigo = api.listarDisciplinas_({ token: token }).itens[0];
+  api.atualizar_('disciplinas', antigo.id, { criado_por: '' });
+
+  const r = api.editarDisciplina_({
+    token: token, id: antigo.id, disciplina: linha('WORK EXPERIENCE', 'ADM61')
+  });
+
+  igual(r.ok, true, r.erro);
+  igual(api.listarDisciplinas_({ token: token }).itens[0].criado_por, 'coordenacao@exemplo.com');
+});
+
 teste('a edição preserva ativo e coringa', () => {
   const { api } = ambiente();
   const token = tokenAdmin(api);

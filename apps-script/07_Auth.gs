@@ -252,8 +252,18 @@ function entrarComGoogle_(idToken) {
     }
 
     if (!emailAutorizado_(conferido.email)) {
+      // A CHAVE DO FREIO LEVA A CONTA, como a do NIVEL_NEGADO (08_Api.gs) e a do
+      // link (`'link_freio_' + alvo`, 07b_LinkPorEmail.gs). Com a chave fixa, a
+      // janela de dez minutos de `registrarRecusa_` (04_Log.gs) era uma só para
+      // todas as contas: a segunda conta recusada não deixava linha, e o
+      // "(+N iguais ...)" da linha seguinte contava as tentativas dela debaixo
+      // do e-mail de outra pessoa, que a aba Histórico mostra em "Quem". Com o
+      // e-mail na chave, cada conta ganha a sua linha a cada dez minutos, e o
+      // "+N" conta só as tentativas dela. A escrita continua com teto: o e-mail
+      // só chega aqui conferido pelo Google, e a conferência tem limite por hora
+      // (GOOGLE_TETO_VERIFICACOES_HORA).
       registrarRecusa_('LOGIN_NEGADO', 'painel', conferido.email,
-        'conta Google fora da allowlist', 'login_google_negado');
+        'conta Google fora da allowlist', 'login_google_negado_' + conferido.email);
       return {
         ok: false,
         erro: 'A conta ' + conferido.email + ' não tem acesso ao painel. Peça a quem ' +

@@ -1119,6 +1119,39 @@ teste('cada importação registra quem, quando, quantos e o arquivo', () => {
   igual(JSON.parse(lote.mapeamento_json).matricula, 1);
 });
 
+teste('no painel publicado, quem importou é a SESSÃO, e não "anonimo"', () => {
+  // `usuario: ''` é o GitHub Pages: ali `usuarioAtual_()` volta 'anonimo'
+  // (04_Log.gs), e era o que o lote e cada matriculado gravavam em
+  // `importado_por`. A aba Importações dizia "Por: anonimo" em todo lote.
+  // Com o usuário do ambiente igual ao da sessão, como no teste acima, o
+  // defeito passava verde.
+  //
+  // Mutação que derruba: `var quem = usuarioAtual_()` de volta em
+  // `confirmarImportacao_`.
+  const { api, falso } = ambiente({ usuario: '' });
+
+  const r = importar(api, CSV_TRES).resultado;
+  igual(r.ok, true, r.erro);
+
+  igual(documento(falso, 'lotes', r.loteId).importado_por, 'prof@unicesusc.br');
+  const porMatriculado = chaves(falso, 'matriculados')
+    .map((k) => documento(falso, 'matriculados', k.split('/')[1]).importado_por);
+  igual(porMatriculado, ['prof@unicesusc.br', 'prof@unicesusc.br', 'prof@unicesusc.br']);
+});
+
+teste('no painel publicado, quem apagou os matriculados de um lote é a SESSÃO', () => {
+  // Mutação que derruba: `expurgado_por: usuarioAtual_()` de volta em
+  // `expurgarLote_`.
+  const { api, falso } = ambiente({ usuario: '' });
+  const lote = importar(api, CSV_TRES).resultado.loteId;
+
+  igual(api.expurgarLote_({ token: TOKEN, loteId: lote }).ok, true);
+
+  const marcado = documento(falso, 'lotes', lote);
+  igual(marcado.status, 'EXPURGADO');
+  igual(marcado.expurgado_por, 'prof@unicesusc.br');
+});
+
 teste('o lote guarda o pedido de substituir separado do que foi feito', () => {
   const { api, falso } = ambiente();
   const r = importar(api, CSV_TRES, { substituir: true }).resultado;
