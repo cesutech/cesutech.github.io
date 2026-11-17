@@ -16,10 +16,11 @@
  * a chama duas vezes por login, `modoDeAcesso_()` outras duas, e o formulário
  * público (`dadosFormularioPublico_`, quando for trazido) vai consultar a cada
  * carregamento da página. No Firestore cobra-se por DOCUMENTO lido, contra um
- * teto de 50 mil leituras por dia no plano Spark. As 16 chaves de CONFIG_PADRAO
- * espalhadas em 17 documentos custariam 17 leituras por requisição, e o dia
- * acabaria em menos de 3 mil visitas ao formulário. Num documento só, custam 1 —
- * e o cache de execução abaixo derruba até isso para uma leitura por execução.
+ * teto de 50 mil leituras por dia no plano Spark. As 26 chaves de CONFIG_PADRAO
+ * espalhadas em 26 documentos custariam 26 leituras por requisição, e o dia
+ * acabaria em menos de 2 mil visitas ao formulário. Num documento só, custam 1 —
+ * e os dois caches abaixo, o da execução e o do script, derrubam isso para uma
+ * leitura por execução, e, nas rotas anônimas, para uma por minuto.
  *
  * O preço desse desenho: gravação de chave é sempre um PATCH no mesmo documento,
  * então duas gravações simultâneas disputam. Configuração é escrita pela
@@ -41,6 +42,60 @@ var CONFIG_DOCUMENTO = 'geral';
  * chamada várias vezes e o valor não pode mudar no meio.
  */
 var CONFIG_CACHE = null;
+
+/**
+ * O documento de configuração também fica no cache do SCRIPT, entre execuções,
+ * por CONFIG_CACHE_SEGUNDOS — e só as rotas ANÔNIMAS o leem de lá.
+ *
+ * O cache da execução, acima, só vale para uma requisição. Sem este, TODA
+ * requisição pagava uma leitura no banco antes de qualquer coisa, inclusive a
+ * anônima que vai ser recusada: o formulário confere `cadastro_aberto` antes do
+ * freio, a matrícula confere `matricula_digitos` antes do teto, e a tela de
+ * entrada (`modoDeAcesso_`) lê a lista de acesso a cada carga, sem freio
+ * nenhum. Um laço de requisições vazias gastava assim as 50 mil leituras por
+ * dia do plano Spark, e cada leitura ainda é uma chamada de UrlFetch, que tem a
+ * sua cota (07_Auth.gs). Com o cache, recusar não lê o banco: o laço custa uma
+ * leitura por minuto.
+ *
+ * SÓ AS ROTAS ANÔNIMAS LEEM O CACHE, porque são elas que um laço alcança sem
+ * conta: as leituras do site (`rotaCacheada_` e `conferirMatricula_`, 08_Api.gs),
+ * a inscrição (`submeterInscricao_`) e as duas rotas de entrada que não decidem
+ * acesso, `modoDeAcesso_` e `pedirLinkDeAcesso_`. Cada uma liga o cache na
+ * primeira linha, com `usarConfigDoScript_(true)`. Quem DECIDE acesso continua
+ * lendo o banco a cada execução: a entrada com conta Google ou com o link, todo
+ * o painel, o editor e os acionadores. O motivo é a corrida que nenhum cache
+ * fecha: uma leitura começada antes de uma gravação pode guardar o valor velho
+ * depois de a gravação esquecê-lo. Para a tela de entrada, isso é um minuto de
+ * texto velho. Para a entrada no painel, seria um minuto em que alguém recém-
+ * removido da lista entra de novo.
+ *
+ * Toda leitura do banco, de qualquer rota, renova o cache, e toda gravação feita
+ * pelo sistema o esquece na hora (`esquecerConfigDoScript_`, nos três caminhos
+ * que gravam: `gravarConfig_`, `gravarAcessos_` e `semearConfigPadrao_`). A
+ * mudança feita pelo painel vale, então, na requisição anônima seguinte. O prazo
+ * curto cobre o que o sistema não vê: a chave mudada direto no console do
+ * Firestore e a corrida acima. Nos dois casos, esta camada segura o valor velho
+ * por no máximo um minuto. Quem guarda por cima dela soma o próprio prazo: as
+ * listas do site (`rotaCacheada_`, 30 s) e a lista de acesso do link por e-mail
+ * (cinco minutos, 07b_LinkPorEmail.gs). Nenhuma das duas decide acesso: o link
+ * enviado a quem saiu da lista não entra, porque `entrarComLink_` relê o banco.
+ *
+ * Cache fora do ar não derruba nada: a leitura cai no banco, como antes.
+ */
+var CONFIG_CACHE_CHAVE = 'config_geral';
+var CONFIG_CACHE_SEGUNDOS = 60;
+
+/** A execução em curso lê a configuração do cache do script? Ver acima. */
+var CONFIG_CACHE_DO_SCRIPT_VALE = false;
+
+/**
+ * Liga ou desliga o cache do script para a execução em curso. A execução nasce
+ * com ele desligado (o escopo global do Apps Script é novo a cada requisição), e
+ * só as funções das rotas anônimas o ligam, na primeira linha. Ver acima.
+ */
+function usarConfigDoScript_(sim) {
+  CONFIG_CACHE_DO_SCRIPT_VALE = sim === true;
+}
 
 /**
  * Chaves que NÃO moram no banco: chave de configuração -> propriedade do script.
@@ -75,6 +130,14 @@ function configSegredo_(chave) {
 function lerConfig_() {
   if (CONFIG_CACHE) return CONFIG_CACHE;
 
+  if (CONFIG_CACHE_DO_SCRIPT_VALE) {
+    var guardada = configDoScript_();
+    if (guardada) {
+      CONFIG_CACHE = guardada;
+      return CONFIG_CACHE;
+    }
+  }
+
   var documento = ler_(CONFIG_COLECAO, CONFIG_DOCUMENTO) || {};
   var cfg = {};
 
@@ -85,7 +148,42 @@ function lerConfig_() {
   });
 
   CONFIG_CACHE = cfg;
+  guardarConfigNoScript_(cfg);
   return cfg;
+}
+
+/** A configuração guardada no cache do script, ou null. Ver CONFIG_CACHE_SEGUNDOS. */
+function configDoScript_() {
+  try {
+    var bruta = CacheService.getScriptCache().get(CONFIG_CACHE_CHAVE);
+    if (bruta === null || bruta === undefined) return null;
+    var cfg = JSON.parse(bruta);
+    return cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : null;
+  } catch (e) {
+    // Cache fora do ar ou valor ilegível: lê do banco, como antes do cache.
+    return null;
+  }
+}
+
+/** Guarda a configuração lida do banco no cache do script. Falhar não é erro. */
+function guardarConfigNoScript_(cfg) {
+  try {
+    CacheService.getScriptCache().put(CONFIG_CACHE_CHAVE, JSON.stringify(cfg), CONFIG_CACHE_SEGUNDOS);
+  } catch (e) {
+    // Não guardou: a próxima execução lê do banco.
+  }
+}
+
+/**
+ * Esquece a configuração guardada no cache do script. Chamado por QUEM GRAVA,
+ * para a mudança valer na requisição seguinte, e não um minuto depois.
+ */
+function esquecerConfigDoScript_() {
+  try {
+    CacheService.getScriptCache().remove(CONFIG_CACHE_CHAVE);
+  } catch (e) {
+    // Cache fora do ar: nada guardado, nada a esquecer.
+  }
 }
 
 /**
@@ -124,6 +222,7 @@ function gravarConfig_(chave, valor) {
   var campo = {};
   campo[chave] = String(valor);
   atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, campo);
+  esquecerConfigDoScript_();
 
   // A allowlist tem uma cópia em cache no caminho do link por e-mail
   // (07b_LinkPorEmail.gs). Ela é esquecida AQUI, e não em cada um dos quatro
@@ -170,6 +269,7 @@ function gravarAcessos_(emails, gerais) {
   };
 
   atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, campos);
+  esquecerConfigDoScript_();
   esquecerAllowlistDoLink_();
 
   if (CONFIG_CACHE) {
@@ -179,14 +279,15 @@ function gravarAcessos_(emails, gerais) {
 }
 
 /**
- * Descarta o cache da execução.
+ * Descarta o cache da execução E o do script.
  *
  * Existe para `provaConfigELog()` (20_Prova.gs) poder provar que o valor foi ao
- * banco e voltou: sem descartar, `config_()` responderia da memória e a prova não
- * provaria nada.
+ * banco e voltou: sem descartar, `config_()` responderia da memória, ou do cache
+ * do script, e a prova não provaria nada.
  */
 function limparCacheConfig_() {
   CONFIG_CACHE = null;
+  esquecerConfigDoScript_();
 }
 
 /** Config em lista, separada por '|' (cursos e fases, turnos). */
@@ -227,6 +328,7 @@ function semearConfigPadrao_() {
   // Uma única escrita para o lote inteiro: o documento é um só.
   if (criadas.length) {
     atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, novas);
+    esquecerConfigDoScript_();
     criadas.forEach(function (chave) { CONFIG_CACHE[chave] = novas[chave]; });
   }
 

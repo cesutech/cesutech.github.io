@@ -1302,6 +1302,29 @@ teste('a conta removida não entra mais pelo Google', () => {
   igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 });
 
+teste('a entrada pelo Google lê a lista no banco: removida direto no banco, com o cache quente, não entra', () => {
+  // O teste acima remove pela tela, e a tela esquece o cache. Aqui a remoção é
+  // direto no banco, como no console do Firestore, e a tela de entrada acabou de
+  // guardar no cache do script a lista com a pessoa (03_Config.gs). Quem decide
+  // a entrada confere no banco. Mutação que derruba: `entrarComGoogle_` ligar o
+  // cache do script.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
+  const execucaoNova = () => {
+    amb.api.CONFIG_CACHE = null;
+    amb.api.CONFIG_CACHE_DO_SCRIPT_VALE = false;
+  };
+
+  execucaoNova();
+  igual(amb.api.modoDeAcesso_().ok, true);
+  execucaoNova();
+  amb.api.atualizar_('config', 'geral', { admin_emails: 'coordenacao@exemplo.com' });
+
+  execucaoNova();
+  responder(amb, tokenBom({ email: 'saindo@exemplo.com' }));
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false,
+    'a conta removida entrou pelo Google com a lista guardada no cache');
+});
+
 // ============================ A lista de acesso só guarda e só devolve e-mail
 
 /**

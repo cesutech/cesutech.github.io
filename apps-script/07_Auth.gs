@@ -428,6 +428,8 @@ function excedeuVerificacoesGoogle_() {
  * fora que este arquivo inteiro existe para evitar.
  */
 function modoDeAcesso_() {
+  // Rota anônima: a configuração pode vir do cache do script (03_Config.gs).
+  usarConfigDoScript_(true);
   try {
     var email = usuarioAtual_();
     var lista = adminEmails_();

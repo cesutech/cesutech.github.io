@@ -147,6 +147,8 @@ var LINK_EMAIL_MAX = 254;
  * abaixo pode mudar isso — ver a PRIMEIRA decisão, no topo do arquivo.
  */
 function pedirLinkDeAcesso_(email) {
+  // Rota anônima: a configuração pode vir do cache do script (03_Config.gs).
+  usarConfigDoScript_(true);
   var resposta = { ok: true, mensagem: LINK_RESPOSTA_UNICA };
 
   try {
