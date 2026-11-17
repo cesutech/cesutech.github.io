@@ -126,6 +126,13 @@
  * ~450 leituras a mais — ruído, dentro dos 50 mil. Os três números são MEDIDOS
  * no falso (testes/api.js, no mesmo grupo do 33), e não afirmados aqui.
  *
+ * A CONFIGURAÇÃO entra em cada conta acima como uma leitura, que é o custo com o
+ * cache dela frio. Desde 17/11/2026 as rotas anônimas a leem do cache do script
+ * (03_Config.gs, CONFIG_CACHE_SEGUNDOS), e com ele quente ela sai de graça: a
+ * matrícula custa 2, o POST 5 e as duas rodadas da troca 6 e 7, também medidos
+ * em testes/api.js. O cache frio vale para a primeira requisição de cada minuto
+ * e para a primeira depois de cada gravação da configuração.
+ *
  * Somando com P=5 e a coleção de disciplinas vazia: 2 + 11 + 3 + 6 + 11 = TRINTA
  * E TRÊS leituras por aluno (eram 31 antes de a fila de espera existir; as duas
  * a mais são a mesma pergunta de configuração, uma por carga do site). Esse
@@ -839,6 +846,8 @@ function funcoesDoProfessor_() {
  * reordenamento que `checarMatriculaNaLista_` faz em 04_Inscricoes.gs.
  */
 function conferirMatricula_(bruta, projetoId) {
+  // Rota anônima: a configuração pode vir do cache do script (03_Config.gs).
+  usarConfigDoScript_(true);
   var matricula = normalizarMatricula_(bruta);
 
   // A MESMA RÉGUA DO ENVIO, e não uma conta própria. Até 19/09 esta rota
@@ -1016,6 +1025,8 @@ function respostaJsonTexto_(json) {
  * `CacheService` simplesmente não existe, e é o mesmo caminho.
  */
 function rotaCacheada_(chave, montar) {
+  // Rota anônima: a configuração pode vir do cache do script (03_Config.gs).
+  usarConfigDoScript_(true);
   var cache = cacheDeRotas_();
 
   if (cache) {

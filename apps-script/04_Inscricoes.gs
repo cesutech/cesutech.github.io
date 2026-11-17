@@ -1342,6 +1342,8 @@ function recusaPelaJanela_() {
  * validação de front-end é conveniência, não segurança.
  */
 function submeterInscricao_(dados) {
+  // Rota anônima: a configuração pode vir do cache do script (03_Config.gs).
+  usarConfigDoScript_(true);
   try {
     if (config_('cadastro_aberto', 'SIM').toUpperCase() !== 'SIM') {
       return { ok: false, erro: 'As inscrições estão encerradas no momento.' };

@@ -140,6 +140,20 @@ function cacheServiceFalso(opcoes) {
 }
 
 /**
+ * Os eventos do cache, menos os da configuração.
+ *
+ * Desde 17/11/2026 a configuração também passa pelo cache do script
+ * (`CONFIG_CACHE_CHAVE`, 03_Config.gs): toda rota que lê uma chave faz um `get`
+ * com ela, e a primeira faz também o `put`. Os testes que contam eventos falam do
+ * cache DAS ROTAS e da chave de repetição; a configuração tem os testes dela, no
+ * grupo "a configuração no cache do script". O ping não usa este filtro: a rota
+ * do aquecimento não fala com cache nenhum.
+ */
+function eventosDasRotas(a) {
+  return a.cache.eventos.filter((e) => e.chave !== a.api.CONFIG_CACHE_CHAVE);
+}
+
+/**
  * MailApp que guarda em vez de enviar, com a cota sob o controle do teste.
  *
  * Entrou junto com 07b_LinkPorEmail.gs: sem ele, `linkDeAcessoDisponivel_` cai
@@ -186,6 +200,10 @@ function montar(opcoes) {
     usuarioEfetivo: opcoes.usuarioEfetivo,
     relogio: opcoes.relogio
   });
+  // O valor com que a execução NASCE (03_Config.gs: o cache do script desligado).
+  // `requisicao` o repõe antes de cada rota: repor um `false` escrito aqui
+  // esconderia a mutação em que a execução nasce com ele ligado.
+  ambiente.flagDeclarada = ambiente.api.CONFIG_CACHE_DO_SCRIPT_VALE;
 
   const cache = cacheServiceFalso(opcoes.cache);
   const correio = mailAppFalso(opcoes.cota);
@@ -279,12 +297,16 @@ function leiturasCobradas(ambiente) {
 /**
  * Uma execução do web app.
  *
- * Descarta o cache de configuração e zera o contador de requisições ANTES de
+ * Zera o cache de configuração DA EXECUÇÃO e o contador de requisições ANTES de
  * chamar a rota — é o que torna a medição comparável com a produção, onde cada
- * requisição HTTP é uma execução nova, com o escopo global zerado.
+ * requisição HTTP é uma execução nova, com o escopo global zerado. O cache do
+ * SCRIPT (CacheService) sobrevive, como sobrevive em produção: é ele que faz a
+ * requisição seguinte não ler a configuração no banco (03_Config.gs). Quem
+ * precisa da execução sem nada guardado chama `limparCacheConfig_()`.
  */
 function requisicao(ambiente, fn) {
-  ambiente.api.limparCacheConfig_();
+  ambiente.api.CONFIG_CACHE = null;
+  ambiente.api.CONFIG_CACHE_DO_SCRIPT_VALE = ambiente.flagDeclarada;
   zerar(ambiente);
   return fn();
 }
@@ -432,7 +454,7 @@ teste('o cache é gravado com o prazo declarado em CACHE_ROTAS_S', () => {
   const a = montar();
   get(a, { api: 'config' });
 
-  const gravou = a.cache.eventos.filter((e) => e.tipo === 'put');
+  const gravou = eventosDasRotas(a).filter((e) => e.tipo === 'put');
   igual(gravou.length, 1);
   igual(gravou[0].chave, a.api.CACHE_CONFIG);
   igual(gravou[0].segundos, a.api.CACHE_ROTAS_S);
@@ -910,8 +932,12 @@ teste('a conferência NÃO é cacheada', () => {
   matricular(a.api, ['9110001']);
 
   get(a, { api: 'matricula', m: '9110001', p: 'p1' });
+  const primeira = a.falso.requisicoes.length;
   get(a, { api: 'matricula', m: '9110001', p: 'p1' });
-  igual(a.falso.requisicoes.length, 3, 'a segunda consulta custa o mesmo que a primeira');
+  // A primeira paga também a configuração, que daí em diante vem do cache do
+  // script (03_Config.gs). A matrícula e o projeto, não: a segunda consulta vai
+  // ao banco de novo pelos dois.
+  igual([primeira, a.falso.requisicoes.length], [3, 2], 'a segunda consulta tem de ir ao banco pela matrícula');
 });
 
 // ------------------------------------------------------ teto de consultas
@@ -1374,7 +1400,7 @@ teste('guarda SÓ o que deu certo: a recusa pode ser tentada de novo', () => {
   igual(primeira.ok, false, 'o servidor aceitou projeto sem nome');
   igual(execucoes.vezes, 2, 'A RECUSA FICOU GUARDADA: a segunda tentativa nem rodou');
   igual(segunda.ok, false);
-  igual(a.cache.eventos.filter((e) => e.tipo === 'put').length, 0,
+  igual(eventosDasRotas(a).filter((e) => e.tipo === 'put').length, 0,
     'a recusa foi parar no cache');
 });
 
@@ -1418,10 +1444,10 @@ teste('chave malformada é IGNORADA, e a ação roda como rodava antes', () => {
 
   ['', 'curta', 'x'.repeat(65), 'com espaço', 'ponto.virgula', '../../etc/passwd',
    'aspas"aqui', null, 42, { chave: 'objeto' }].forEach((idem) => {
-    const antes = a.cache.eventos.length;
+    const antes = eventosDasRotas(a).length;
     const r = painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, idem);
     igual(r.ok, true, 'a chave ' + JSON.stringify(idem) + ' derrubou a ação: ' + r.erro);
-    igual(a.cache.eventos.length, antes,
+    igual(eventosDasRotas(a).length, antes,
       'a chave ' + JSON.stringify(idem) + ' chegou ao cache mesmo malformada');
   });
 });
@@ -1435,7 +1461,7 @@ teste('a janela é de dez minutos, e depois dela a chave não vale mais', () => 
   const execucoes = contarExecucoes(a, 'salvarProjeto_');
 
   painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kjanela1234567');
-  const put = a.cache.eventos.filter((e) => e.tipo === 'put')[0];
+  const put = eventosDasRotas(a).filter((e) => e.tipo === 'put')[0];
   igual(put.segundos, 600, 'a validade da chave mudou de tamanho');
 
   a.cache.expirar();
@@ -1452,7 +1478,7 @@ teste('resposta grande demais não é guardada — a repetição volta a executa
   a.api.guardarResposta_('idem_exportarCsv_kgrande123456',
     { ok: true, csv: 'a'.repeat(60000), linhas: 900 });
 
-  igual(a.cache.eventos.filter((e) => e.tipo === 'put').length, 0,
+  igual(eventosDasRotas(a).filter((e) => e.tipo === 'put').length, 0,
     'a resposta gigante foi mandada ao cache assim mesmo');
   igual(a.api.respostaGuardada_('idem_exportarCsv_kgrande123456'), null);
 });
@@ -1490,7 +1516,7 @@ teste('a chave não é porta: sem token, ela nem chega ao cache', () => {
 
   igual(r.ok, false);
   igual(r.erro, 'Sessão expirada ou inválida. Faça login novamente.');
-  igual(a.cache.eventos.length, 0, 'uma requisição sem token mexeu no cache');
+  igual(eventosDasRotas(a).length, 0, 'uma requisição sem token mexeu no cache');
   igual(a.falso.requisicoes.length, 0, 'e ainda gastou leitura do banco');
 });
 
@@ -1500,7 +1526,7 @@ teste('nome fora da lista branca não guarda nada, mesmo com chave boa', () => {
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('Ação desconhecida') === 0, r.erro);
-  igual(a.cache.eventos.length, 0, 'a rota tocou o cache antes de conferir a lista branca');
+  igual(eventosDasRotas(a).length, 0, 'a rota tocou o cache antes de conferir a lista branca');
 });
 
 // ------------------------------------------------------ rotas de login
@@ -1637,6 +1663,10 @@ teste('dois pedidos de link custam UMA leitura do banco, e não uma por pedido',
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
   igual(leiturasCobradas(a), 1, 'o primeiro pedido é o que paga: ele monta o cache');
 
+  // A configuração também fica no cache do script (03_Config.gs), e ela sozinha
+  // pouparia esta leitura. Esvaziá-la deixa só o cache da lista do link para
+  // provar o que este teste prova.
+  a.api.limparCacheConfig_();
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
   igual(leiturasCobradas(a), 0,
     'o segundo pedido voltou ao Firestore — o cache da allowlist não está pegando');
@@ -1650,6 +1680,9 @@ teste('uma enxurrada de endereços inventados não custa uma leitura por pedido'
 
   let leituras = 0;
   for (let i = 0; i < 20; i++) {
+    // Sem o cache da configuração, como no teste acima: quem poupa a leitura
+    // tem de ser o cache da lista do link.
+    a.api.limparCacheConfig_();
     igual(pedirLink(a, 'inventado' + i + '@exemplo.com').ok, true);
     leituras += leiturasCobradas(a);
   }
@@ -2521,7 +2554,11 @@ teste('com `aluno_projeto_unico=SIM`, o POST comum custa 7 e a troca inteira cus
   matricular(a.api, ['9110001']);
   a.api.gravarConfig_('aluno_projeto_unico', 'SIM');
 
+  // Os números do cabeçalho são os do cache FRIO da configuração (03_Config.gs):
+  // cada POST abaixo começa sem ela guardada, como a primeira requisição de cada
+  // minuto. O teste seguinte mede o mesmo caminho com o cache quente.
   function postar(corpo) {
+    a.api.limparCacheConfig_();
     return corpoDe(requisicao(a, () => a.api.doPost({
       postData: { type: 'text/plain', contents: JSON.stringify(corpo) }
     })));
@@ -2570,9 +2607,39 @@ teste('com o cache quente, as duas rotas de leitura custam zero', () => {
   igual(get(a, { api: 'config' }) && a.falso.requisicoes.length, 0);
   igual(get(a, { api: 'projetos' }) && a.falso.requisicoes.length, 0);
 
-  // Sobram as três da matrícula e as seis do POST: dez por aluno, contra trinta.
+  // Sobram a matrícula e o POST, e a configuração já não entra em nenhum dos
+  // dois: ela vem do cache do script (03_Config.gs). Duas leituras da matrícula
+  // e cinco do POST: sete por aluno, contra trinta e três com tudo frio.
   get(a, { api: 'matricula', m: '9110001', p: 'p1' });
-  igual(a.falso.requisicoes.length, 3);
+  igual(a.falso.requisicoes.length, 2);
+  const post = requisicao(a, () => a.api.doPost({
+    postData: { type: 'text/plain', contents: JSON.stringify(Object.assign({ projeto_id: 'p1' }, INSCRICAO_VALIDA)) }
+  }));
+  igual(corpoDe(post).ok, true, corpoDe(post).erro);
+  igual(leiturasCobradas(a), 5);
+});
+
+teste('com a configuração no cache do script, a troca custa duas leituras a menos', () => {
+  // O mesmo caminho do teste "os números do cabeçalho", sem esvaziar o cache
+  // entre os POSTs. Só o primeiro paga a configuração, porque gravar
+  // `aluno_projeto_unico` acabou de esquecê-la. Mutação que derruba: as rotas
+  // anônimas deixarem de ler o cache (`usarConfigDoScript_`, 08_Api.gs).
+  const a = montar();
+  ['p1', 'p2', 'p3', 'p4', 'p5'].forEach((id) => criarProjeto(a.api, id, { vagas: '60' }));
+  matricular(a.api, ['9110001']);
+  a.api.gravarConfig_('aluno_projeto_unico', 'SIM');
+  const postar = (corpo) => corpoDe(requisicao(a, () => a.api.doPost({
+    postData: { type: 'text/plain', contents: JSON.stringify(corpo) }
+  })));
+
+  igual(postar(Object.assign({ projeto_id: 'p1' }, INSCRICAO_VALIDA)).ok, true);
+  const comum = leiturasCobradas(a);
+  igual(postar(Object.assign({ projeto_id: 'p2' }, INSCRICAO_VALIDA)).troca_pendente, true);
+  const rodada1 = leiturasCobradas(a);
+  igual(postar(Object.assign({ projeto_id: 'p2', trocar_de: ['p1'] }, INSCRICAO_VALIDA)).ok, true);
+  const rodada2 = leiturasCobradas(a);
+
+  igual([comum, rodada1, rodada2], [7, 6, 7], 'o POST comum frio, e as duas rodadas com o cache quente');
 });
 
 teste('a enxurrada anônima custa uma renovação, e não uma por requisição', () => {
@@ -2707,6 +2774,201 @@ teste('não mexe no cache e não passa pelas rotas caras', () => {
   get(a, { api: 'ping' });
 
   igual(a.cache.eventos.length, eventosAntes, 'a rota de ping não fala com o cache');
+});
+
+grupo('a configuração no cache do script — recusar não lê o banco');
+
+/** As leituras do documento de configuração na última requisição. */
+function leiturasDaConfig(a) {
+  return a.falso.requisicoes.filter((r) => r.metodo === 'GET' && r.url.indexOf('/config/geral') !== -1).length;
+}
+
+teste('a recusa anônima com o cache quente não lê o banco', () => {
+  // A matrícula fora do formato é recusada antes de qualquer consulta, mas a
+  // régua do formato (`matricula_digitos`) é configuração. Sem o cache do
+  // script, até a recusa pagava uma leitura. Mutação que derruba: tirar
+  // `configDoScript_` de `lerConfig_`.
+  const a = montar();
+  igual(corpoDe(get(a, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
+  igual(leiturasDaConfig(a), 1, 'a primeira paga a configuração');
+  igual(corpoDe(get(a, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
+  igual(a.falso.requisicoes.length, 0, 'a segunda, recusada do mesmo jeito, foi ao banco');
+});
+
+teste('a tela de entrada, que não tem freio, custa uma leitura em cem cargas', () => {
+  // `modoDeAcesso` roda a cada carga da tela de entrada, sem conta e sem teto.
+  // Antes do cache, cem cargas eram cem leituras: o laço que gastava a cota do
+  // dia. Mutação que derruba: a rota não ligar o cache (`usarConfigDoScript_`).
+  const a = montar();
+  let total = 0;
+  for (let i = 0; i < 100; i++) {
+    igual(login(a, 'modoDeAcesso').ok, true);
+    total += a.falso.requisicoes.length;
+  }
+  igual(total, 1, 'cem cargas da tela de entrada');
+});
+
+teste('a inscrição barrada pelo campo-isca não lê o banco com o cache quente', () => {
+  const a = montar();
+  const isca = Object.assign({ projeto_id: 'p1' }, INSCRICAO_VALIDA, { website: 'http://exemplo.com' });
+  igual(corpoDe(post(a, isca)).ok, false);
+  igual(corpoDe(post(a, isca)).ok, false);
+  igual(leiturasCobradas(a), 0, 'a segunda inscrição barrada leu o banco');
+});
+
+teste('gravar pela tela vale na requisição anônima seguinte, sem esperar o minuto', () => {
+  // Mutação que derruba: tirar `esquecerConfigDoScript_` de `gravarConfig_`.
+  const a = montar();
+  igual(corpoDe(get(a, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
+  a.api.gravarConfig_('matricula_digitos', '2');
+  const depois = corpoDe(get(a, { api: 'matricula', m: '12' }));
+  verdadeiro(depois.motivo !== 'FORMATO', 'a requisição seguinte ainda usou a régua velha: ' + JSON.stringify(depois));
+});
+
+teste('os três caminhos que gravam a configuração esquecem o cache do script', () => {
+  // Mutação que derruba: tirar `esquecerConfigDoScript_` de qualquer um dos três.
+  const caminhos = {
+    gravarConfig_: { gravar: (api) => api.gravarConfig_('cadastro_aberto', 'NAO') },
+    gravarAcessos_: { gravar: (api) => api.gravarAcessos_(['nova@exemplo.com'], ['nova@exemplo.com']) },
+    semearConfigPadrao_: {
+      // Uma chave padrão que sumiu do documento, como se apagada no console: o
+      // semear a recria, e isso é uma gravação. A limpeza do cache aqui é da
+      // PREPARAÇÃO, e fica fora da conta abaixo.
+      preparar: (a) => {
+        delete a.falso.documentos.get('config/geral').cadastro_aberto;
+        a.api.limparCacheConfig_();
+      },
+      gravar: (api) => igual(api.semearConfigPadrao_(), ['cadastro_aberto'])
+    }
+  };
+  Object.keys(caminhos).forEach((nome) => {
+    const a = montar();
+    get(a, { api: 'matricula', m: '12' });
+    if (caminhos[nome].preparar) caminhos[nome].preparar(a);
+    a.api.CONFIG_CACHE = null;
+    const antes = a.cache.eventos.length;
+    caminhos[nome].gravar(a.api);
+    const esqueceu = a.cache.eventos.slice(antes)
+      .filter((e) => e.tipo === 'remove' && e.chave === a.api.CONFIG_CACHE_CHAVE).length;
+    verdadeiro(esqueceu > 0, nome + ' gravou a configuração e não esqueceu o cache do script');
+  });
+});
+
+teste('quem decide acesso lê o banco: removido direto no banco, o link não entra mais', () => {
+  // A corrida que nenhum cache fecha (03_Config.gs): a lista guardada pode ser
+  // de um minuto atrás. Aqui a remoção é feita direto no banco, sem passar pelo
+  // sistema, como no console do Firestore, e o cache da tela de entrada
+  // continua com a pessoa. A entrada pelo link confere a lista no banco, e
+  // recusa. Mutação que derruba: `entrarComLink` ligar o cache do script.
+  const a = montar();
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
+  igual(login(a, 'modoDeAcesso').allowlistVazia, false);
+  igual(login(a, 'pedirLinkDeAcesso', { email: 'coordenacao@exemplo.com' }).ok, true);
+  const token = tokenDoEmail(a);
+
+  a.api.atualizar_('config', 'geral', { admin_emails: 'outra@exemplo.com' });
+  igual(login(a, 'modoDeAcesso').allowlistVazia, false, 'a tela de entrada lê o cache, e ele ainda tem gente');
+
+  const r = login(a, 'entrarComLink', { token: token });
+  igual(r.ok, false, 'quem saiu da lista entrou pelo link com a lista do cache');
+  verdadeiro(leiturasDaConfig(a) >= 1, 'a entrada pelo link não leu a lista no banco');
+});
+
+teste('o pedido de link e as listas do site, com o cache deles frio, não leem a configuração no banco', () => {
+  // As duas têm cache próprio, e a configuração só é lida quando ele esfria: a
+  // lista de acesso do link (cinco minutos, 07b_LinkPorEmail.gs) e as respostas
+  // de ?api=config e ?api=projetos (`rotaCacheada_`). Nessa hora, a
+  // configuração vem do cache do script. Mutações que derrubam: tirar
+  // `usarConfigDoScript_(true)` de `pedirLinkDeAcesso_` ou de `rotaCacheada_`.
+  const a = montar();
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
+  get(a, { api: 'matricula', m: '12' });           // a configuração vai para o cache do script
+
+  igual(login(a, 'pedirLinkDeAcesso', { email: 'coordenacao@exemplo.com' }).ok, true);
+  igual(leiturasDaConfig(a), 0, 'o pedido de link leu a configuração no banco');
+
+  igual(corpoDe(get(a, { api: 'config' })).ok, true);
+  igual(leiturasDaConfig(a), 0, '?api=config, com a resposta fora do cache, leu a configuração no banco');
+});
+
+teste('a execução nasce com o cache do script desligado', () => {
+  // É o que faz quem decide acesso ler o banco sem precisar pedir. Mutação que
+  // derruba: declarar CONFIG_CACHE_DO_SCRIPT_VALE como true.
+  igual(montar().api.CONFIG_CACHE_DO_SCRIPT_VALE, false);
+});
+
+teste('o despacho do painel lê o nível no banco: rebaixado direto no banco, não salva configuração', () => {
+  // Como o teste do link, para o nível: o cache da tela de entrada continua
+  // com a pessoa entre os coordenadores, e o despacho confere no banco.
+  // Mutação que derruba: `rotaDoPainel_` ligar o cache do script.
+  const a = montar();
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com, professora@exemplo.com');
+  a.api.gravarConfig_('coordenadores_gerais', 'coordenacao@exemplo.com, professora@exemplo.com');
+  const token = a.api.criarSessao_('professora@exemplo.com');
+  igual(login(a, 'modoDeAcesso').ok, true);
+
+  a.api.atualizar_('config', 'geral', { coordenadores_gerais: 'coordenacao@exemplo.com' });
+
+  const r = painel(a, 'salvarConfiguracao', token, { chave: 'cadastro_aberto', valor: 'NAO' });
+  igual(r.ok, false, 'a rebaixada salvou configuração com o nível guardado no cache');
+  igual(r.motivo, 'NIVEL');
+});
+
+teste('o prazo é absoluto: acertar o cache não o renova', () => {
+  // Com o prazo renovado a cada acerto, um valor velho viveria enquanto houvesse
+  // tráfego. Mutação que derruba: regravar o cache a cada leitura dele.
+  const a = montar();
+  get(a, { api: 'matricula', m: '12' });
+  const guardadas = () => a.cache.eventos
+    .filter((e) => e.tipo === 'put' && e.chave === a.api.CONFIG_CACHE_CHAVE).length;
+  const antes = guardadas();
+  for (let i = 0; i < 10; i++) get(a, { api: 'matricula', m: '12' });
+  igual(guardadas(), antes, 'as leituras do cache regravaram a configuração');
+});
+
+teste('gravar e só depois esquecer: uma leitura anônima no meio da gravação não deixa valor velho', () => {
+  // Outra execução, anônima, chega no instante anterior à gravação chegar ao
+  // banco. Com a ordem gravar → esquecer, ela acerta o cache (valor velho, sem
+  // regravar), e o esquecer vem depois. Com a ordem invertida, ela acharia o
+  // cache vazio, leria o banco ainda velho e o guardaria por um minuto.
+  // Mutação que derruba: `esquecerConfigDoScript_()` antes do `atualizar_` em
+  // `gravarConfig_`.
+  const a = montar();
+  get(a, { api: 'matricula', m: '12' });
+  const fetchDaRota = a.api.UrlFetchApp.fetch;
+  let leuNoMeio = false;
+  a.api.UrlFetchApp.fetch = (url, opcoes) => {
+    const metodo = String((opcoes && opcoes.method) || '').toLowerCase();
+    if (!leuNoMeio && metodo === 'patch' && String(url).indexOf('/config/geral') !== -1) {
+      leuNoMeio = true;
+      const execucao = [a.api.CONFIG_CACHE, a.api.CONFIG_CACHE_DO_SCRIPT_VALE];
+      a.api.CONFIG_CACHE = null;
+      a.api.CONFIG_CACHE_DO_SCRIPT_VALE = a.flagDeclarada;
+      a.api.conferirMatricula_('12');
+      a.api.CONFIG_CACHE = execucao[0];
+      a.api.CONFIG_CACHE_DO_SCRIPT_VALE = execucao[1];
+    }
+    return fetchDaRota(url, opcoes);
+  };
+  a.api.gravarConfig_('matricula_digitos', '2');
+  a.api.UrlFetchApp.fetch = fetchDaRota;
+
+  verdadeiro(leuNoMeio, 'a gravação não passou pelo PATCH esperado');
+  const depois = corpoDe(get(a, { api: 'matricula', m: '12' }));
+  verdadeiro(depois.motivo !== 'FORMATO', 'a leitura do meio deixou a régua velha no cache: ' + JSON.stringify(depois));
+});
+
+teste('o cache vale um minuto, e cache fora do ar não derruba a rota', () => {
+  const a = montar();
+  get(a, { api: 'matricula', m: '12' });
+  const guardou = a.cache.eventos.filter((e) => e.tipo === 'put' && e.chave === a.api.CONFIG_CACHE_CHAVE);
+  verdadeiro(guardou.length > 0, 'a configuração não foi guardada no cache do script');
+  igual(Array.from(new Set(guardou.map((e) => e.segundos))), [60], 'o prazo do cache da configuração mudou');
+
+  const semCache = montar({ semCache: true });
+  igual(corpoDe(get(semCache, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
+  igual(corpoDe(get(semCache, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
+  igual(leiturasDaConfig(semCache), 1, 'sem cache, cada requisição lê a configuração no banco, como antes');
 });
 
 grupo('o gatilho de aquecimento — bater na porta sem comer a cota do dia');
