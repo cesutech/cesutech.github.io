@@ -555,6 +555,7 @@ function criarAmbiente(opcoes) {
   opcoes = opcoes || {};
   const falso = criarFirestoreFalso();
   const propriedades = new Map();
+  const usosDePropriedade = [];
   const cache = new Map();
   const esperas = [];
   const registros = { erros: [], logger: [] };
@@ -633,12 +634,28 @@ function criarAmbiente(opcoes) {
       computeDigest: (_algoritmo, texto) => Array.from(crypto.createHash('md5').update(String(texto), 'utf8').digest())
         .map((b) => (b > 127 ? b - 256 : b))
     },
+    // Cada operação fica anotada em `usosDePropriedade`, porque as propriedades
+    // do script têm COTA DIÁRIA (50 mil leituras e gravações numa conta comum) e
+    // uma rota anônima que gasta propriedade é um jeito de desligar o sistema de
+    // fora. `getScriptProperties()` não conta: a cota é das leituras e gravações.
     PropertiesService: {
       getScriptProperties: () => ({
-        getProperty: (k) => (propriedades.has(k) ? propriedades.get(k) : null),
-        setProperty: (k, v) => { propriedades.set(k, String(v)); },
-        deleteProperty: (k) => { propriedades.delete(k); },
-        getProperties: () => Object.fromEntries(propriedades)
+        getProperty: (k) => {
+          usosDePropriedade.push({ tipo: 'get', chave: k });
+          return propriedades.has(k) ? propriedades.get(k) : null;
+        },
+        setProperty: (k, v) => {
+          usosDePropriedade.push({ tipo: 'set', chave: k });
+          propriedades.set(k, String(v));
+        },
+        deleteProperty: (k) => {
+          usosDePropriedade.push({ tipo: 'delete', chave: k });
+          propriedades.delete(k);
+        },
+        getProperties: () => {
+          usosDePropriedade.push({ tipo: 'getAll', chave: '*' });
+          return Object.fromEntries(propriedades);
+        }
       })
     },
     // CacheService com EXPIRAÇÃO de verdade, presa ao relógio falso.
@@ -678,7 +695,7 @@ function criarAmbiente(opcoes) {
     vm.runInContext(fs.readFileSync(path.join(PASTA_GS, arquivo), 'utf8'), sandbox, { filename: arquivo });
   });
 
-  return { api: sandbox, falso, esperas, propriedades, registros };
+  return { api: sandbox, falso, esperas, propriedades, usosDePropriedade, registros };
 }
 
 /** Última requisição que o cliente mandou. */

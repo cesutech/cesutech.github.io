@@ -1244,7 +1244,9 @@ teste('a recusa da janela vem antes das guardas: não consome o teto por hora ne
   const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
 
   api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
-  igual(api.PropertiesService.getScriptProperties().getProperty('throttle_contagem'), null,
+  // O teto conta no cache do script desde 17/11/2026 (01_Utils.gs,
+  // `lerContagemDaHora_`), e não mais na propriedade `throttle_contagem`.
+  igual(api.lerContagemDaHora_('inscricoes_'), 0,
     'a recusa da janela contou como inscrição no teto por hora');
 
   // Robô fora da janela leva a mensagem da janela, e não a do honeypot — e não

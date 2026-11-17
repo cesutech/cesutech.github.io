@@ -326,14 +326,6 @@ function entrarComGoogle_(idToken) {
  * conta sem e-mail confirmado. Ver `entrarComGoogle_`.
  */
 function verificarIdTokenGoogle_(idToken) {
-  var clienteId = String(
-    PropertiesService.getScriptProperties().getProperty(GOOGLE_CLIENT_ID_PROP) || ''
-  ).trim();
-
-  // Sem client id não existe `aud` para comparar, e comparar contra vazio
-  // aceitaria qualquer token. A ausência é recusa, e não conferência a menos.
-  if (!clienteId) return { ok: false, motivo: 'GOOGLE_CLIENT_ID não configurado' };
-
   var bruto = String(idToken || '').trim();
   if (bruto.length > GOOGLE_ID_TOKEN_MAX) return { ok: false, motivo: 'tamanho' };
   if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(bruto)) {
@@ -343,6 +335,21 @@ function verificarIdTokenGoogle_(idToken) {
   // O teto vem DEPOIS dos filtros baratos e ANTES da rede: lixo não consome a
   // cota nem gasta o teto, e o teto só existe para o que iria mesmo sair.
   if (excedeuVerificacoesGoogle_()) return { ok: false, motivo: 'teto' };
+
+  // O client id vem DEPOIS do teto, e a ordem tem motivo: ele mora nas
+  // propriedades do script, que têm cota diária, e esta rota é anônima. Lido
+  // antes dos filtros, cada token de lixo custava uma leitura de propriedade, e
+  // um robô esgotava a cota sem passar de filtro nenhum. Lido aqui, a rota lê a
+  // propriedade no máximo GOOGLE_TETO_VERIFICACOES_HORA vezes por hora. O preço:
+  // sem client id configurado, um token bem formado gasta uma vaga do teto antes
+  // de ser recusado — o que só acontece com o sistema já mal configurado.
+  var clienteId = String(
+    PropertiesService.getScriptProperties().getProperty(GOOGLE_CLIENT_ID_PROP) || ''
+  ).trim();
+
+  // Sem client id não existe `aud` para comparar, e comparar contra vazio
+  // aceitaria qualquer token. A ausência é recusa, e não conferência a menos.
+  if (!clienteId) return { ok: false, motivo: 'GOOGLE_CLIENT_ID não configurado' };
 
   var resposta;
   try {
@@ -404,6 +411,53 @@ function excedeuVerificacoesGoogle_() {
 }
 
 /**
+ * O client id que a TELA DE ENTRADA recebe, guardado por um minuto no cache do
+ * script.
+ *
+ * A tela de entrada pergunta `modoDeAcesso` a cada abertura, sem login, e o
+ * client id mora nas propriedades do script, que têm cota diária. Lido a cada
+ * pergunta, ele dava a um robô um jeito de esgotar essa cota pedindo a tela de
+ * entrada em laço. Com o cache, a rota lê a propriedade no máximo uma vez por
+ * minuto.
+ *
+ * SÓ A TELA usa o valor guardado. Quem DECIDE — `verificarIdTokenGoogle_`, que
+ * compara o `aud` — continua lendo a propriedade a cada conferência, a mesma
+ * regra da configuração em cache (03_Config.gs): o caminho que decide acesso lê a
+ * fonte. O preço é este: trocado o client id no editor, a tela pode desenhar o
+ * botão com o antigo por até um minuto, e o login feito nesse minuto é recusado
+ * por `aud` — recusa, nunca entrada indevida.
+ *
+ * O valor vai embrulhado em JSON porque "nenhum client id" também é resposta e
+ * também precisa ficar guardada: sem o embrulho, a string vazia se confunde com a
+ * chave ausente. Cache fora do ar: lê a propriedade, como antes.
+ */
+var CLIENTE_ID_TELA_CHAVE = 'google_client_id_tela';
+
+function clienteIdParaATela_() {
+  var cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+    var guardado = cache.get(CLIENTE_ID_TELA_CHAVE);
+    if (guardado) return String(JSON.parse(guardado).id || '');
+  } catch (e) {
+    cache = null;
+  }
+
+  var lido = String(
+    PropertiesService.getScriptProperties().getProperty(GOOGLE_CLIENT_ID_PROP) || ''
+  ).trim();
+
+  if (cache) {
+    try {
+      cache.put(CLIENTE_ID_TELA_CHAVE, JSON.stringify({ id: lido }), CONFIG_CACHE_SEGUNDOS);
+    } catch (e) {
+      // Não guardar é só voltar a ler na próxima.
+    }
+  }
+  return lido;
+}
+
+/**
  * Diz ao front-end como desenhar a tela de login, antes de qualquer tentativa.
  *
  * `google.clientId` sai daqui porque o Google Identity Services roda NO
@@ -433,9 +487,7 @@ function modoDeAcesso_() {
   try {
     var email = usuarioAtual_();
     var lista = adminEmails_();
-    var clienteId = String(
-      PropertiesService.getScriptProperties().getProperty(GOOGLE_CLIENT_ID_PROP) || ''
-    ).trim();
+    var clienteId = clienteIdParaATela_();
 
     return {
       ok: true,
@@ -457,9 +509,37 @@ function modoDeAcesso_() {
   }
 }
 
-/** Encerra a sessão atual. */
+/**
+ * Encerra a sessão atual.
+ *
+ * Só apaga sessão que VALE. A rota é anônima — quem sai pode já ter perdido a
+ * sessão —, e apagar sem conferir dava a qualquer um um jeito de gastar a cota
+ * diária das propriedades do script com tokens inventados, uma gravação por
+ * pedido. Passando por `tokenValido_`, o token inventado cai no teto de faltas
+ * de lá; o que a pessoa que sai percebe é o mesmo `ok` de sempre.
+ *
+ * ACIMA DO TETO DE FALTAS, "vale" deixa de ser sabido: `tokenValido_` recusa sem
+ * ler a sessão que o cache esqueceu (a marca dura no máximo seis horas, e a
+ * sessão oito; e o cache pode descartá-la antes). Recusar aí sem apagar faria a
+ * sessão de quem saiu voltar a valer na virada da hora. Por isso, nesse caso,
+ * Sair apaga ÀS CEGAS, com teto próprio de SESSAO_TETO_FALTAS_HORA por hora: a
+ * sessão de verdade cai durante um ataque, e um robô que mande Sair em laço gasta
+ * no máximo isso de gravações por hora. Passado também esse teto, Sair responde
+ * `ok` sem apagar: o painel esquece o token do lado dele, e a sessão vale até
+ * vencer para quem tiver uma cópia — o mesmo que fechar a aba sem sair.
+ */
 function sair_(token) {
-  if (token) PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
+  if (token && tokenValido_(token)) {
+    PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
+    esquecerSessao_(token);
+  } else if (token && String(token).length <= SESSAO_TOKEN_MAX &&
+             sessaoBarradaPeloTeto_(String(token)) &&
+             !passouDoTetoNaHora_('sair_as_cegas_', SESSAO_TETO_FALTAS_HORA)) {
+    PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
+    anotarTetoDeSessoes_();
+  } else {
+    anotarTetoDeSessoes_();
+  }
   return { ok: true };
 }
 
@@ -548,7 +628,10 @@ function exigirCoordenador_(token) {
  * que o servidor recusa um por um.
  */
 function sessaoAtiva_(token) {
-  if (!tokenValido_(token)) return { ok: false };
+  if (!tokenValido_(token)) {
+    anotarTetoDeSessoes_();
+    return { ok: false };
+  }
   return { ok: true, nivel: nivelDaSessao_(token) };
 }
 
@@ -1602,13 +1685,112 @@ function quemMexeu_(token) {
 
 function criarSessao_(email) {
   var token = Utilities.getUuid().replace(/-/g, '');
+  var expiraEm = new Date().getTime() + VALIDADE_SESSAO_MS;
   var props = PropertiesService.getScriptProperties();
   props.setProperty('sess_' + token, JSON.stringify({
     email: email || 'anonimo',
-    expira_em: new Date().getTime() + VALIDADE_SESSAO_MS
+    expira_em: expiraEm
   }));
+  lembrarSessao_(token, expiraEm);
   faxinaSessoes_();
   return token;
+}
+
+/**
+ * O TETO DE SESSÕES DESCONHECIDAS, e por que ele existe.
+ *
+ * Toda ação do painel começa conferindo o token na propriedade `sess_<token>`, e
+ * as propriedades do script têm cota diária: 50 mil leituras e gravações por dia
+ * numa conta Google comum. O painel é público — qualquer um manda um POST com um
+ * token inventado —, e cada token inventado custava uma leitura. Um robô
+ * esgotava a cota em poucas horas sem passar da primeira linha, e esgotada a
+ * cota nenhuma ida ao banco funciona, porque o endereço do banco também mora nas
+ * propriedades.
+ *
+ * Por isso a conferência conta as FALTAS da hora (token que não está nas
+ * propriedades) no cache do script, que não tem cota diária. Passado o teto, o
+ * token que o cache não conhece é recusado sem ler propriedade nenhuma. O cache
+ * conhece toda sessão que nasceu ou foi conferida com sucesso nas últimas horas
+ * (`lembrarSessao_`): quem está usando o painel continua usando durante o
+ * ataque, e só o desconhecido para.
+ *
+ * O CACHE NUNCA DIZ QUE A SESSÃO VALE. Ele só autoriza a LEITURA da propriedade
+ * quando a hora já passou do teto — quem decide continua sendo a propriedade,
+ * com o prazo de sempre. Perder o acesso e o botão de pânico apagam a
+ * propriedade direto, e a sessão cai na hora, conhecida ou não; Sair também,
+ * com a ressalva escrita em `sair_`. Cache fora do ar: a conferência lê a
+ * propriedade, como antes.
+ *
+ * O preço: durante um ataque, quem tiver uma sessão que o cache esqueceu (ele
+ * pode descartar chaves antes do prazo, e guarda no máximo seis horas) é recusado
+ * até a hora virar, e entra de novo pelo Google ou pelo link. Faltas legítimas —
+ * aba esquecida aberta depois de a sessão vencer — são poucas por hora.
+ */
+var SESSAO_TETO_FALTAS_HORA = 60;
+var SESSAO_CONHECIDA_PREFIXO = 'sessao_conhecida_';
+
+/**
+ * Nenhum token de sessão passa de 32 caracteres (`criarSessao_`). O teto de 64
+ * existe para o cache e as propriedades nunca receberem uma chave do tamanho que
+ * o visitante quiser: a do cache tem limite de 250 caracteres, e passar dele é
+ * exceção, não recusa.
+ */
+var SESSAO_TOKEN_MAX = 64;
+
+/** Seis horas: o prazo máximo que o CacheService aceita. */
+var CACHE_PRAZO_MAXIMO_S = 21600;
+
+/**
+ * Passou do teto de faltas e o cache não conhece este token? Então recusa sem ler.
+ *
+ * NÃO ANOTA NA TRILHA, de propósito: esta conferência roda dentro de toda ação do
+ * painel, e as do professor não gravam nada, nem indiretamente (testes/invasao.js
+ * varre isso de forma transitiva). Quem anota é `anotarTetoDeSessoes_`, chamada
+ * pelos caminhos de fora das ações — o despacho e as rotas de sessão.
+ */
+function sessaoBarradaPeloTeto_(token) {
+  var faltas = lerContagemDaHora_('sessao_faltas_');
+  if (faltas === null || faltas < SESSAO_TETO_FALTAS_HORA) return false;
+
+  try {
+    return !CacheService.getScriptCache().get(SESSAO_CONHECIDA_PREFIXO + token);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Se a hora passou do teto de faltas, deixa a marca na trilha. Agrupada por
+ * `registrarRecusa_`: um ataque vira uma linha a cada dez minutos, com a conta das
+ * engolidas, e não uma linha por pedido.
+ */
+function anotarTetoDeSessoes_() {
+  var faltas = lerContagemDaHora_('sessao_faltas_');
+  if (faltas === null || faltas < SESSAO_TETO_FALTAS_HORA) return;
+  registrarRecusa_('LIMITE_SESSAO', 'painel', '',
+    'teto de ' + SESSAO_TETO_FALTAS_HORA + ' sessões desconhecidas por hora atingido', 'teto_sessao');
+}
+
+function contarFaltaDeSessao_() {
+  somarNaHora_('sessao_faltas_');
+}
+
+/** O cache passa a conhecer a sessão, até ela vencer ou por seis horas, o que vier antes. */
+function lembrarSessao_(token, expiraEm) {
+  try {
+    var segundos = Math.min(CACHE_PRAZO_MAXIMO_S, Math.floor((expiraEm - new Date().getTime()) / 1000));
+    if (segundos > 0) CacheService.getScriptCache().put(SESSAO_CONHECIDA_PREFIXO + token, '1', segundos);
+  } catch (e) {
+    // Cache fora do ar: a sessão só deixa de ser conhecida, e vale do mesmo jeito.
+  }
+}
+
+function esquecerSessao_(token) {
+  try {
+    CacheService.getScriptCache().remove(SESSAO_CONHECIDA_PREFIXO + token);
+  } catch (e) {
+    // Esquecer é arrumação: o cache nunca valida sessão sozinho.
+  }
 }
 
 /**
@@ -1630,8 +1812,17 @@ function criarSessao_(email) {
  */
 function tokenValido_(token) {
   if (!token) return false;
+  token = String(token);
+  if (token.length > SESSAO_TOKEN_MAX) return false;
+
+  // Ver SESSAO_TETO_FALTAS_HORA, logo abaixo de `criarSessao_`.
+  if (sessaoBarradaPeloTeto_(token)) return false;
+
   var bruto = PropertiesService.getScriptProperties().getProperty('sess_' + token);
-  if (!bruto) return false;
+  if (!bruto) {
+    contarFaltaDeSessao_();
+    return false;
+  }
 
   try {
     var sess = JSON.parse(bruto);
@@ -1639,8 +1830,10 @@ function tokenValido_(token) {
 
     if (!expiraEm || new Date().getTime() > expiraEm) {
       PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
+      esquecerSessao_(token);
       return false;
     }
+    lembrarSessao_(token, expiraEm);
     return true;
   } catch (e) {
     return false;
@@ -1701,9 +1894,13 @@ function invalidarSessoesDe_(email) {
   Object.keys(todas).forEach(function (k) {
     if (k.indexOf('sess_') !== 0) return;
     try {
-      if (normalizarEmail_(JSON.parse(todas[k]).email) === alvo) props.deleteProperty(k);
+      if (normalizarEmail_(JSON.parse(todas[k]).email) === alvo) {
+        props.deleteProperty(k);
+        esquecerSessao_(k.slice('sess_'.length));
+      }
     } catch (e) {
       props.deleteProperty(k);
+      esquecerSessao_(k.slice('sess_'.length));
     }
   });
 }
@@ -1724,6 +1921,8 @@ function invalidarSessoes() {
 function invalidarSessoes_() {
   var props = PropertiesService.getScriptProperties();
   Object.keys(props.getProperties()).forEach(function (k) {
-    if (k.indexOf('sess_') === 0) props.deleteProperty(k);
+    if (k.indexOf('sess_') !== 0) return;
+    props.deleteProperty(k);
+    esquecerSessao_(k.slice('sess_'.length));
   });
 }

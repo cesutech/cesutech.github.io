@@ -140,17 +140,22 @@ function cacheServiceFalso(opcoes) {
 }
 
 /**
- * Os eventos do cache, menos os da configuração.
+ * Os eventos do cache, menos os da configuração e os da conferência de sessão.
  *
  * Desde 17/11/2026 a configuração também passa pelo cache do script
  * (`CONFIG_CACHE_CHAVE`, 03_Config.gs): toda rota que lê uma chave faz um `get`
- * com ela, e a primeira faz também o `put`. Os testes que contam eventos falam do
- * cache DAS ROTAS e da chave de repetição; a configuração tem os testes dela, no
- * grupo "a configuração no cache do script". O ping não usa este filtro: a rota
- * do aquecimento não fala com cache nenhum.
+ * com ela, e a primeira faz também o `put`. E a conferência do token do painel
+ * conta as faltas da hora e lembra as sessões conhecidas no mesmo cache
+ * (`SESSAO_TETO_FALTAS_HORA`, 07_Auth.gs). Os testes que contam eventos falam do
+ * cache DAS ROTAS e da chave de repetição; a configuração e a sessão têm os
+ * testes delas, nos grupos "a configuração no cache do script" e "as
+ * propriedades do script têm cota". O ping não usa este filtro: a rota do
+ * aquecimento não fala com cache nenhum.
  */
 function eventosDasRotas(a) {
-  return a.cache.eventos.filter((e) => e.chave !== a.api.CONFIG_CACHE_CHAVE);
+  return a.cache.eventos.filter((e) => e.chave !== a.api.CONFIG_CACHE_CHAVE &&
+    e.chave.indexOf(a.api.SESSAO_CONHECIDA_PREFIXO) !== 0 &&
+    e.chave.indexOf('sessao_faltas_') !== 0);
 }
 
 /**
@@ -204,6 +209,8 @@ function montar(opcoes) {
   // `requisicao` o repõe antes de cada rota: repor um `false` escrito aqui
   // esconderia a mutação em que a execução nasce com ele ligado.
   ambiente.flagDeclarada = ambiente.api.CONFIG_CACHE_DO_SCRIPT_VALE;
+  // O mesmo para o projeto e o banco guardados por execução (02_Repo.gs).
+  ambiente.alvoDeclarado = ambiente.api.FIRESTORE_DA_EXECUCAO;
 
   const cache = cacheServiceFalso(opcoes.cache);
   const correio = mailAppFalso(opcoes.cota);
@@ -307,6 +314,9 @@ function leiturasCobradas(ambiente) {
 function requisicao(ambiente, fn) {
   ambiente.api.CONFIG_CACHE = null;
   ambiente.api.CONFIG_CACHE_DO_SCRIPT_VALE = ambiente.flagDeclarada;
+  // O projeto e o banco que 02_Repo.gs guarda por execução também nascem vazios
+  // a cada requisição, como em produção.
+  ambiente.api.FIRESTORE_DA_EXECUCAO = ambiente.alvoDeclarado;
   zerar(ambiente);
   return fn();
 }
@@ -333,6 +343,7 @@ function corpoDe(saida) {
 function zerar(ambiente) {
   ambiente.falso.requisicoes.length = 0;
   ambiente.respostas.length = 0;
+  ambiente.usosDePropriedade.length = 0;
 }
 
 function quantas(falso, casa) {
@@ -2969,6 +2980,326 @@ teste('o cache vale um minuto, e cache fora do ar não derruba a rota', () => {
   igual(corpoDe(get(semCache, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
   igual(corpoDe(get(semCache, { api: 'matricula', m: '12' })).motivo, 'FORMATO');
   igual(leiturasDaConfig(semCache), 1, 'sem cache, cada requisição lê a configuração no banco, como antes');
+});
+
+// ------------------------------------------------ propriedades do script
+
+grupo('as propriedades do script têm cota — recusar não lê nenhuma');
+
+// As propriedades do script têm cota diária: 50 mil leituras e gravações por dia
+// numa conta Google comum. Esgotada, nenhuma ida ao banco funciona, porque o
+// endereço do banco mora nelas (02_Repo.gs). Até 17/11/2026 os tetos por hora
+// moravam nelas, toda ida ao banco lia duas, e um robô esgotava a cota sem passar
+// de recusa nenhuma. Estes testes contam cada operação (`usosDePropriedade`, no
+// falso do apoio.js) e provam o zero onde ele tem de ser zero: na recusa que um
+// robô REPETE. A primeira recusa de cada janela pode anotar a trilha, e anotar
+// vai ao banco — ela é medida à parte.
+
+function usos(a, tipo) {
+  return a.usosDePropriedade.filter((u) => !tipo || u.tipo === tipo);
+}
+
+function lidasComo(a, prefixo) {
+  return usos(a, 'get').filter((u) => u.chave.indexOf(prefixo) === 0).length;
+}
+
+/** Põe a contagem da hora corrente direto no cache, onde o servidor a procura. */
+function marcarNaHora(a, prefixo, quantas) {
+  a.cache.servico.getScriptCache().put(a.api.chaveDaHora_(prefixo), String(quantas), 3600);
+}
+
+/** A chave da hora, calculada aqui, sem a ajuda do servidor. */
+function chaveEsperada(prefixo) {
+  return prefixo + Math.floor(Date.now() / 3600000);
+}
+
+const CONSULTA_P1 = { api: 'matricula', m: '9110001', p: 'p1' };
+
+function envioDe(matricula) {
+  return Object.assign({ projeto_id: 'p1' }, INSCRICAO_VALIDA,
+    { matricula: matricula, email: matricula + '@aluno.br' });
+}
+
+teste('uma requisição lê o projeto e o banco UMA vez, por mais idas ao banco que faça', () => {
+  // Mutação que derruba: `fsProjeto_`/`fsBanco_` lendo a propriedade a cada
+  // chamada, como até 17/11 — a inscrição abaixo faz sete idas ao banco.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+
+  const r = corpoDe(post(a, envioDe('9110001')));
+  igual(r.ok, true, r.erro);
+  verdadeiro(a.falso.requisicoes.length >= 5, 'a inscrição deveria ir ao banco várias vezes');
+  igual(lidasComo(a, 'FIRESTORE_PROJETO'), 1, 'FIRESTORE_PROJETO');
+  igual(lidasComo(a, 'FIRESTORE_BANCO'), 1, 'FIRESTORE_BANCO');
+});
+
+teste('o que se guarda vale para UMA execução: trocar o banco no editor vale na seguinte', () => {
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+
+  get(a, CONSULTA_P1);
+  verdadeiro(a.falso.requisicoes.every((r) => r.url.indexOf('/databases/(default)/') !== -1),
+    'a consulta deveria ir ao banco padrão');
+
+  a.propriedades.set('FIRESTORE_BANCO', 'outro-banco');
+  get(a, CONSULTA_P1);
+  verdadeiro(a.falso.requisicoes.length > 0 &&
+    a.falso.requisicoes.every((r) => r.url.indexOf('/databases/outro-banco/') !== -1),
+    'a execução seguinte ainda usou o banco da anterior');
+});
+
+teste('a matrícula barrada pelo teto não lê propriedade nem banco', () => {
+  // Mutação que derruba: o contador de volta às propriedades (eram três leituras
+  // por recusa), ou o teto lendo a configuração fora do cache.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '1');
+
+  igual(corpoDe(get(a, CONSULTA_P1)).existe, true);
+  igual(corpoDe(get(a, CONSULTA_P1)).indisponivel, true, 'a primeira recusa');
+  igual(corpoDe(get(a, CONSULTA_P1)).indisponivel, true, 'a segunda recusa');
+  igual(a.usosDePropriedade, [], 'a recusa pelo teto mexeu em propriedade');
+  igual(a.falso.requisicoes.length, 0, 'a recusa pelo teto foi ao banco');
+});
+
+teste('a inscrição barrada pelo teto não lê propriedade nem banco', () => {
+  // Mutação que derruba: o contador de volta às propriedades (eram duas leituras
+  // por recusa).
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001', '9110002', '9110003']);
+  a.api.gravarConfig_('limite_inscricoes_hora', '1');
+
+  igual(corpoDe(post(a, envioDe('9110001'))).ok, true);
+  igual(corpoDe(post(a, envioDe('9110002'))).ok, false, 'a primeira recusa');
+  const r = corpoDe(post(a, envioDe('9110003')));
+  igual(r.ok, false);
+  verdadeiro(/muitas inscrições/.test(r.erro), 'recusou por outro motivo: ' + r.erro);
+  igual(a.usosDePropriedade, [], 'a recusa pelo teto mexeu em propriedade');
+  igual(a.falso.requisicoes.length, 0, 'a recusa pelo teto foi ao banco');
+});
+
+teste('os dois tetos moram no cache, numa chave por hora que vive uma hora', () => {
+  // A chave esperada é calculada aqui, e não pela `chaveDaHora_` do servidor:
+  // comparar a chave com ela mesma não prova nada. Mutação que derruba: a chave
+  // sem a hora, ou o prazo de outro tamanho.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+
+  get(a, CONSULTA_P1);
+  post(a, envioDe('9110001'));
+
+  ['consultas_', 'inscricoes_'].forEach((prefixo) => {
+    const gravou = a.cache.eventos.filter((e) => e.tipo === 'put' && e.chave.indexOf(prefixo) === 0);
+    igual(gravou.map((e) => [e.chave, e.segundos]), [[chaveEsperada(prefixo), 3600]], prefixo);
+    igual(a.cache.dados.get(chaveEsperada(prefixo)).valor, '1', prefixo);
+  });
+});
+
+teste('o teto da matrícula anota UMA vez por hora, e não a cada dez minutos', () => {
+  // `registrarRecusa_` agrupa por dez minutos; a marca da hora
+  // (`consultas_avisadas_`) é o que faz a linha ser uma por hora. O falso desta
+  // suíte não expira o cache sozinho: a janela de dez minutos vence à mão.
+  // Mutação que derruba: tirar a marca da hora de `excedeuConsultas_`.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '0');
+
+  get(a, CONSULTA_P1);
+  for (let i = 0; i < 3; i++) {
+    a.cache.dados.delete('recusa_janela_teto_matricula');
+    get(a, CONSULTA_P1);
+  }
+  igual(acoesDoLog(a.falso).filter((x) => x === 'LIMITE_CONSULTA').length, 1);
+});
+
+teste('cache fora do ar: os tetos deixam passar, e o formulário não tranca', () => {
+  // A regra de sempre do teto do Google: o cache é otimização, nunca dependência.
+  const a = montar({ semCache: true });
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001', '9110002']);
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '1');
+  a.api.gravarConfig_('limite_inscricoes_hora', '1');
+
+  igual(corpoDe(get(a, CONSULTA_P1)).existe, true);
+  igual(corpoDe(get(a, CONSULTA_P1)).existe, true, 'sem cache, o teto da matrícula não conta');
+  igual(corpoDe(post(a, envioDe('9110001'))).ok, true);
+  igual(corpoDe(post(a, envioDe('9110002'))).ok, true, 'sem cache, o teto da inscrição não conta');
+});
+
+teste('a tela de entrada lê o client id no máximo uma vez por minuto — inclusive o vazio', () => {
+  // Mutação que derruba: `modoDeAcesso_` lendo a propriedade a cada carga; ou o
+  // cache guardando a string vazia crua, que volta como "nada guardado".
+  [['com client id', 'cliente-de-teste.apps.googleusercontent.com'], ['sem client id', null]]
+    .forEach(([caso, valor]) => {
+      const a = montar();
+      if (valor) a.propriedades.set('GOOGLE_CLIENT_ID', valor);
+
+      let lidas = 0;
+      for (let i = 0; i < 20; i++) {
+        igual(login(a, 'modoDeAcesso').google.clientId, valor || '', caso);
+        lidas += lidasComo(a, 'GOOGLE_CLIENT_ID');
+      }
+      igual(lidas, 1, caso + ': vinte cargas da tela de entrada');
+
+      const guardou = a.cache.eventos.filter((e) => e.tipo === 'put' && e.chave === a.api.CLIENTE_ID_TELA_CHAVE);
+      igual(guardou.map((e) => e.segundos), [60], caso + ': o prazo do client id da tela mudou');
+    });
+});
+
+teste('a entrada pelo Google não lê o client id para recusar lixo, nem acima do teto', () => {
+  // Mutação que derruba: ler o client id antes dos filtros, como até 17/11.
+  const a = montar();
+  a.propriedades.set('GOOGLE_CLIENT_ID', 'cliente-de-teste.apps.googleusercontent.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
+
+  igual(login(a, 'entrarComGoogle', { idToken: 'isto-nao-e-um-token' }).ok, false);
+  igual(lidasComo(a, 'GOOGLE_CLIENT_ID'), 0, 'o lixo leu o client id');
+
+  marcarNaHora(a, 'gid_verif_', a.api.GOOGLE_TETO_VERIFICACOES_HORA);
+  igual(login(a, 'entrarComGoogle', { idToken: 'aaa.bbb.ccc' }).ok, false);
+  igual(lidasComo(a, 'GOOGLE_CLIENT_ID'), 0, 'o token acima do teto leu o client id');
+  igual(a.falso.requisicoes.filter((r) => r.url.indexOf('tokeninfo') !== -1).length, 0,
+    'e foi conferir no Google');
+});
+
+teste('sessão inventada: abaixo do teto a falta conta; passado o teto, a recusa repetida não lê nada', () => {
+  // Mutação que derruba: tirar `sessaoBarradaPeloTeto_` de `tokenValido_`; ou
+  // não contar a falta; ou o despacho não anotar o teto.
+  const a = montar();
+  const forjado = 'f'.repeat(32);
+
+  igual(painel(a, 'listarAlunos', forjado, {}).erro, a.api.RECUSA_SESSAO);
+  igual(lidasComo(a, 'sess_'), 1, 'abaixo do teto, a falta lê a propriedade');
+  igual(a.api.lerContagemDaHora_('sessao_faltas_'), 1, 'e conta');
+
+  marcarNaHora(a, 'sessao_faltas_', a.api.SESSAO_TETO_FALTAS_HORA);
+  igual(painel(a, 'listarAlunos', forjado, {}).erro, a.api.RECUSA_SESSAO, 'a primeira recusa');
+  verdadeiro(acoesDoLog(a.falso).indexOf('LIMITE_SESSAO') !== -1, 'o ataque não deixou marca na trilha');
+
+  igual(painel(a, 'listarAlunos', forjado, {}).erro, a.api.RECUSA_SESSAO, 'a recusa repetida');
+  igual(a.usosDePropriedade, [], 'a recusa repetida, passado o teto, mexeu em propriedade');
+  igual(a.falso.requisicoes.length, 0, 'e foi ao banco');
+
+  igual(login(a, 'sessaoAtiva', { token: forjado }).ok, false);
+  igual(a.usosDePropriedade, [], 'a rota sessaoAtiva mexeu em propriedade passado o teto');
+});
+
+teste('a sessão conhecida continua valendo durante o ataque', () => {
+  // Mutação que derruba: `criarSessao_` sem `lembrarSessao_`.
+  const a = montar();
+  const token = sessao(a);
+  marcarNaHora(a, 'sessao_faltas_', a.api.SESSAO_TETO_FALTAS_HORA + 100);
+
+  igual(painel(a, 'painelEstatisticas', token, {}).ok, true);
+  igual(login(a, 'sessaoAtiva', { token: token }).ok, true);
+});
+
+teste('a sessão conferida com sucesso volta a ser conhecida', () => {
+  // O cache guarda a marca por no máximo seis horas, e pode descartá-la antes.
+  // A conferência que dá certo a renova. Mutação que derruba: tirar
+  // `lembrarSessao_` de `tokenValido_`.
+  const a = montar();
+  const token = sessao(a);
+  a.cache.dados.delete(a.api.SESSAO_CONHECIDA_PREFIXO + token);
+
+  igual(painel(a, 'painelEstatisticas', token, {}).ok, true, 'abaixo do teto, a propriedade decide');
+  marcarNaHora(a, 'sessao_faltas_', a.api.SESSAO_TETO_FALTAS_HORA);
+  igual(painel(a, 'painelEstatisticas', token, {}).ok, true, 'a sessão conferida não voltou a ser conhecida');
+});
+
+teste('o cache NUNCA valida sessão: a que saiu cai na hora, mesmo conhecida e sob ataque', () => {
+  // Mutação que derruba: `tokenValido_` aceitando a sessão só porque o cache a
+  // conhece, sem ler a propriedade.
+  const a = montar();
+  const token = sessao(a);
+  igual(login(a, 'sair', { token: token }).ok, true);
+  igual(a.propriedades.has('sess_' + token), false, 'sair não apagou a sessão');
+
+  marcarNaHora(a, 'sessao_faltas_', 1000);
+  // O pior caso: o cache ainda lembra a sessão que acabou de sair.
+  a.cache.servico.getScriptCache().put(a.api.SESSAO_CONHECIDA_PREFIXO + token, '1', 600);
+  igual(painel(a, 'painelEstatisticas', token, {}).erro, a.api.RECUSA_SESSAO);
+});
+
+teste('sair com token inventado não grava propriedade, e o comprido demais nem é lido', () => {
+  // Mutação que derruba: `sair_` apagando sem conferir; ou tirar o teto de
+  // tamanho de `tokenValido_`.
+  const a = montar();
+  igual(login(a, 'sair', { token: 'inventado' }).ok, true);
+  igual(usos(a, 'delete').length + usos(a, 'set').length, 0, 'sair com token inventado gravou');
+
+  igual(painel(a, 'listarAlunos', 'a'.repeat(5000), {}).erro, a.api.RECUSA_SESSAO);
+  igual(a.usosDePropriedade, [], 'o token comprido demais chegou às propriedades');
+});
+
+teste('acima do teto, sair apaga às cegas a sessão que o cache esqueceu', () => {
+  // Sem isto, a sessão de quem saiu durante um ataque voltaria a valer na
+  // virada da hora. Mutação que derruba: tirar o ramo às cegas de `sair_`.
+  const a = montar();
+  const token = sessao(a);
+  a.cache.dados.delete(a.api.SESSAO_CONHECIDA_PREFIXO + token);
+  marcarNaHora(a, 'sessao_faltas_', a.api.SESSAO_TETO_FALTAS_HORA);
+
+  igual(login(a, 'sair', { token: token }).ok, true);
+  igual(a.propriedades.has('sess_' + token), false, 'sair acima do teto não derrubou a sessão');
+});
+
+teste('um robô mandando sair em laço acima do teto grava no máximo o teto de saídas às cegas', () => {
+  // O preço escrito em `sair_`: passado também esse teto, sair não apaga.
+  // Mutação que derruba: apagar às cegas sem o teto próprio.
+  const a = montar();
+  marcarNaHora(a, 'sessao_faltas_', a.api.SESSAO_TETO_FALTAS_HORA);
+
+  let apagou = 0;
+  for (let i = 0; i < a.api.SESSAO_TETO_FALTAS_HORA + 20; i++) {
+    igual(login(a, 'sair', { token: ('0000000' + i).slice(-8) + 'f'.repeat(24) }).ok, true);
+    apagou += usos(a, 'delete').length;
+  }
+  igual(apagou, a.api.SESSAO_TETO_FALTAS_HORA, 'gravações de sair às cegas numa hora');
+});
+
+teste('link inventado: abaixo do teto a falta conta; passado o teto, a recusa repetida não lê — e o link pedido entra', () => {
+  // Mutação que derruba: tirar `linkBarradoPeloTeto_` de `entrarComLink_`; não
+  // contar a falta; ou `enviarLink_` sem `lembrarLink_`.
+  const a = montar();
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
+  const inventado = 'a'.repeat(64);
+
+  igual(login(a, 'entrarComLink', { token: inventado }).ok, false);
+  igual(lidasComo(a, 'link_'), 1, 'abaixo do teto, a falta lê a propriedade');
+  igual(a.api.lerContagemDaHora_('link_faltas_'), 1, 'e conta');
+
+  marcarNaHora(a, 'link_faltas_', a.api.LINK_TETO_FALTAS_HORA);
+  igual(login(a, 'entrarComLink', { token: inventado }).ok, false, 'a primeira recusa');
+  verdadeiro(acoesDoLog(a.falso).indexOf('LIMITE_LINK') !== -1, 'o ataque não deixou marca na trilha');
+
+  igual(login(a, 'entrarComLink', { token: inventado }).ok, false, 'a recusa repetida');
+  igual(a.usosDePropriedade, [], 'a recusa repetida, passado o teto, mexeu em propriedade');
+  igual(a.falso.requisicoes.length, 0, 'e foi ao banco');
+
+  igual(login(a, 'pedirLinkDeAcesso', { email: 'coordenacao@exemplo.com' }).ok, true);
+  const r = login(a, 'entrarComLink', { token: tokenDoEmail(a) });
+  igual(r.ok, true, 'o link pedido durante o ataque foi recusado: ' + r.erro);
+});
+
+teste('cache fora do ar: sessão e link conferem lendo a propriedade, como antes', () => {
+  const a = montar({ semCache: true });
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
+
+  const token = sessao(a);
+  igual(painel(a, 'painelEstatisticas', token, {}).ok, true);
+  igual(painel(a, 'painelEstatisticas', 'f'.repeat(32), {}).erro, a.api.RECUSA_SESSAO);
+
+  // O PEDIDO de link fecha sem cache, de propósito (o teste "sem CacheService a
+  // porta FECHA", acima). O que se prova aqui é o outro lado: o link que já
+  // saiu continua entrando, porque o clique lê a propriedade como antes.
+  a.api.enviarLink_('coordenacao@exemplo.com');
+  igual(login(a, 'entrarComLink', { token: tokenDoEmail(a) }).ok, true);
 });
 
 grupo('o gatilho de aquecimento — bater na porta sem comer a cota do dia');

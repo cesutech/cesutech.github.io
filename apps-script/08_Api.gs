@@ -553,7 +553,11 @@ function rotaDeLogin_(corpo) {
  */
 function rotaDoPainel_(corpo) {
   try {
-    if (!tokenValido_(corpo.token)) return { ok: false, erro: RECUSA_SESSAO };
+    if (!tokenValido_(corpo.token)) {
+      // Fora das ações, e por isso aqui: ver `anotarTetoDeSessoes_` (07_Auth.gs).
+      anotarTetoDeSessoes_();
+      return { ok: false, erro: RECUSA_SESSAO };
+    }
 
     var fn = String(corpo.fn || '');
     var funcoes = funcoesDoPainel_();
@@ -910,41 +914,32 @@ function conferirMatricula_(bruta, projetoId) {
  * Duas coisas ditas para não serem descobertas depois:
  *
  *   1. O teto conta REQUISIÇÕES, não leituras. No limite ele deixa passar 5000
- *      consultas por hora, que são 15 mil leituras — três horas de abuso
- *      sustentado consomem a cota do dia. O remédio, se acontecer, é baixar
+ *      consultas por hora, que são de 10 a 15 mil leituras — poucas horas de
+ *      abuso sustentado consomem a cota do dia. O remédio, se acontecer, é baixar
  *      `limite_consultas_matricula_hora` pelo painel, sem nova implantação.
- *   2. `getProperty` → decide → `setProperty` é ler-modificar-escrever sem
- *      serialização. Com execuções simultâneas a contagem sai MENOR que a real e
- *      o teto vaza. É o comportamento herdado do sistema em produção, e fechá-lo
- *      exigiria pôr o `PropertiesService` dentro do lock global — serializar o
- *      auditório inteiro por causa de um contador de segurança.
+ *   2. A contagem mora no CACHE do script desde 17/11/2026, e não mais nas
+ *      propriedades: elas têm cota diária, e o pedido recusado pelo teto ainda
+ *      lia três delas. Recusar agora não lê propriedade nem banco. O que isso
+ *      custa — contagem que vaza sob execuções simultâneas, cache que pode
+ *      esquecer a chave, cache fora do ar que deixa passar — está no cabeçalho
+ *      dos contadores por hora (01_Utils.gs).
  */
 function excedeuConsultas_() {
   var limite = Number(config_('limite_consultas_matricula_hora', '5000'));
-  var props = PropertiesService.getScriptProperties();
-  var janela = String(Math.floor(new Date().getTime() / 3600000));
+  if (!passouDoTetoNaHora_('consultas_', limite)) return false;
 
-  var contagem = (props.getProperty('consultas_janela') === janela)
-    ? Number(props.getProperty('consultas_contagem') || 0)
-    : 0;
-
-  if (contagem >= limite) {
-    // UM registro por janela, e não um por requisição recusada. A contagem
-    // congela no teto, então `contagem >= limite` continua verdadeiro para todas
-    // as requisições seguintes da hora: o original gravava uma linha de log em
-    // cada uma delas. Um robô insistindo viraria dezenas de milhares de ESCRITAS
-    // — contra 20 mil por dia no Spark —, ou seja, o freio derrubaria o sistema
-    // mais depressa do que o abuso que ele existe para conter.
-    if (props.getProperty('consultas_avisadas') !== janela) {
-      props.setProperty('consultas_avisadas', janela);
-      registrarRecusa_('LIMITE_CONSULTA', 'matricula', '', 'teto de ' + limite + '/hora atingido', 'teto_matricula');
-    }
-    return true;
+  // UM registro por janela, e não um por requisição recusada. A contagem congela
+  // no teto, então a resposta continua sendo "passou" para todas as requisições
+  // seguintes da hora: o original gravava uma linha de log em cada uma delas. Um
+  // robô insistindo viraria dezenas de milhares de ESCRITAS — contra 20 mil por
+  // dia no Spark —, ou seja, o freio derrubaria o sistema mais depressa do que o
+  // abuso que ele existe para conter. A marca da hora é necessária mesmo com o
+  // agrupamento de `registrarRecusa_`: ele abre uma linha a cada dez minutos, e
+  // a hora tem seis.
+  if (somarNaHora_('consultas_avisadas_') === 0) {
+    registrarRecusa_('LIMITE_CONSULTA', 'matricula', '', 'teto de ' + limite + '/hora atingido', 'teto_matricula');
   }
-
-  props.setProperty('consultas_janela', janela);
-  props.setProperty('consultas_contagem', String(contagem + 1));
-  return false;
+  return true;
 }
 
 // ------------------------------------------------------------ Dados do formulário

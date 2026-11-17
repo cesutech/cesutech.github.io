@@ -61,8 +61,9 @@ token da própria execução.
 - **Rotas públicas com freios** contra abuso: teto por hora na inscrição, na
   conferência de matrícula e na entrada pela conta Google, freio por endereço no
   link por e-mail, e campo-isca e tempo mínimo de preenchimento no formulário.
-  A configuração que essas rotas consultam fica num cache de um minuto, então
-  um robô recusado não esgota a cota de leituras do banco.
+  A configuração e os tetos ficam no cache do script, e sessão ou link
+  inventado tem teto próprio, então um robô recusado não esgota a cota de
+  leituras do banco nem a das propriedades do script.
 - **Trilha de auditoria.** O Histórico do painel diz quem fez o quê.
 - **Backup diário** do banco no Google Drive.
 - **Nenhum dado pessoal no repositório.** As amostras dos testes são inventadas.

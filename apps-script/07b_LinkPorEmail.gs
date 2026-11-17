@@ -77,7 +77,13 @@
  * leituras deste caminho são as ~12 por hora que recarregam o cache. Mantê-lo
  * "por segurança" seria deixar de pé exatamente o botão de desligar descrito
  * acima, guardando um recurso que já não corre risco. Não há mais, aqui, nenhum
- * freio que uma pessoa possa acionar contra outra.
+ * freio que uma pessoa possa acionar contra outra — com uma exceção pequena, e
+ * escrita: o teto de links DESCONHECIDOS no clique (LINK_TETO_FALTAS_HORA,
+ * abaixo), que um estranho aciona com códigos inventados para proteger outra
+ * cota, a das propriedades do script. Ele não fecha a porta de quem pediu o
+ * link, porque o cache conhece o link pedido; fecha só se o cache tiver
+ * esquecido a marca antes dos quinze minutos, e aí basta pedir outro link ou
+ * entrar pelo Google.
  *
  * O que sobrou de global é o modo degradado: sem CacheService esta porta FECHA
  * (ver `pedirLinkDeAcesso_`). Fecha para todos, inclusive para quem a atacaria, e
@@ -132,6 +138,65 @@ var LINK_RESPOSTA_UNICA =
 
 /** Tamanho máximo aceito antes de qualquer trabalho. Endereço real não passa disso. */
 var LINK_EMAIL_MAX = 254;
+
+/**
+ * Teto de LINKS DESCONHECIDOS por hora, contado no cache do script.
+ *
+ * O clique no link é uma rota anônima, e conferir o código é ler a propriedade
+ * `link_<impressão>` — as propriedades do script têm cota diária, e cada código
+ * inventado custava uma leitura. Um robô esgotava a cota sem passar da conferência
+ * de formato. Passado o teto de faltas da hora, o código que o cache não conhece é
+ * recusado sem ler nada. O cache conhece o link desde o envio (`lembrarLink_`),
+ * então quem pediu o link entra mesmo durante um ataque — a não ser que o cache
+ * tenha descartado a marca antes dos quinze minutos (ele pode descartar chaves
+ * antes do prazo). Aí o link é recusado como se tivesse vencido, e basta pedir
+ * outro.
+ *
+ * É o mesmo desenho do teto de sessões desconhecidas (07_Auth.gs, ao lado de
+ * `criarSessao_`), com o mesmo princípio: o cache NUNCA diz que o link vale, só
+ * autoriza a leitura da propriedade, que continua decidindo — uso único, prazo de
+ * quinze minutos e lista de acesso conferida de novo. Cache fora do ar: a
+ * conferência lê a propriedade, como antes.
+ */
+var LINK_TETO_FALTAS_HORA = 60;
+var LINK_CONHECIDO_PREFIXO = 'link_conhecido_';
+
+/** Passou do teto de faltas e o cache não conhece este link? Então recusa sem ler. */
+function linkBarradoPeloTeto_(impressao) {
+  var faltas = lerContagemDaHora_('link_faltas_');
+  if (faltas === null || faltas < LINK_TETO_FALTAS_HORA) return false;
+
+  try {
+    if (CacheService.getScriptCache().get(LINK_CONHECIDO_PREFIXO + impressao)) return false;
+  } catch (e) {
+    return false;
+  }
+
+  registrarRecusa_('LIMITE_LINK', 'painel', '',
+    'teto de ' + LINK_TETO_FALTAS_HORA + ' links desconhecidos por hora atingido', 'teto_link');
+  return true;
+}
+
+function contarFaltaDeLink_() {
+  somarNaHora_('link_faltas_');
+}
+
+/** O cache passa a conhecer o link pelos quinze minutos em que ele vale. */
+function lembrarLink_(impressao) {
+  try {
+    CacheService.getScriptCache().put(LINK_CONHECIDO_PREFIXO + impressao, '1', LINK_VALIDADE_MS / 1000);
+  } catch (e) {
+    // Cache fora do ar: o link só deixa de ser conhecido, e vale do mesmo jeito.
+  }
+}
+
+function esquecerLink_(impressao) {
+  try {
+    CacheService.getScriptCache().remove(LINK_CONHECIDO_PREFIXO + impressao);
+  } catch (e) {
+    // Esquecer é arrumação: o cache nunca valida link sozinho.
+  }
+}
 
 /**
  * Pede um link de acesso. ROTA ANÔNIMA — qualquer pessoa na internet chama isto.
@@ -210,7 +275,7 @@ function pedirLinkDeAcesso_(email) {
     // Passo 3 — o freio do endereço. Silencioso: quem pediu duas vezes seguidas
     // lê a mesma frase da primeira, e não "calma lá". A diferença importaria só
     // para quem está automatizando.
-    if (!freioDoLinkLibera_(alvo)) {
+    if (freioLembrado_(alvo) || !freioDoLinkLibera_(alvo)) {
       registrarRecusa_('LINK_FREIO', 'painel', alvo,
         'pedidos de link acima do permitido para o endereço', 'link_freio_' + alvo);
       return resposta;
@@ -264,13 +329,17 @@ function enviarLink_(email) {
   var agoraMs = new Date().getTime();
 
   var anterior = props.getProperty('linkde_' + email);
-  if (anterior) props.deleteProperty('link_' + anterior);
+  if (anterior) {
+    props.deleteProperty('link_' + anterior);
+    esquecerLink_(anterior);
+  }
 
   props.setProperty('link_' + impressao, JSON.stringify({
     email: email,
     expira_em: agoraMs + LINK_VALIDADE_MS
   }));
   props.setProperty('linkde_' + email, impressao);
+  lembrarLink_(impressao);
 
   MailApp.sendEmail({
     to: email,
@@ -350,10 +419,17 @@ function entrarComLink_(token) {
     var chave = String(token || '').trim();
     if (!chave || !/^[0-9a-f]{64}$/.test(chave)) return recusa;
 
-    var props = PropertiesService.getScriptProperties();
     var impressao = impressaoDoLink_(chave);
+    // Ver LINK_TETO_FALTAS_HORA: passado o teto, o link desconhecido é recusado
+    // sem ler propriedade nenhuma.
+    if (linkBarradoPeloTeto_(impressao)) return recusa;
+
+    var props = PropertiesService.getScriptProperties();
     var bruto = props.getProperty('link_' + impressao);
-    if (!bruto) return recusa;
+    if (!bruto) {
+      contarFaltaDeLink_();
+      return recusa;
+    }
 
     var dados = JSON.parse(bruto);
     var email = normalizarEmail_(dados && dados.email);
@@ -362,6 +438,7 @@ function entrarComLink_(token) {
     // Consumido aqui, aconteça o que acontecer daqui para baixo.
     props.deleteProperty('link_' + impressao);
     if (email) props.deleteProperty('linkde_' + email);
+    esquecerLink_(impressao);
 
     if (!expiraEm || new Date().getTime() > expiraEm) return recusa;
 
@@ -486,15 +563,63 @@ function freioDoLinkLibera_(email) {
   }
 
   if (estado.dia !== hoje) estado = { dia: hoje, contagem: 0, ultimo_ms: 0 };
-  if (agoraMs - Number(estado.ultimo_ms || 0) < LINK_INTERVALO_MS) return false;
-  if (Number(estado.contagem || 0) >= LINK_TETO_DIA) return false;
+  var faltaMs = LINK_INTERVALO_MS - (agoraMs - Number(estado.ultimo_ms || 0));
+  if (faltaMs > 0) {
+    lembrarFreio_(email, faltaMs);
+    return false;
+  }
+  if (Number(estado.contagem || 0) >= LINK_TETO_DIA) {
+    lembrarFreio_(email, msAteAMeiaNoite_(agoraMs));
+    return false;
+  }
 
   props.setProperty(chave, JSON.stringify({
     dia: hoje,
     contagem: Number(estado.contagem || 0) + 1,
     ultimo_ms: agoraMs
   }));
+  lembrarFreio_(email, LINK_INTERVALO_MS);
   return true;
+}
+
+/**
+ * O "não" do freio, lembrado no cache até o próximo envio permitido.
+ *
+ * A propriedade `linkfreio_<email>` continua decidindo; o cache só poupa a
+ * LEITURA dela enquanto já se sabe que a resposta é não. Sem isto, um robô que
+ * conhece um endereço da lista — e endereço de coordenação ou de professor
+ * costuma ser público — gastava uma leitura de propriedade por pedido, sem teto,
+ * e as propriedades do script têm cota diária. A marca é consultada DEPOIS da
+ * allowlist (`pedirLinkDeAcesso_`), então as chaves continuam limitadas às
+ * pessoas da lista. O cache só RECUSA, nunca libera envio; fora do ar, a
+ * propriedade decide, como antes. Vencida a marca de seis horas do teto do dia,
+ * o pedido seguinte lê a propriedade uma vez e a marca volta: são no máximo
+ * umas quatro leituras por dia por endereço.
+ */
+var LINK_FREADO_PREFIXO = 'link_freado_';
+
+function freioLembrado_(email) {
+  try {
+    return !!CacheService.getScriptCache().get(LINK_FREADO_PREFIXO + email);
+  } catch (e) {
+    return false;
+  }
+}
+
+function lembrarFreio_(email, ms) {
+  try {
+    // 21600 s é o prazo máximo do CacheService; vencido, a propriedade decide de novo.
+    CacheService.getScriptCache().put(LINK_FREADO_PREFIXO + email, '1',
+      Math.min(CACHE_PRAZO_MAXIMO_S, Math.max(1, Math.ceil(ms / 1000))));
+  } catch (e) {
+    // Sem cache, a propriedade decide a cada pedido, como antes.
+  }
+}
+
+/** Até a meia-noite de São Paulo, quando o teto do dia zera. */
+function msAteAMeiaNoite_(agoraMs) {
+  var hms = Utilities.formatDate(new Date(agoraMs), 'America/Sao_Paulo', 'HH:mm:ss').split(':');
+  return (86400 - (Number(hms[0]) * 3600 + Number(hms[1]) * 60 + Number(hms[2]))) * 1000;
 }
 
 /** Onde a allowlist fica em cache para o caminho do link. */

@@ -288,3 +288,88 @@ function escaparHtml_(v) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+// ------------------------------------------------- Contadores por hora no cache
+
+/**
+ * Contadores por hora do relógio, guardados no cache do script.
+ *
+ * NO CACHE, E NÃO NAS PROPRIEDADES DO SCRIPT. As propriedades têm cota diária —
+ * 50 mil leituras e gravações por dia numa conta Google comum, contadas por
+ * chamada —, e um contador que mora nelas cobra essa cota justamente de quem ele
+ * existe para barrar: até 17/11/2026, cada consulta de matrícula recusada pelo
+ * teto ainda lia três propriedades, e um robô insistente esgotava a cota sem
+ * passar de recusa nenhuma. Esgotada a cota, nenhuma ida ao banco funciona,
+ * porque o endereço do banco também mora nelas (02_Repo.gs). O cache não tem
+ * cota diária; é por isso que o teto da entrada pelo Google sempre morou nele
+ * (`excedeuVerificacoesGoogle_`, 07_Auth.gs).
+ *
+ * A janela é a hora do relógio: a chave leva o número da hora, então virar a hora
+ * é ganhar um contador novo, sem faxina nenhuma. Cada chave vive uma hora.
+ *
+ * CACHE FORA DO AR NÃO É RECUSA. Quem pergunta recebe "não sei" (null, ou
+ * "não passou do teto") e deixa passar, como sempre fez o teto do Google. O
+ * cache é otimização, nunca dependência — um cache indisponível não pode virar
+ * formulário trancado.
+ *
+ * UMA CHAVE POR OPERAÇÃO. Quem lê e grava calcula a chave uma vez só: calculada
+ * duas, o pedido que caísse na virada da hora levaria a contagem da hora velha
+ * para a nova, e um teto alcançado às 13h59 trancaria a hora das 14h inteira.
+ *
+ * O QUE ESTES CONTADORES NÃO SÃO: exatos. Ler, decidir e gravar sem serialização
+ * deixa a contagem MENOR que a real quando há execuções simultâneas, e o teto
+ * vaza — isso já valia quando a contagem morava nas propriedades, e fechá-lo
+ * exigiria pôr o contador dentro do lock global, serializando o auditório
+ * inteiro por causa de um freio. E o cache pode descartar uma chave antes da
+ * hora, o que zera a contagem — isso é novo, as propriedades não esqueciam. Os
+ * dois erros são para o lado de deixar passar.
+ */
+var CONTADOR_HORA_MS = 3600000;
+
+function chaveDaHora_(prefixo) {
+  return prefixo + Math.floor(new Date().getTime() / CONTADOR_HORA_MS);
+}
+
+/** Quantas passagens a hora corrente já contou, ou null se o cache não respondeu. */
+function lerContagemDaHora_(prefixo) {
+  try {
+    return Number(CacheService.getScriptCache().get(chaveDaHora_(prefixo)) || 0) || 0;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Soma uma passagem na hora corrente e devolve quantas havia ANTES dela, ou null
+ * se o cache não respondeu.
+ */
+function somarNaHora_(prefixo) {
+  var chave = chaveDaHora_(prefixo);
+  try {
+    var cache = CacheService.getScriptCache();
+    var antes = Number(cache.get(chave) || 0) || 0;
+    cache.put(chave, String(antes + 1), CONTADOR_HORA_MS / 1000);
+    return antes;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * A hora corrente já chegou ao teto? Se não chegou, esta passagem é contada.
+ *
+ * Passado o teto, nada é gravado: a contagem congela nele, e a resposta
+ * continua sendo sim até a hora virar. Cache fora do ar: não, e não conta.
+ */
+function passouDoTetoNaHora_(prefixo, teto) {
+  var chave = chaveDaHora_(prefixo);
+  try {
+    var cache = CacheService.getScriptCache();
+    var contagem = Number(cache.get(chave) || 0) || 0;
+    if (contagem >= teto) return true;
+    cache.put(chave, String(contagem + 1), CONTADOR_HORA_MS / 1000);
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
