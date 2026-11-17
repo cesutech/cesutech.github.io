@@ -1,6 +1,8 @@
 /**
- * 10_Painel.gs — as funções de gestão que o `Admin.html` chama por
- * `google.script.run`.
+ * 10_Painel.gs — as funções de gestão que o painel (docs/painel/index.html)
+ * chama pelo despacho do `doPost` (`rotaDoPainel_`, 08_Api.gs). Até 07/08/2026
+ * quem chamava era o `Admin.html`, por `google.script.run`, e as referências a
+ * ele que sobraram neste arquivo são desse tempo.
  *
  * O painel é o lado caro do sistema. O caminho público custa poucas leituras por
  * aluno e é protegido por cache (08_Api.gs); aqui cada tela abre uma pergunta
@@ -16,7 +18,7 @@
  *
  * ------------------------------------------------------- Orçamento de leitura
  *
- * A função mais cara é `exportarCsv`: ela lê o cadastro inteiro, por definição —
+ * A função mais cara é `exportarCsv_`: ela lê o cadastro inteiro, por definição —
  * exportar 3.000 alunos custa 3.000 leituras e não existe desenho que evite isso.
  * Tem teto de PAINEL_TETO_EXPORTACAO documentos, para uma exportação disparada
  * por engano não conseguir levar o dia junto.
@@ -53,7 +55,7 @@
  *                              cancelados (21/09)
  *   listarAlunos (exata) ..... 1 consulta por igualdade (+ os cursos, se pedidos)
  *   listarAlunos (varredura) . até PAINEL_TETO_VARREDURA leituras
- *   atualizarAlunos .......... 2 agregações + o custo de `listarAlunos` quando o
+ *   atualizarAlunos .......... 2 agregações + o custo de `listarAlunos_` quando o
  *                              cruzamento é pulado; quando ele roda, mais a
  *                              reconciliação inteira (|i|+|m|+|a|+1) e 3
  *                              agregações para fechar a conta do dia — ver
@@ -73,15 +75,15 @@
  * Abrir o painel — as três abas de leitura — são 21 requisições na primeira vez,
  * e há teste que conta cada uma.
  *
- * Agregação (`contar`) é cobrada por bloco de mil entradas de índice casadas, e
- * não por documento: com 2.500 alunos, cada `contar` sem filtro custa 3 leituras.
+ * Agregação (`contar_`) é cobrada por bloco de mil entradas de índice casadas, e
+ * não por documento: com 2.500 alunos, cada `contar_` sem filtro custa 3 leituras.
  * Isso é documentação do Firestore, não medição nossa — o número real só o banco
  * de verdade diz.
  *
  * ------------------------------------------------------------- E o RELÓGIO
  *
  * Leitura barata não é a mesma coisa que tela rápida, e o painel provou isso: as
- * 11 requisições de `painelEstatisticas` são baratas em COTA (11 leituras num
+ * 11 requisições de `painelEstatisticas_` são baratas em COTA (11 leituras num
  * teto de 50 mil) e caras em ESPERA, porque saem uma atrás da outra e cada ida e
  * volta ao Firestore leva algo perto de 300 ms. São ~3,3 s de rede somados ao
  * custo fixo de uma execução do Apps Script (~1,5 s), e é isso que a coordenação
@@ -91,10 +93,10 @@
  *
  *   - não repetir a mesma tela. O `Admin.html` guarda o que cada aba já carregou
  *     e voltar para uma aba aberta passou a custar zero;
- *   - não repetir a mesma pergunta em segundos. `painelEstatisticas` responde do
+ *   - não repetir a mesma pergunta em segundos. `painelEstatisticas_` responde do
  *     CacheService por PAINEL_CACHE_S segundos, e qualquer atualização pedida
  *     pelo professor fura o cache;
- *   - não mandar o que a tela joga fora. `listarAlunos` só lê o documento de
+ *   - não mandar o que a tela joga fora. `listarAlunos_` só lê o documento de
  *     cursos quando o cliente diz que ainda não o tem.
  *
  * O que NÃO dá para fazer daqui: juntar as 10 agregações numa requisição só. O
@@ -107,34 +109,34 @@
  *
  * ------------------------------------------------- O que este arquivo NÃO tem
  *
- * `rodarReconciliacao`, `sincronizarForms`, `analisarArquivo`,
- * `confirmarImportacao`, `expurgarLote`, `listarBanners` e `enviarBanner` são das
+ * `rodarReconciliacao_`, `sincronizarForms_`, `analisarArquivo_`,
+ * `confirmarImportacao_`, `expurgarLote_`, `listarBanners_` e `enviarBanner_` são das
  * outras fases desta mesma rodada. O `Admin.html` chama 28 e este arquivo
  * responde por 12.
  *
  * ------------------------------------------- O que este arquivo ESCREVE, e onde
  *
  * Até esta rodada o painel só escrevia `alunos` (a decisão de status) e a
- * configuração. `editarAluno` escreve nas FONTES — a inscrição e a lista oficial —,
+ * configuração. `editarAluno_` escreve nas FONTES — a inscrição e a lista oficial —,
  * e isso precisa estar dito em voz alta, porque `alunos` é DERIVADO: a
  * reconciliação o recalcula do zero a cada rodada (06_Reconciliacao.gs). Corrigir
  * um nome só na linha do cadastro é escrever na areia — some na madrugada
  * seguinte, sem aviso. Por isso cada campo da janela de edição é gravado na fonte
  * de onde ele vem, e a janela diz qual é:
  *
- *   matrícula ....... a INSCRIÇÃO (e o id do documento muda junto — ver `editarAluno`)
+ *   matrícula ....... a INSCRIÇÃO (e o id do documento muda junto — ver `editarAluno_`)
  *   nome digitado ... a INSCRIÇÃO
  *   nome oficial .... o MATRICULADO (a lista da secretaria)
  *   turma ........... o MATRICULADO
  *   projeto ......... a INSCRIÇÃO (e o id muda junto, pelo mesmo motivo)
  *
- * A única coisa que este arquivo grava em `alunos` fora de `resolverAluno` é a
+ * A única coisa que este arquivo grava em `alunos` fora de `resolverAluno_` é a
  * PROJEÇÃO desses campos, com a mesma precedência que `montarAluno_` usa. Se as
  * duas divergirem, a tela mostra um valor até a próxima reconciliação e outro
  * depois — existe teste que compara as duas.
  *
- * `incluirInscricao` CRIA uma inscrição — é a única função fora de
- * 04_Inscricoes.gs que chama `gravarInscricao` — ou PROMOVE a que já está na
+ * `incluirInscricao_` CRIA uma inscrição — é a única função fora de
+ * 04_Inscricoes.gs que chama `gravarInscricao_` — ou PROMOVE a que já está na
  * fila de espera do projeto, como `promoverDentroDoLock_` (13_Auditorio.gs).
  * Nos dois casos escreve na FONTE e, DEPOIS dela, recalcula a ficha daquela
  * pessoa — `reconciliarPessoa_` (06_Reconciliacao.gs), 2 a 4 requisições, a
@@ -149,16 +151,16 @@
  * aqui só lê, e depende de três coisas do contrato combinado:
  *
  *   1. o ID DO DOCUMENTO é determinístico e derivado da matrícula, e é ele que o
- *      painel manda de volta em `resolverAluno` e `detalheAluno`. Não existe
+ *      painel manda de volta em `resolverAluno_` e `detalheAluno_`. Não existe
  *      campo `id` — ele vem do nome do documento (`_id`), como em `projetos`;
  *   2. `matricula_id` guarda a matrícula normalizada (o id do documento em
  *      `matriculados`) e `inscricao_id` guarda a chave de dedup (o id do
  *      documento em `inscricoes`). É o que transforma o detalhe do aluno em três
  *      leituras de ponto em vez de três varreduras. Quando `matricula_id` vem
- *      vazio, `detalheAluno` deriva o endereço da própria matrícula — é a mesma
+ *      vazio, `detalheAluno_` deriva o endereço da própria matrícula — é a mesma
  *      regra, escrita duas vezes de propósito;
  *   3. os campos `cpf` e `email` EXISTEM em todo documento, ainda que vazios.
- *      `painelEstatisticas` conta quem tem CPF como "total menos os que têm o
+ *      `painelEstatisticas_` conta quem tem CPF como "total menos os que têm o
  *      campo vazio", e no Firestore um campo AUSENTE não casa com nenhum filtro
  *      de igualdade: se a reconciliação omitir a chave em vez de gravá-la vazia,
  *      o painel passa a anunciar 100% de CPF em silêncio. NÃO ESTÁ PROVADO —
@@ -298,7 +300,7 @@ var PAINEL_TETO_CURSOS = 12;
  *      matriculados) contra os números da última rodada. Iguais, a reconciliação
  *      é pulada e só a lista recarrega — dez cliques seguidos custam 10 × (2
  *      agregações + uma página de alunos), e não 55.000 leituras. É o mesmo
- *      desenho de `sincronizarForms`, que já se recusa a reconciliar quando não
+ *      desenho de `sincronizarForms_`, que já se recusa a reconciliar quando não
  *      entrou resposta nova;
  *   2. QUINZE MIL LEITURAS POR DIA, e aí para. É o freio para o dia do evento,
  *      quando as inscrições entram sem parar e o freio 1 nunca fecha: cada
@@ -317,7 +319,7 @@ var PAINEL_TETO_CURSOS = 12;
  * precisa abrir de propósito; o daqui é o que se clica por reflexo, e é o reflexo
  * que precisa de freio.
  *
- * O dia é o dia LOCAL (`agora()`), e a cota do Spark vira à meia-noite do
+ * O dia é o dia LOCAL (`agora_()`), e a cota do Spark vira à meia-noite do
  * Pacífico — 4h ou 5h em Brasília. As duas viradas não coincidem, e não precisam:
  * isto é um guarda-corpo com número escrito, não contabilidade da cota.
  */
@@ -351,7 +353,7 @@ var PAINEL_MARCA_RECONCILIACAO = 'painel_reconciliacao';
  * ACABOU de escrever é pior do que espera — a professora clica em Salvar, volta,
  * vê o valor de antes e conclui que o sistema perdeu a decisão dela. Por isso:
  *
- *   - `resolverAluno` invalida a chave assim que grava (é a única escrita deste
+ *   - `resolverAluno_` invalida a chave assim que grava (é a única escrita deste
  *     arquivo que muda algum dos dez números);
  *   - as escritas das OUTRAS fases — reconciliação, sincronização com o Forms,
  *     importação, expurgo — não podem invalidar daqui, porque não são deste
@@ -374,8 +376,9 @@ var PAINEL_CACHE_ESTATISTICAS = 'painel_estatisticas';
  *
  * Parente próximo de `rotaCacheada_` (08_Api.gs), e separado dele de propósito:
  * lá a resposta é um `ContentService` e o JSON pode ser devolvido sem desembrulhar;
- * aqui quem chama é o `google.script.run`, que precisa de OBJETO. Herdar a função
- * de lá também amarraria este arquivo a 08_Api.gs, que os testes do painel nem
+ * aqui quem chama é o despacho do painel (`rotaDoPainel_`, 08_Api.gs), que
+ * precisa de OBJETO — quem o transforma em JSON é o `doPost`. Herdar a função de
+ * lá também amarraria este arquivo a 08_Api.gs, que os testes do painel nem
  * carregam.
  *
  * Todo contato com o cache está dentro de try/catch, e isso é regra: cache é
@@ -455,7 +458,7 @@ function cacheDoPainel_() {
  * inteiro — o tráfego não cresce com o tamanho do cadastro.
  *
  * O que NÃO dá para fazer por agregação: "com CPF preenchido" (o Firestore só
- * tem filtro de IGUALDADE em `listar`/`contar`, e "diferente de vazio" não é
+ * tem filtro de IGUALDADE em `listar_`/`contar_`, e "diferente de vazio" não é
  * igualdade). A saída é contar os VAZIOS e subtrair — exato, desde que o campo
  * exista em todo documento (ver a suposição 3 no cabeçalho).
  *
@@ -471,18 +474,18 @@ function cacheDoPainel_() {
  * descrevem o cadastro inteiro, e responder do cache sem token seria entregá-los
  * mais barato do que o banco entregaria.
  */
-function painelEstatisticas(payload) {
+function painelEstatisticas_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     return painelCacheado_(PAINEL_CACHE_ESTATISTICAS, payload.atualizar, function () {
-      var total = contar(ALUNOS_COLECAO);
+      var total = contar_(ALUNOS_COLECAO);
 
       var porStatus = {};
       [STATUS.CONFIRMADO, STATUS.SO_INSCRITO, STATUS.SO_MATRICULADO, STATUS.DIVERGENCIA]
         .forEach(function (s) {
-          porStatus[s] = contar(ALUNOS_COLECAO, { campo: 'status', valor: s });
+          porStatus[s] = contar_(ALUNOS_COLECAO, { campo: 'status', valor: s });
         });
 
       // Os cancelados (21/09), em três perguntas numa ida só: o status
@@ -491,7 +494,7 @@ function painelEstatisticas(payload) {
       // a marca na lista oficial (para o cartão dizer "2.480 linhas, 12
       // canceladas" — a reconciliação pode ainda não ter rodado depois da
       // revisão, e aí os dois números divergem de propósito).
-      var cancelados = contarVarios([
+      var cancelados = contarVarios_([
         { colecao: ALUNOS_COLECAO, campo: 'status', valor: STATUS.CANCELADO },
         { colecao: ALUNOS_COLECAO, campo: 'situacao_cadastro', valor: 'CANCELADO' },
         { colecao: MATRICULADOS_COLECAO, campo: 'situacao_cadastro', valor: 'CANCELADO' }
@@ -514,8 +517,8 @@ function painelEstatisticas(payload) {
       // existe: quem confere contra a lista oficial é `matricula_conferida`, que
       // vira o "?" na lista de inscritos. São perguntas diferentes, e esta é a
       // que diz se a reconciliação tem por onde começar.
-      var comMatricula = total - contar(ALUNOS_COLECAO, { campo: 'matricula', valor: '' });
-      var comEmail = total - contar(ALUNOS_COLECAO, { campo: 'email', valor: '' });
+      var comMatricula = total - contar_(ALUNOS_COLECAO, { campo: 'matricula', valor: '' });
+      var comEmail = total - contar_(ALUNOS_COLECAO, { campo: 'email', valor: '' });
 
       var cursos = painelCursos_();
 
@@ -530,10 +533,10 @@ function painelEstatisticas(payload) {
           // sobre o total exatamente quando o cadastro fica grande.
           porCursoResto: cursos.resto,
           cancelados: cancelados[1],
-          inscricoes: contar(INSCRICOES_COLECAO),
-          matriculados: contar(MATRICULADOS_COLECAO),
+          inscricoes: contar_(INSCRICOES_COLECAO),
+          matriculados: contar_(MATRICULADOS_COLECAO),
           matriculadosCancelados: cancelados[2],
-          lotes: contar(LOTES_COLECAO),
+          lotes: contar_(LOTES_COLECAO),
           qualidade: {
             comEmail: comEmail,
             comMatricula: comMatricula,
@@ -566,7 +569,7 @@ function painelEstatisticas(payload) {
  * Documento ausente devolve tudo vazio — ver AGREGADOS_CURSOS.
  */
 function painelCursos_() {
-  var documento = ler(AGREGADOS_COLECAO, AGREGADOS_CURSOS);
+  var documento = ler_(AGREGADOS_COLECAO, AGREGADOS_CURSOS);
   if (!documento) return { lista: [], histograma: [], resto: { cursos: 0, alunos: 0 } };
 
   var todos = [];
@@ -598,11 +601,11 @@ function painelCursos_() {
 }
 
 /** Projetos com vagas e ocupação, para a aba Projetos. */
-function painelProjetos(payload) {
+function painelProjetos_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    // `listarProjetos` (09_Projetos.gs) lê a coleção de projetos sem limite e faz
+    // `listarProjetos_` (09_Projetos.gs) lê a coleção de projetos sem limite e faz
     // uma agregação por projeto. É a única leitura sem teto que este arquivo
     // provoca, e ela é do outro arquivo: a coleção tem meia dúzia de documentos
     // por semestre, um por projeto de extensão, e o caminho público já paga a
@@ -610,8 +613,8 @@ function painelProjetos(payload) {
     // consertado daqui.
     return {
       ok: true,
-      itens: listarProjetos(false),
-      vagasPadrao: Number(config('vagas_padrao', '60'))
+      itens: listarProjetos_(false),
+      vagasPadrao: Number(config_('vagas_padrao', '60'))
     };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -639,10 +642,10 @@ function painelProjetos(payload) {
  * número que a coordenação já vê na tela antes de clicar.
  *
  * Filtro de igualdade em UM campo (`projeto_id`), sem ordenação declarada:
- * `listar` ordena por `__name__` ASCENDENTE, que é o desempate embutido no índice
+ * `listar_` ordena por `__name__` ASCENDENTE, que é o desempate embutido no índice
  * automático de campo único. Ordenar por `nome` no banco pediria índice composto
  * e devolveria `400 The query requires an index` — a cicatriz de
- * `ultimosRegistros` (04_Log.gs). A ordem alfabética é feita aqui, em JavaScript,
+ * `ultimosRegistros_` (04_Log.gs). A ordem alfabética é feita aqui, em JavaScript,
  * sobre as poucas dezenas que voltaram.
  *
  * ------------------------------------------------------------ A fila de espera
@@ -655,15 +658,15 @@ function painelProjetos(payload) {
  * limite de vagas furou — que é exatamente a dúvida que este sistema não pode
  * deixar no ar.
  */
-function inscritosDoProjeto(payload) {
+function inscritosDoProjeto_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var id = String((payload && payload.id) || '');
-    var projeto = projetoPorId(id);
+    var projeto = projetoPorId_(id);
     if (!projeto) return { ok: false, erro: 'Projeto não encontrado. Recarregue a lista.' };
 
-    var itens = listar(INSCRICOES_COLECAO, {
+    var itens = listar_(INSCRICOES_COLECAO, {
       campo: 'projeto_id',
       valor: id,
       limite: PAINEL_MAX_INSCRITOS_PROJETO
@@ -675,7 +678,7 @@ function inscritosDoProjeto(payload) {
         whatsapp: i.whatsapp || '',
         // O que a pessoa escolheu em "Curso e fase". Vai junto porque é o campo
         // que o cruzamento da aba Disciplinas desconfia — ver
-        // `matriculadosDaDisciplina` (12_Disciplinas.gs). Aqui ele é informação,
+        // `matriculadosDaDisciplina_` (12_Disciplinas.gs). Aqui ele é informação,
         // não chave.
         curso_fase: i.curso_fase || '',
         em_espera: String(i.em_espera).toUpperCase() === 'SIM',
@@ -684,7 +687,7 @@ function inscritosDoProjeto(payload) {
       };
     });
 
-    itens.sort(function (a, b) { return chaveNome(a.nome).localeCompare(chaveNome(b.nome)); });
+    itens.sort(function (a, b) { return chaveNome_(a.nome).localeCompare(chaveNome_(b.nome)); });
 
     var emEspera = itens.filter(function (i) { return i.em_espera; }).length;
 
@@ -699,7 +702,7 @@ function inscritosDoProjeto(payload) {
     };
 
     // Lista cortada pelo teto tem de DIZER que foi cortada — o mesmo cuidado de
-    // `listarDisciplinas`. O inscrito 301 sumindo em silêncio faria a
+    // `listarDisciplinas_`. O inscrito 301 sumindo em silêncio faria a
     // coordenação concluir que ele não se inscreveu.
     if (itens.length === PAINEL_MAX_INSCRITOS_PROJETO) {
       resposta.aviso = 'Mostrando as primeiras ' + PAINEL_MAX_INSCRITOS_PROJETO +
@@ -719,16 +722,16 @@ function inscritosDoProjeto(payload) {
  * preencher o formulário ao sair do campo.
  *
  * DEVOLVE DADO DO ALUNO A PARTIR DA MATRÍCULA — exatamente o que
- * `matriculaConhecida` (04_Inscricoes.gs) e `?api=matricula` (08_Api.gs) se
+ * `matriculaConhecida_` (04_Inscricoes.gs) e `?api=matricula` (08_Api.gs) se
  * recusam a fazer. A diferença não é de gosto, é de QUEM pergunta: lá o
  * consulente é anônimo, e uma matrícula quase sequencial viraria um oráculo da
- * lista inteira; aqui é a coordenação autenticada (`exigirAdmin`), que já enxerga
+ * lista inteira; aqui é a coordenação autenticada (`exigirAdmin_`), que já enxerga
  * a lista importada inteira na aba Alunos e no CSV. Não há nada aqui que ela não
  * tenha a um clique — só está no lugar em que ela precisa, na hora em que
  * precisa, para não redigitar o que a secretaria já mandou.
  *
  * Custo: 1 leitura de ponto (a lista oficial, pelo id = matrícula normalizada,
- * que é o contrato de `matriculaConhecida`) + 1 consulta de igualdade (a mesma
+ * que é o contrato de `matriculaConhecida_`) + 1 consulta de igualdade (a mesma
  * que o formulário público faz por `outrosProjetosDe_`). Zero escritas.
  *
  * `ja_em` sai de `inscricoesEmOutrosProjetos_` (04_Inscricoes.gs), a MESMA
@@ -737,38 +740,38 @@ function inscritosDoProjeto(payload) {
  * projeto)" — o nome é desnormalizado na escrita, e um projeto renomeado ou
  * dois homônimos deixariam a marca errada — e `em_espera` é o que a faz dizer
  * "(em espera)": quem está na FILA deste projeto não ganha uma inscrição nova
- * no Incluir, ganha a vaga na que já tem (`incluirInscricao` promove), e a
+ * no Incluir, ganha a vaga na que já tem (`incluirInscricao_` promove), e a
  * coordenação precisa saber ANTES de preencher o formulário que o que ela
  * digitar ali não vai para o documento. Sem `projeto_id` no pedido, a consulta
  * devolve TODOS os projetos da pessoa, inclusive o desta janela.
  *
  * A régua da matrícula é `erroFormatoMatricula_`, a mesma das outras três portas
- * (formulário, `?api=matricula`, `editarAluno`): vazia ou fora do formato recusa
+ * (formulário, `?api=matricula`, `editarAluno_`): vazia ou fora do formato recusa
  * ANTES de qualquer leitura.
  */
-function buscarMatriculado(payload) {
+function buscarMatriculado_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
-    var matricula = normalizarMatricula(payload.matricula);
+    var matricula = normalizarMatricula_(payload.matricula);
     if (!matricula) return { ok: false, erro: 'Informe a matrícula.' };
     var formato = erroFormatoMatricula_(payload.matricula);
     if (formato) return { ok: false, erro: formato };
 
-    var oficial = ler(MATRICULADOS_COLECAO, matricula);
+    var oficial = ler_(MATRICULADOS_COLECAO, matricula);
 
     return {
       ok: true,
       encontrado: oficial !== null,
       // A marca da revisão (21/09) vai junto, como AVISO: a ficha continua
       // vindo inteira e a inclusão continua possível. Quem recusa é a porta
-      // pública (`matriculaConhecida`); a coordenação decide sabendo.
+      // pública (`matriculaConhecida_`); a coordenação decide sabendo.
       cancelado: oficial !== null && cadastroCancelado_(oficial),
       cancelado_em: oficial ? String(oficial.cancelado_em || '') : '',
       nome: oficial ? String(oficial.nome || '') : '',
       email: oficial ? String(oficial.email || '') : '',
-      telefone: oficial ? formatarTelefone(oficial.telefone) : '',
+      telefone: oficial ? formatarTelefone_(oficial.telefone) : '',
       curso: oficial ? String(oficial.curso || '') : '',
       turma: oficial ? String(oficial.turma || '') : '',
       ja_em: inscricoesEmOutrosProjetos_({ matricula: matricula })
@@ -785,11 +788,11 @@ function buscarMatriculado(payload) {
  * --------------------------------------------------------- O caso que a criou
  *
  * 21/09: o coordenador precisava incluir um aluno num projeto e não tinha por
- * onde. A única gravação de inscrição era `submeterInscricao` (04_Inscricoes.gs),
+ * onde. A única gravação de inscrição era `submeterInscricao_` (04_Inscricoes.gs),
  * que é o formulário público: respeita `cadastro_aberto`, a janela
  * `inscricoes_inicio`/`inscricoes_fim`, o anti-abuso e o teto de vagas. Com a
  * janela FECHADA — o estado de produção naquele dia — nem a coordenação
- * conseguia incluir ninguém, nem por fora. `editarAluno` migra quem JÁ tem
+ * conseguia incluir ninguém, nem por fora. `editarAluno_` migra quem JÁ tem
  * inscrição; quem nunca se inscreveu não tinha porta.
  *
  * ------------------------------------------- O que passa por fora, e por quê
@@ -806,14 +809,14 @@ function buscarMatriculado(payload) {
  *                                     cheio devolve `precisa_confirmar` sem
  *                                     gravar, e o segundo envio, com
  *                                     `confirmar_teto: true`, grava. É a
- *                                     migração de `editarAluno` com uma pergunta
+ *                                     migração de `editarAluno_` com uma pergunta
  *                                     a mais, porque lá a coordenação lê "2/2 ·
  *                                     Esgotado" no select antes de escolher, e
  *                                     aqui o número só existe depois de perguntar
  *                                     ao banco. INATIVO e FECHADO não perguntam
  *                                     nada: a situação do projeto é do público;
  *   o lock .......................... NÃO é tomado, pela mesma conta de
- *                                     `editarAluno` e de `removerProjeto`:
+ *                                     `editarAluno_` e de `removerProjeto_`:
  *                                     `getScriptLock` é global, e pegá-lo poria o
  *                                     clique da coordenação atrás da fila inteira
  *                                     do auditório. O pior que a corrida faz é uma
@@ -829,21 +832,21 @@ function buscarMatriculado(payload) {
  *                                     o campo vazio, e é assim que "não
  *                                     perguntado" se distingue de "não aceitou".
  *
- * O formulário público NÃO muda em nada: `submeterInscricao` continua com todas
- * as travas, e `gravarInscricao` continua gravando o mesmo documento de sempre.
+ * O formulário público NÃO muda em nada: `submeterInscricao_` continua com todas
+ * as travas, e `gravarInscricao_` continua gravando o mesmo documento de sempre.
  * O que só existe em quem entrou por aqui — `incluido_por` e os aceites em
- * branco — vai no SEGUNDO argumento de `gravarInscricao`, e não em `dados`, de
+ * branco — vai no SEGUNDO argumento de `gravarInscricao_`, e não em `dados`, de
  * propósito: `dados` é o formato do payload que o aluno manda, e uma marca ali
  * seria uma marca que um POST à mão também manda (04_Inscricoes.gs explica).
  *
  * ------------------------------------------------------ O que NÃO passa por fora
  *
  * A régua da matrícula é `erroFormatoMatricula_`, a MESMA do formulário, de
- * `?api=matricula` e de `editarAluno` — uma quarta régua aqui seria a que
+ * `?api=matricula` e de `editarAluno_` — uma quarta régua aqui seria a que
  * envelhece sozinha. A dedup é a do banco: o id do documento é `chaveDedup_`, e o
  * 409 recusa a mesma pessoa no mesmo projeto sem leitura prévia e sem escrita a
  * mais — nem no log. E `matricula_conferida` é decidido pela MESMA regra de
- * `matriculaConhecida`, como no formulário: quem não está na lista oficial — ou
+ * `matriculaConhecida_`, como no formulário: quem não está na lista oficial — ou
  * está CANCELADO nela — ENTRA (a coordenação decide), mas entra marcado — o "?"
  * da lista de inscritos continua dizendo a verdade, e a resposta avisa qual dos
  * dois é o caso.
@@ -856,7 +859,7 @@ function buscarMatriculado(payload) {
  * duas marcas de fila saem do documento e ele é reescrito inteiro, que é
  * exatamente o que `promoverDentroDoLock_` (13_Auditorio.gs) faz, numa escrita
  * só e sem o lock, pela conta acima. Mandar a coordenação ao Auditório era um
- * beco: `promoverDaEspera` respeita o teto e a situação do projeto, e quem está
+ * beco: `promoverDaEspera_` respeita o teto e a situação do projeto, e quem está
  * na fila está na fila PORQUE o projeto encheu — e depois do prazo ele está
  * FECHADO. Os dois estados em que a coordenação precisa da porta por fora eram
  * os dois em que o caminho apontado recusava. A resposta é a de uma inclusão,
@@ -873,7 +876,7 @@ function buscarMatriculado(payload) {
  * prévia, então a pergunta do teto ("2/2, incluir deixa 3/2") sai sem saber que
  * a resposta será uma promoção. A conta é a mesma — promover também deixa 3/2
  * —, e a coordenação já leu "(em espera)" no aviso amarelo antes de clicar
- * (`buscarMatriculado`). Uma leitura de ponto antes do teto, para nomear a fila
+ * (`buscarMatriculado_`). Uma leitura de ponto antes do teto, para nomear a fila
  * na pergunta, custaria uma leitura em TODA inclusão para melhorar a frase do
  * caso raro.
  *
@@ -891,11 +894,11 @@ function buscarMatriculado(payload) {
  * A ficha em `alunos` é recalculada AQUI, depois da escrita da fonte:
  * `reconciliarPessoa_` (06_Reconciliacao.gs) refaz a ficha daquela matrícula por
  * 2 a 4 requisições (~2,2 s no clique), com a MESMA cascata da rodada. Chamar
- * `reconciliar()` daqui custaria as três coleções inteiras por inclusão — o preço
- * que `editarAluno` só paga quando a CHAVE da pessoa muda.
+ * `reconciliar_()` daqui custaria as três coleções inteiras por inclusão — o preço
+ * que `editarAluno_` só paga quando a CHAVE da pessoa muda.
  *
  * Era esta a única porta que deixava a coordenação esperando: incluir pela aba
- * Alunos já cruzava (a TELA chama `atualizarAlunos` em seguida), mas incluir pela
+ * Alunos já cruzava (a TELA chama `atualizarAlunos_` em seguida), mas incluir pela
  * lista de inscritos do projeto não passa por aquele botão — a ficha ficava
  * invisível até alguém ir à outra aba e clicar.
  *
@@ -926,25 +929,25 @@ function buscarMatriculado(payload) {
  * fila de espera ou vaga — e, na fila, mais 1 escrita (a promoção) e a agregação
  * e o log de sempre.
  */
-function incluirInscricao(payload) {
+function incluirInscricao_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     // Quem operou, para o campo `incluido_por` DO DOCUMENTO: a sessão sabe
-    // (07_Auth.gs) e `usuarioAtual()` vem vazio no GitHub Pages, então a sessão
+    // (07_Auth.gs) e `usuarioAtual_()` vem vazio no GitHub Pages, então a sessão
     // vem primeiro — é a mesma ordem de `quemOperou_` (04_Log.gs), pelo mesmo
     // motivo. A linha da trilha não precisa mais dele: lá o nome é a coluna
-    // `usuario`, que `exigirAdmin` preenche.
-    var quem = emailDaSessao_(payload.token) || usuarioAtual();
+    // `usuario`, que `exigirAdmin_` preenche.
+    var quem = emailDaSessao_(payload.token) || usuarioAtual_();
 
     // Formato antes de qualquer leitura: pedido malformado não custa cota. É a
-    // ordem de `editarAluno` e de `resolverAluno`.
+    // ordem de `editarAluno_` e de `resolverAluno_`.
     var erros = conferirFormatoDaInclusao_(payload);
     if (erros.length) return { ok: false, erro: erros.join(' ') };
 
     var projetoId = String(payload.projeto_id || '').trim();
-    var projeto = projetoPorId(projetoId);
+    var projeto = projetoPorId_(projetoId);
     if (!projeto) return { ok: false, erro: 'Projeto não encontrado. Recarregue a lista.' };
 
     var vagas = Number(projeto.vagas || 0);
@@ -976,16 +979,16 @@ function incluirInscricao(payload) {
     }
 
     // Uma leitura da lista oficial e uma consulta às inscrições da pessoa — as
-    // mesmas duas perguntas que `submeterInscricao` faz, na mesma ordem. As duas
+    // mesmas duas perguntas que `submeterInscricao_` faz, na mesma ordem. As duas
     // respostas viram AVISO aqui, e não recusa: quem decide é a coordenação.
     //
-    // A leitura é feita aqui, e não por `matriculaConhecida`, porque esta porta
+    // A leitura é feita aqui, e não por `matriculaConhecida_`, porque esta porta
     // precisa distinguir o que a pública esconde de propósito: a matrícula
     // CANCELADA pela revisão de uma importação (21/09). Para o formulário ela é
     // "não encontrada"; para a coordenação ela é "existe, e foi cancelada em
     // dd/mm" — e a inscrição entra do mesmo jeito, marcada como não conferida,
     // porque a lista oficial de hoje não a tem.
-    var oficial = ler(MATRICULADOS_COLECAO, normalizarMatricula(payload.matricula));
+    var oficial = ler_(MATRICULADOS_COLECAO, normalizarMatricula_(payload.matricula));
     var cancelada = oficial !== null && cadastroCancelado_(oficial);
     var conhecida = oficial !== null && !cancelada;
     var jaEstaEm = outrosProjetosDe_({ matricula: payload.matricula, projeto_id: projetoId });
@@ -1006,7 +1009,7 @@ function incluirInscricao(payload) {
     // prazo, que é quando esta função existe para ser usada.
     //
     // Custa ZERO leitura: `jaEstaEm` é a consulta que já estava aqui, e a chave
-    // vem de `config()`, que o documento de configuração já trouxe (a régua da
+    // vem de `config_()`, que o documento de configuração já trouxe (a régua da
     // matrícula o leu, lá em cima, antes de qualquer outra coisa).
     //
     // Vale também para a PROMOÇÃO DA FILA, e de propósito: esta pergunta sai
@@ -1020,14 +1023,14 @@ function incluirInscricao(payload) {
     // promoção — Editar moveria a OUTRA inscrição, e mover ESTA para onde ela
     // já está bate no 409 de `gravarInscricaoEditada_`. A pergunta nomeia o
     // projeto e para por aí.
-    if (String(config('aluno_projeto_unico', 'NAO')).toUpperCase() === 'SIM' &&
+    if (String(config_('aluno_projeto_unico', 'NAO')).toUpperCase() === 'SIM' &&
         jaEstaEm.length && payload.confirmar_outro_projeto !== true) {
       return {
         ok: false,
         precisa_confirmar: true,
         confirmar_campo: 'confirmar_outro_projeto',
         // NOMES, e não `{id, projeto_id, ...}` como o `ja_em` de
-        // `buscarMatriculado`: lá a janela marca "(este projeto)" pelo id — o
+        // `buscarMatriculado_`: lá a janela marca "(este projeto)" pelo id — o
         // nome é desnormalizado e um projeto renomeado deixaria a marca errada
         // —, e aqui ninguém marca nada. A pergunta é uma frase, e o campo leva
         // os mesmos nomes dela, para quem responde por HTTP não ter de recortar
@@ -1039,7 +1042,7 @@ function incluirInscricao(payload) {
     }
 
     // Só o que o formulário também manda: os aceites e quem incluiu NÃO entram
-    // aqui — vão no segundo argumento de `gravarInscricao` (ver o cabeçalho).
+    // aqui — vão no segundo argumento de `gravarInscricao_` (ver o cabeçalho).
     var dados = {
       origem: 'COORDENACAO',
       projeto_id: projetoId,
@@ -1050,20 +1053,20 @@ function incluirInscricao(payload) {
       email: payload.email,
       whatsapp: payload.whatsapp || '',
       curso_fase: String(payload.curso_fase || '').trim(),
-      // O mesmo teto de `resolverAluno`: texto livre que o painel relê a cada
+      // O mesmo teto de `resolverAluno_`: texto livre que o painel relê a cada
       // listagem não carrega um romance colado sem querer.
       observacoes: String(payload.observacoes || '').trim().slice(0, PAINEL_MAX_OBSERVACOES),
-      // Ocupa vaga: a fila de espera é decisão de `reservarVaga`, que não roda
-      // aqui. Zerar é o mesmo cuidado de `submeterInscricao` com o campo.
+      // Ocupa vaga: a fila de espera é decisão de `reservarVaga_`, que não roda
+      // aqui. Zerar é o mesmo cuidado de `submeterInscricao_` com o campo.
       em_espera: 'NAO'
     };
 
-    var gravacao = gravarInscricao(dados, { incluido_por: quem });
+    var gravacao = gravarInscricao_(dados, { incluido_por: quem });
     var promovida = null;
     if (gravacao.duplicada) {
       // A única leitura deste ramo, e o motivo está no cabeçalho: a chave é a
       // mesma para quem está na fila — e a fila não se inclui, se promove, AQUI.
-      var recusada = ler(INSCRICOES_COLECAO, gravacao.id);
+      var recusada = ler_(INSCRICOES_COLECAO, gravacao.id);
       if (!recusada || String(recusada.em_espera).toUpperCase() !== 'SIM') {
         return {
           ok: false,
@@ -1083,7 +1086,7 @@ function incluirInscricao(payload) {
       delete recusada.espera_de;
 
       // E a escrita leva a VERSÃO lida três linhas acima (D12), como a do
-      // Auditório. Era `escreverEmLote` — upsert sem precondição nenhuma, fora
+      // Auditório. Era `escreverEmLote_` — upsert sem precondição nenhuma, fora
       // do lock —, e a sequência que isso permitia é concreta desde que a troca
       // de projeto existe: (1) o Incluir leva o 409 e lê a inscrição em espera
       // de X; (2) o aluno confirma a troca X→Y e o `:commit` apaga X e cria Y;
@@ -1091,14 +1094,14 @@ function incluirInscricao(payload) {
       // fila — ocupando vaga. O aluno fica com duas ativas, a cópia em
       // `inscricoes_anuladas/{idX}` fica órfã e o teto de X vai a +1.
       //
-      // É VERSÃO e não `exists:true` pelo motivo de `atualizarEmLote`
+      // É VERSÃO e não `exists:true` pelo motivo de `atualizarEmLote_`
       // (02_Repo.gs): `exists:true` não distingue "o mesmo documento" de "o
       // documento REESCRITO" — e reescrito é exatamente o que ele fica quando
       // alguém promove ou edita pela outra porta enquanto a janela está aberta.
       // Nada é aplicado na recusa, e a frase manda recarregar: retentar aqui
       // seria promover por cima do que mudou.
       try {
-        escreverAtomico([{
+        escreverAtomico_([{
           gravar: {
             colecao: INSCRICOES_COLECAO,
             id: gravacao.id,
@@ -1120,14 +1123,14 @@ function incluirInscricao(payload) {
           // E a linha do log sai ANTES da resposta, como a do Auditório: este é
           // um dos TRÊS ramos em que o efeito pode ter entrado sem trilha nenhuma
           // (o gêmeo do Geral e o da troca do aluno são os outros). A
-          // promoção acontece no meio da função, e o `registrar` de sucesso só
+          // promoção acontece no meio da função, e o `registrar_` de sucesso só
           // viria lá embaixo — quem sai por aqui passaria por fora dele, e a
           // inscrição ganharia vaga sem uma linha dizendo que alguém tentou.
-          // `registrar` é à prova de falha (04_Log.gs) e a linha diz o que se
+          // `registrar_` é à prova de falha (04_Log.gs) e a linha diz o que se
           // sabe: o que foi tentado, em que projeto, e que não houve
           // confirmação. Quem tentou está na coluna `usuario` da mesma linha,
-          // que `exigirAdmin` passou a preencher — e por isso saiu daqui.
-          registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
+          // que `exigirAdmin_` passou a preencher — e por isso saiu daqui.
+          registrar_('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
             'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a promoção ' +
             'da fila pode ter entrado — no projeto ' + projetoNome);
 
@@ -1159,10 +1162,10 @@ function incluirInscricao(payload) {
     // existia, e a linha diz isso.
     //
     // O NOME de quem incluiu saiu do detalhe e está na coluna `usuario`, desde
-    // que `exigirAdmin` anota o operador (04_Log.gs). `quem` continua vivo
+    // que `exigirAdmin_` anota o operador (04_Log.gs). `quem` continua vivo
     // acima porque ele também vira `incluido_por` NO DOCUMENTO da inscrição,
     // que é o que o CSV e a ficha leem — e essa cópia não tem coluna nenhuma.
-    registrar('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
+    registrar_('INSCRICAO_INCLUIDA', 'inscricao', gravacao.id,
       'no projeto ' + projetoNome + ' (' + inscritos +
       (vagas > 0 ? '/' + vagas : ' inscritos, vagas ilimitadas') + ')' +
       (vagas > 0 && inscritos > vagas ? ' — ACIMA DO TETO' : '') +
@@ -1175,12 +1178,12 @@ function incluirInscricao(payload) {
 
     var avisos = [];
     if (cancelada && !promovida) {
-      avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
+      avisos.push('A matrícula ' + normalizarMatricula_(payload.matricula) +
         ' está CANCELADA na lista oficial' +
-        (formatarData(oficial.cancelado_em) ? ' (em ' + formatarData(oficial.cancelado_em) + ')' : '') +
+        (formatarData_(oficial.cancelado_em) ? ' (em ' + formatarData_(oficial.cancelado_em) + ')' : '') +
         ': a inscrição entrou marcada como não conferida.');
     } else if (!conhecida && !promovida) {
-      avisos.push('A matrícula ' + normalizarMatricula(payload.matricula) +
+      avisos.push('A matrícula ' + normalizarMatricula_(payload.matricula) +
         ' não está na lista oficial importada: a inscrição entrou marcada como não conferida.');
     }
     if (jaEstaEm.length) {
@@ -1192,7 +1195,7 @@ function incluirInscricao(payload) {
     //
     // DEPOIS da escrita da fonte, porque `alunos` é derivada: calcular a ficha de
     // um estado que ainda não existe é inventar. E fora de qualquer lock, pela
-    // conta que `editarAluno` já fez e recusou — nada aqui disputa vaga.
+    // conta que `editarAluno_` já fez e recusou — nada aqui disputa vaga.
     //
     // O matriculado vai junto: ele foi lido lá em cima, e reler custaria uma
     // leitura por inclusão para saber o que já está na mão (`undefined` seria
@@ -1219,7 +1222,7 @@ function incluirInscricao(payload) {
     if (!cruzamento.feito) esquecerMarcaDaReconciliacao_();
 
     // A inscrição que acabou de entrar muda "inscrições" e, no próximo cruzamento,
-    // os status — os mesmos números que `resolverAluno` já invalida.
+    // os status — os mesmos números que `resolverAluno_` já invalida.
     invalidarCachePainel_();
 
     return {
@@ -1255,12 +1258,12 @@ function incluirInscricao(payload) {
 
 /**
  * Conferências que não dependem do banco. Devolve a lista de recusas, vazia
- * quando está tudo bem — o formato de `validarInscricao`, porque a tela junta
+ * quando está tudo bem — o formato de `validarInscricao_`, porque a tela junta
  * as frases do mesmo jeito.
  *
  * O que é IGUAL ao formulário público, e por quê: a matrícula passa por
  * `erroFormatoMatricula_` (a régua única), e o WhatsApp, quando vem, passa pela
- * mesma medida de 10 ou 11 dígitos de `validarInscricao`. O que é DIFERENTE: o
+ * mesma medida de 10 ou 11 dígitos de `validarInscricao_`. O que é DIFERENTE: o
  * nome não é obrigado a ter duas palavras, e o motivo é o de
  * `conferirFormatoDaEdicao_` — quem digita aqui é a coordenação, com o cadastro
  * na frente, e recusar "Xu Li" seria o sistema achando que sabe mais que o
@@ -1271,20 +1274,20 @@ function incluirInscricao(payload) {
 function conferirFormatoDaInclusao_(payload) {
   var erros = [];
 
-  if (!formatarNome(payload.nome)) erros.push('Informe o nome.');
+  if (!formatarNome_(payload.nome)) erros.push('Informe o nome.');
   else if (String(payload.nome).trim().length > PAINEL_MAX_NOME) {
     erros.push('O nome passou de ' + PAINEL_MAX_NOME + ' caracteres.');
   }
 
-  if (!emailValido(payload.email)) erros.push('E-mail inválido.');
+  if (!emailValido_(payload.email)) erros.push('E-mail inválido.');
 
-  if (!normalizarMatricula(payload.matricula)) erros.push('Informe a matrícula.');
+  if (!normalizarMatricula_(payload.matricula)) erros.push('Informe a matrícula.');
   else {
     var formato = erroFormatoMatricula_(payload.matricula);
     if (formato) erros.push(formato);
   }
 
-  var tel = normalizarTelefone(payload.whatsapp);
+  var tel = normalizarTelefone_(payload.whatsapp);
   if (tel && (tel.length < 10 || tel.length > 11)) erros.push('WhatsApp inválido.');
 
   return erros;
@@ -1320,9 +1323,9 @@ function conferirFormatoDaInclusao_(payload) {
  * disso. Custa uma consulta a mais no caminho que já ia varrer de qualquer jeito,
  * e garante que nenhuma busca perca resultado que o sistema atual encontrava.
  */
-function listarAlunos(payload) {
+function listarAlunos_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var pedido = pedidoDeAlunos_(payload);
@@ -1368,7 +1371,7 @@ function listarAlunos(payload) {
 /**
  * Traduz os três campos da barra de filtros no plano de consulta.
  *
- * `listar` e `contar` aceitam UM `fieldFilter` só (02_Repo.gs) — não existe
+ * `listar_` e `contar_` aceitam UM `fieldFilter` só (02_Repo.gs) — não existe
  * predicado OR nem AND de dois campos. Então: um filtro vai para o banco e o
  * resto é decidido em JavaScript, sobre o que o banco devolveu.
  *
@@ -1395,7 +1398,7 @@ function pedidoDeAlunos_(payload) {
   else if (cancelados) filtro = { campo: 'situacao_cadastro', valor: 'CANCELADO' };
   else if (status) filtro = { campo: 'status', valor: status };
 
-  var alvo = normalizarTexto(busca);
+  var alvo = normalizarTexto_(busca);
 
   // `peneira` confere os DOIS filtros da barra, em JavaScript, e não só o que
   // sobrou de fora do `fieldFilter`.
@@ -1442,7 +1445,7 @@ function pedidoDeAlunos_(payload) {
       if (!peneira(a)) return false;
       if (!alvo) return true;
       // Os mesmos seis campos que o sistema em produção junta para buscar.
-      var texto = normalizarTexto([a.nome, a.email, a.cpf, a.matricula, a.curso, a.turma].join(' '));
+      var texto = normalizarTexto_([a.nome, a.email, a.cpf, a.matricula, a.curso, a.turma].join(' '));
       return texto.indexOf(alvo) !== -1;
     }
   };
@@ -1455,7 +1458,7 @@ function pedidoDeAlunos_(payload) {
  * muda duas contas:
  *
  *   - o `total` é a agregação MENOS os cancelados — uma segunda agregação, na
- *     mesma ida (`contarVarios`). Sem ela o rodapé diria "2.500 registros" e a
+ *     mesma ida (`contarVarios_`). Sem ela o rodapé diria "2.500 registros" e a
  *     última página viria vazia;
  *   - a página é preenchida com `tamanho` ACEITOS, e não com `tamanho` lidos: a
  *     caminhada continua pelo cursor até juntar o que a página precisa. O teto
@@ -1470,8 +1473,8 @@ function alunosPorConsulta_(pedido, pagina, tamanho) {
   if (pagina > PAINEL_MAX_PAGINA) return { erro: recusaDePagina_() };
 
   var totais = pedido.filtro
-    ? [contar(ALUNOS_COLECAO, pedido.filtro), 0]
-    : contarVarios([
+    ? [contar_(ALUNOS_COLECAO, pedido.filtro), 0]
+    : contarVarios_([
         { colecao: ALUNOS_COLECAO },
         { colecao: ALUNOS_COLECAO, campo: 'status', valor: STATUS.CANCELADO }
       ]);
@@ -1486,7 +1489,7 @@ function alunosPorConsulta_(pedido, pagina, tamanho) {
   // A caminhada é o preço de o `Admin.html` paginar por número — ver
   // PAINEL_MAX_PAGINA. Página 1 sem cancelados não caminha: o laço roda uma vez.
   do {
-    var resposta = listar(ALUNOS_COLECAO, opcoesDeBusca_(pedido.filtro, tamanho, cursor));
+    var resposta = listar_(ALUNOS_COLECAO, opcoesDeBusca_(pedido.filtro, tamanho, cursor));
     lidos += resposta.itens.length;
     resposta.itens.forEach(function (a) {
       if (pedido.peneira(a)) aceitos.push(a);
@@ -1519,7 +1522,7 @@ function alunosPorVarredura_(pedido, pagina, tamanho) {
 /**
  * Todos os alunos que casam com o pedido: pela igualdade, se der, senão varrendo.
  *
- * Compartilhada por `listarAlunos` e `exportarCsv`, e é por isso que ela existe
+ * Compartilhada por `listarAlunos_` e `exportarCsv_`, e é por isso que ela existe
  * como função: sem ela, a tela acharia um aluno pelo CPF (igualdade no banco) e o
  * botão Exportar, ao lado, entregaria um arquivo vazio — porque a varredura
  * compara texto normalizado e '529.982.247-25' nunca casa com '52998224725'. Duas
@@ -1533,7 +1536,7 @@ function colherAlunos_(pedido, teto) {
     // aluno, então isto traz o conjunto inteiro e a paginação acontece em
     // memória, igual à da varredura. A peneira aqui NÃO esconde cancelado —
     // há busca, e busca acha qualquer um (ver `pedidoDeAlunos_`).
-    var direto = listar(ALUNOS_COLECAO, opcoesDeBusca_(exata, PAINEL_BLOCO, null)).itens
+    var direto = listar_(ALUNOS_COLECAO, opcoesDeBusca_(exata, PAINEL_BLOCO, null)).itens
       .filter(pedido.peneira);
     if (direto.length) return { itens: direto, truncado: false };
   }
@@ -1552,15 +1555,15 @@ function chaveExataDaBusca_(busca) {
   var texto = String(busca || '').trim();
   if (!texto) return null;
 
-  if (texto.indexOf('@') !== -1) return { campo: 'email', valor: normalizarEmail(texto) };
+  if (texto.indexOf('@') !== -1) return { campo: 'email', valor: normalizarEmail_(texto) };
 
   // Pontuação de CPF e de matrícula é ruído; letra no meio já indica nome.
   var limpo = texto.replace(/[\s.\-\/]/g, '');
   if (!/^[0-9]+$/.test(limpo)) return null;
 
-  if (limpo.length === 11 && cpfValido(limpo)) return { campo: 'cpf', valor: normalizarCpf(limpo) };
+  if (limpo.length === 11 && cpfValido_(limpo)) return { campo: 'cpf', valor: normalizarCpf_(limpo) };
   if (limpo.length >= 4 && limpo.length <= 20) {
-    return { campo: 'matricula', valor: normalizarMatricula(limpo) };
+    return { campo: 'matricula', valor: normalizarMatricula_(limpo) };
   }
   return null;
 }
@@ -1568,7 +1571,7 @@ function chaveExataDaBusca_(busca) {
 /**
  * Percorre `alunos` em blocos, aplicando a peneira, até o teto.
  *
- * Compartilhada por `listarAlunos` (busca por nome) e `exportarCsv` (exportação
+ * Compartilhada por `listarAlunos_` (busca por nome) e `exportarCsv_` (exportação
  * inteira). É o único lugar do arquivo que lê muitos documentos, e por isso o
  * teto é parâmetro obrigatório: não existe chamada sem limite.
  */
@@ -1578,7 +1581,7 @@ function varrerAlunos_(filtro, aceita, teto) {
   var cursor = null;
 
   do {
-    var resposta = listar(ALUNOS_COLECAO, opcoesDeBusca_(filtro, PAINEL_BLOCO, cursor));
+    var resposta = listar_(ALUNOS_COLECAO, opcoesDeBusca_(filtro, PAINEL_BLOCO, cursor));
     lidos += resposta.itens.length;
 
     resposta.itens.forEach(function (a) {
@@ -1592,15 +1595,15 @@ function varrerAlunos_(filtro, aceita, teto) {
 }
 
 /**
- * Monta as opções de `listar` sem NUNCA declarar `ordenarPor`.
+ * Monta as opções de `listar_` sem NUNCA declarar `ordenarPor`.
  *
  * Duas armadilhas de uma vez:
  *
  *   1. filtro num campo somado a ordenação por OUTRO exige índice composto — um
  *      passo de console repetido a cada ambiente novo, descoberto no pior dia.
- *      Sem `ordenarPor`, `listar` ordena por `__name__` ASCENDENTE, que é o
+ *      Sem `ordenarPor`, `listar_` ordena por `__name__` ASCENDENTE, que é o
  *      desempate embutido em todo índice automático de campo único;
- *   2. o cursor de `listar` carrega UM valor. Ordenar por `nome` faria o cursor
+ *   2. o cursor de `listar_` carrega UM valor. Ordenar por `nome` faria o cursor
  *      ser "o último nome desta página", e `before: false` significa
  *      ESTRITAMENTE depois: dois alunos homônimos na virada da página e o segundo
  *      some da lista, calado. Homônimo não é caso exótico aqui — é metade do
@@ -1641,18 +1644,18 @@ function opcoesDeBusca_(filtro, limite, cursor) {
  * A recusa NUNCA quebra o botão: a lista sempre recarrega, e o motivo de não ter
  * cruzado volta em `reconciliacao.motivo`, para a tela dizer em vez de esconder.
  */
-function atualizarAlunos(payload) {
+function atualizarAlunos_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var rodada = reconciliarSeValerAPena_();
 
-    // `listarAlunos` reconfere o token, e isso não custa leitura nenhuma (a
+    // `listarAlunos_` reconfere o token, e isso não custa leitura nenhuma (a
     // sessão vive em PropertiesService). Reaproveitá-la inteira é o que garante
     // que Atualizar e Filtrar mostrem exatamente a mesma coisa: filtro, busca,
     // paginação e teto de página são de lá, e não podem existir em dois lugares.
-    var lista = listarAlunos(payload);
+    var lista = listarAlunos_(payload);
     lista.reconciliacao = rodada;
     return lista;
   } catch (err) {
@@ -1672,8 +1675,8 @@ function reconciliarSeValerAPena_() {
 
   // As duas agregações são o freio 1. Elas custam um punhado de leituras contra
   // as ~5.500 da rodada, e é essa desproporção que faz o freio valer a pena.
-  var inscricoes = contar(INSCRICOES_COLECAO);
-  var matriculados = contar(MATRICULADOS_COLECAO);
+  var inscricoes = contar_(INSCRICOES_COLECAO);
+  var matriculados = contar_(MATRICULADOS_COLECAO);
 
   if (marca.em && marca.inscricoes === inscricoes && marca.matriculados === matriculados) {
     return {
@@ -1698,7 +1701,7 @@ function reconciliarSeValerAPena_() {
   }
 
   try {
-    var resumo = reconciliar();
+    var resumo = reconciliar_();
     var custo = marcarReconciliacao_(marca);
 
     // Os dez números da aba Painel acabaram de mudar de valor — status, totais e
@@ -1757,7 +1760,7 @@ function marcaDaReconciliacao_() {
  * consumiu leituras. `em` fica como está — é informação ("cruzou às tantas"),
  * não decisão.
  *
- * Chamada por `confirmarImportacao` (05_Importacao.gs) e por `aplicarRevisao`
+ * Chamada por `confirmarImportacao_` (05_Importacao.gs) e por `aplicarRevisao_`
  * (05c_Revisao.gs). Não lança: perder a marca é uma rodada a mais, e estourar
  * aqui seria uma importação que gravou tudo e responde "falhou".
  */
@@ -1786,9 +1789,9 @@ function esquecerMarcaDaReconciliacao_() {
  * estimativa para a rodada seguinte.
  */
 function marcarReconciliacao_(marcaAnterior) {
-  var inscricoes = contar(INSCRICOES_COLECAO);
-  var matriculados = contar(MATRICULADOS_COLECAO);
-  var alunos = contar(ALUNOS_COLECAO);
+  var inscricoes = contar_(INSCRICOES_COLECAO);
+  var matriculados = contar_(MATRICULADOS_COLECAO);
+  var alunos = contar_(ALUNOS_COLECAO);
 
   // A mesma conta do cabeçalho de 06_Reconciliacao.gs: as três coleções inteiras
   // mais a leitura do documento de agregados.
@@ -1799,7 +1802,7 @@ function marcarReconciliacao_(marcaAnterior) {
   try {
     PropertiesService.getScriptProperties().setProperty(PAINEL_MARCA_RECONCILIACAO, JSON.stringify({
       inscricoes: inscricoes, matriculados: matriculados,
-      em: agora(), dia: hoje, gasto: gasto, custo: custo
+      em: agora_(), dia: hoje, gasto: gasto, custo: custo
     }));
   } catch (e) {
     // Sem marca, o próximo clique cruza de novo. Caro, e correto.
@@ -1810,7 +1813,7 @@ function marcarReconciliacao_(marcaAnterior) {
 }
 
 function diaDeHoje_() {
-  return agora().slice(0, 10);
+  return agora_().slice(0, 10);
 }
 
 function recusaDePagina_() {
@@ -1823,17 +1826,17 @@ function recusaDePagina_() {
  * Documento -> linha da tela. O `id` vem do NOME do documento.
  *
  * `_id` é o metadado que o Repo acrescenta na leitura, e é a única fonte de
- * verdade do id — é ele que volta em `resolverAluno` e `detalheAluno`. Um campo
+ * verdade do id — é ele que volta em `resolverAluno_` e `detalheAluno_`. Um campo
  * `id` gravado seria uma cópia livre para divergir; se existir, perde.
  */
 function formatarAlunoParaTela_(a) {
   return {
     id: a._id || a.id || '',
     nome: a.nome,
-    cpf: formatarCpf(a.cpf),
+    cpf: formatarCpf_(a.cpf),
     email: a.email,
-    telefone: formatarTelefone(a.telefone),
-    data_nascimento: formatarData(a.data_nascimento),
+    telefone: formatarTelefone_(a.telefone),
+    data_nascimento: formatarData_(a.data_nascimento),
     matricula: a.matricula,
     matricula_conferida: a.matricula_conferida,
     curso: a.curso,
@@ -1862,24 +1865,24 @@ function formatarAlunoParaTela_(a) {
  * ponto, porque os três documentos têm endereço conhecido (ver a suposição 2 no
  * cabeçalho).
  */
-function detalheAluno(payload) {
+function detalheAluno_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var id = String(payload.id || '').trim();
     if (!id) return { ok: false, erro: 'Aluno não informado.' };
 
-    var aluno = ler(ALUNOS_COLECAO, id);
+    var aluno = ler_(ALUNOS_COLECAO, id);
     if (!aluno) return { ok: false, erro: 'Aluno não encontrado. Recarregue a lista.' };
 
-    var inscricao = aluno.inscricao_id ? ler(INSCRICOES_COLECAO, aluno.inscricao_id) : null;
+    var inscricao = aluno.inscricao_id ? ler_(INSCRICOES_COLECAO, aluno.inscricao_id) : null;
 
     // A matrícula normalizada É o id do documento em `matriculados`. Derivar
     // quando `matricula_id` vem vazio não é remendo: é a mesma regra que a
     // importação usou para escolher o id, escrita do lado de quem lê.
-    var enderecoMatricula = aluno.matricula_id || normalizarMatricula(aluno.matricula);
-    var matriculado = enderecoMatricula ? ler(MATRICULADOS_COLECAO, enderecoMatricula) : null;
+    var enderecoMatricula = aluno.matricula_id || normalizarMatricula_(aluno.matricula);
+    var matriculado = enderecoMatricula ? ler_(MATRICULADOS_COLECAO, enderecoMatricula) : null;
 
     var resposta = {
       ok: true,
@@ -1896,12 +1899,12 @@ function detalheAluno(payload) {
         matricula_conferida: inscricao.matricula_conferida,
         nome: inscricao.nome,
         email: inscricao.email,
-        whatsapp: formatarTelefone(inscricao.whatsapp),
+        whatsapp: formatarTelefone_(inscricao.whatsapp),
         curso_fase: inscricao.curso_fase,
         // CPF e nascimento só aparecem se existirem: são de inscrições antigas,
         // de quando o CPF era a chave. Nenhum formulário atual os coleta.
-        cpf: inscricao.cpf ? formatarCpf(inscricao.cpf) : '',
-        data_nascimento: formatarData(inscricao.data_nascimento),
+        cpf: inscricao.cpf ? formatarCpf_(inscricao.cpf) : '',
+        data_nascimento: formatarData_(inscricao.data_nascimento),
         observacoes: inscricao.observacoes,
         declara_ciencia: inscricao.declara_ciencia,
         autoriza_imagem: inscricao.autoriza_imagem,
@@ -1911,10 +1914,10 @@ function detalheAluno(payload) {
         lote: matriculado.lote_id,
         importado_em: matriculado.importado_em,
         nome: matriculado.nome,
-        cpf: formatarCpf(matriculado.cpf),
+        cpf: formatarCpf_(matriculado.cpf),
         email: matriculado.email,
         matricula: matriculado.matricula,
-        data_nascimento: formatarData(matriculado.data_nascimento),
+        data_nascimento: formatarData_(matriculado.data_nascimento),
         curso: matriculado.curso,
         turma: matriculado.turma,
         situacao: matriculado.situacao,
@@ -1939,8 +1942,8 @@ function detalheAluno(payload) {
     };
 
     // A lista de projetos só viaja quando alguém a pediu — é o mesmo cuidado que
-    // `listarAlunos` toma com a lista de cursos. Ela custa 1 consulta mais uma
-    // agregação POR PROJETO (`listarProjetos`, 09_Projetos.gs), e o modal de
+    // `listarAlunos_` toma com a lista de cursos. Ela custa 1 consulta mais uma
+    // agregação POR PROJETO (`listarProjetos_`, 09_Projetos.gs), e o modal de
     // detalhe, que é o mais aberto dos dois, não tem o que fazer com ela.
     if (payload.projetos === true) resposta.projetos = projetosParaMigracao_();
 
@@ -1958,11 +1961,11 @@ function detalheAluno(payload) {
  * É a mesma contagem derivada que o site usa, então ela não tem como mentir.
  *
  * Vêm TODOS, inclusive os inativos e os de inscrições fechadas: a migração é ação
- * de coordenação e passa por fora dessas travas de propósito (ver `editarAluno`).
+ * de coordenação e passa por fora dessas travas de propósito (ver `editarAluno_`).
  * O que a tela faz é dizer a situação de cada um, não escondê-los.
  */
 function projetosParaMigracao_() {
-  return listarProjetos(false).map(function (p) {
+  return listarProjetos_(false).map(function (p) {
     return {
       id: p.id, nome: p.nome, vagas: p.vagas, inscritos: p.inscritos,
       situacao: p.situacao, acimaDoTeto: p.vagas > 0 && p.inscritos > p.vagas
@@ -1976,16 +1979,16 @@ function projetosParaMigracao_() {
  * A ordem das conferências não é estética: o status é validado ANTES de ler o
  * aluno, para uma requisição malformada não custar leitura nenhuma.
  *
- * A leitura que sobra é obrigatória, e pelo mesmo motivo que `salvarProjeto`
- * (09_Projetos.gs) confere existência antes de gravar: `atualizar` é um PATCH, e
+ * A leitura que sobra é obrigatória, e pelo mesmo motivo que `salvarProjeto_`
+ * (09_Projetos.gs) confere existência antes de gravar: `atualizar_` é um PATCH, e
  * PATCH no Firestore CRIA o documento que não existe. Sem esta linha, um painel
  * aberto desde antes de uma reimportação criaria um "aluno" só com status e
  * observação — sem nome, sem matrícula, sem origem —, e ele apareceria na lista
  * como um registro fantasma que ninguém sabe de onde veio.
  */
-function resolverAluno(payload) {
+function resolverAluno_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var id = String(payload.id || '').trim();
@@ -1995,7 +1998,7 @@ function resolverAluno(payload) {
     var validos = [STATUS.CONFIRMADO, STATUS.SO_INSCRITO, STATUS.SO_MATRICULADO, STATUS.DIVERGENCIA];
     if (validos.indexOf(novoStatus) === -1) return { ok: false, erro: 'Status inválido.' };
 
-    var alvo = ler(ALUNOS_COLECAO, id);
+    var alvo = ler_(ALUNOS_COLECAO, id);
     if (!alvo) return { ok: false, erro: 'Aluno não encontrado. Recarregue a lista.' };
 
     // CANCELADO não se resolve à mão (21/09): o status nasceu da lista oficial,
@@ -2010,18 +2013,18 @@ function resolverAluno(payload) {
       };
     }
 
-    var carimbo = agora();
-    atualizar(ALUNOS_COLECAO, id, {
+    var carimbo = agora_();
+    atualizar_(ALUNOS_COLECAO, id, {
       status: novoStatus,
       // Teto no texto livre: o campo vai para um documento que o painel relê a
       // cada listagem, e não há por que carregar um romance colado sem querer.
       observacoes: String(payload.observacoes || '').trim().slice(0, PAINEL_MAX_OBSERVACOES),
-      revisado_por: usuarioAtual(),
+      revisado_por: usuarioAtual_(),
       revisado_em: carimbo,
       atualizado_em: carimbo
     });
 
-    registrar('REVISAO', 'aluno', id, alvo.status + ' -> ' + novoStatus);
+    registrar_('REVISAO', 'aluno', id, alvo.status + ' -> ' + novoStatus);
 
     // Este aluno acabou de sair de um balde de status e entrar em outro, então os
     // números guardados da aba Painel deixaram de ser verdade. Sem esta linha, a
@@ -2065,7 +2068,7 @@ function resolverAluno(payload) {
  * 04_Inscricoes.gs), e ela é feita de projeto + matrícula (ou CPF, ou e-mail+nome).
  * Mudar a matrícula ou o projeto muda o ENDEREÇO do documento — não dá para
  * "atualizar" a inscrição, ela precisa MUDAR DE LUGAR. As duas escritas — criar
- * no endereço NOVO e apagar o VELHO — vão num `:commit` só (`escreverAtomico`,
+ * no endereço NOVO e apagar o VELHO — vão num `:commit` só (`escreverAtomico_`,
  * 02_Repo.gs): tudo ou nada, numa requisição.
  *
  * O `criar` leva `currentDocument:{exists:false}`, que é o 409 ALREADY_EXISTS de
@@ -2079,7 +2082,7 @@ function resolverAluno(payload) {
  * defeito escrito neste cabeçalho, e a primitiva que faltava passou a existir
  * com a troca de projeto do aluno (04_Inscricoes.gs).
  *
- * `escreverEmLote` continua NÃO servindo, e vale dizer por quê antes que alguém
+ * `escreverEmLote_` continua NÃO servindo, e vale dizer por quê antes que alguém
  * tente: ele é upsert sem precondição e SOBRESCREVERIA a inscrição de quem já
  * estivesse no endereço novo. O par igual em 12_Disciplinas.gs continua com as
  * duas escritas soltas; é item próprio, e não entrou aqui de carona.
@@ -2111,7 +2114,7 @@ function resolverAluno(payload) {
  * matriculado de B fica livre, o status precisa ser recalculado pela cascata, e
  * curso e turma vêm de outro lugar. Nada disso dá para escrever à mão sem
  * reimplementar a reconciliação dentro deste arquivo. Então este é o único caso em
- * que a edição chama `reconciliar()` — caro (ver PAINEL_ORCAMENTO_RECONCILIACAO),
+ * que a edição chama `reconciliar_()` — caro (ver PAINEL_ORCAMENTO_RECONCILIACAO),
  * raro, e o único jeito de o resultado ficar certo. De quebra, o endereço velho
  * costuma ser reaproveitado na mesma rodada: ele é o `chaveAluno_` da matrícula de
  * B, e B volta ao cadastro como SO_MATRICULADO exatamente ali.
@@ -2164,12 +2167,12 @@ function resolverAluno(payload) {
  *                                 agregação do destino passa de 20 para 21 na
  *                                 mesma hora, no painel e no site. Não há número
  *                                 para incrementar nem para esquecer;
- *   o teto não bloqueia ......... esta função NÃO chama `reservarVaga`. É ela
+ *   o teto não bloqueia ......... esta função NÃO chama `reservarVaga_`. É ela
  *                                 quem recusa por ESGOTADO, e ela existe para o
  *                                 caminho do aluno. A coordenação passa por fora;
  *   o contador mostra a verdade . 61 de 60, e não 60 de 60. O único lugar que
  *                                 arredondaria seria um `Math.min`, e não há
- *                                 nenhum: `listarProjetos` devolve `inscritos`
+ *                                 nenhum: `listarProjetos_` devolve `inscritos`
  *                                 cru (só `restantes` é preso em zero, porque
  *                                 "faltam -1 vagas" não é frase).
  *
@@ -2181,13 +2184,13 @@ function resolverAluno(payload) {
  *
  * E o lock NÃO é tomado aqui, de propósito. `getScriptLock` é global: pegá-lo
  * poria o clique da coordenação atrás da fila inteira do auditório, que é a mesma
- * conta que `removerProjeto` (09_Projetos.gs) já fez e recusou. O pior que a
+ * conta que `removerProjeto_` (09_Projetos.gs) já fez e recusou. O pior que a
  * corrida faz é uma vaga a mais num projeto onde a coordenação acabou de decidir
  * estourar o teto de propósito.
  */
-function editarAluno(payload) {
+function editarAluno_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var id = String(payload.id || '').trim();
@@ -2197,12 +2200,12 @@ function editarAluno(payload) {
     var recusa = conferirFormatoDaEdicao_(payload);
     if (recusa) return { ok: false, erro: recusa };
 
-    var aluno = ler(ALUNOS_COLECAO, id);
+    var aluno = ler_(ALUNOS_COLECAO, id);
     if (!aluno) return { ok: false, erro: 'Aluno não encontrado. Recarregue a lista.' };
 
-    var inscricao = aluno.inscricao_id ? ler(INSCRICOES_COLECAO, aluno.inscricao_id) : null;
-    var endereco = aluno.matricula_id || normalizarMatricula(aluno.matricula);
-    var matriculado = endereco ? ler(MATRICULADOS_COLECAO, endereco) : null;
+    var inscricao = aluno.inscricao_id ? ler_(INSCRICOES_COLECAO, aluno.inscricao_id) : null;
+    var endereco = aluno.matricula_id || normalizarMatricula_(aluno.matricula);
+    var matriculado = endereco ? ler_(MATRICULADOS_COLECAO, endereco) : null;
 
     var plano = planejarEdicao_(payload, aluno, inscricao, matriculado);
     if (plano.erro) return { ok: false, erro: plano.erro };
@@ -2219,7 +2222,7 @@ function editarAluno(payload) {
  * Conferências que não dependem do banco. Devolve '' quando está tudo bem.
  *
  * O nome NÃO é obrigado a ter duas palavras aqui, ao contrário de
- * `validarInscricao` (04_Inscricoes.gs): lá quem digita é o aluno, e a exigência
+ * `validarInscricao_` (04_Inscricoes.gs): lá quem digita é o aluno, e a exigência
  * pega o "Maria" apressado; aqui quem digita é a coordenação, corrigindo um
  * cadastro que ela tem na frente. Recusar "Xu Li" seria o sistema achando que
  * sabe mais que o humano sobre o nome de uma pessoa.
@@ -2231,7 +2234,7 @@ function conferirFormatoDaEdicao_(payload) {
     // corrigida pelo painel com matrícula de tamanho errado nunca vai casar com a
     // lista oficial, e o erro só apareceria no cruzamento, longe de quem digitou.
     // Vazio continua aceito: é como se tira a matrícula de uma ficha.
-    var matricula = normalizarMatricula(payload.matricula);
+    var matricula = normalizarMatricula_(payload.matricula);
     if (matricula) {
       var erroMatricula = erroFormatoMatricula_(payload.matricula);
       if (erroMatricula) return 'Matrícula inválida: ' + erroMatricula;
@@ -2266,7 +2269,7 @@ function conferirFormatoDaEdicao_(payload) {
  */
 function planejarEdicao_(payload, aluno, inscricao, matriculado) {
   var plano = {
-    matricula: { de: inscricao ? normalizarMatricula(inscricao.matricula) : '', para: '', mudou: false },
+    matricula: { de: inscricao ? normalizarMatricula_(inscricao.matricula) : '', para: '', mudou: false },
     nome: { de: inscricao ? String(inscricao.nome || '') : '', para: '', mudou: false },
     nomeOficial: { de: matriculado ? String(matriculado.nome || '') : '', para: '', mudou: false },
     turma: { de: matriculado ? String(matriculado.turma || '') : '', para: '', mudou: false },
@@ -2284,7 +2287,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
   plano.turma.para = plano.turma.de;
 
   if (payload.matricula !== undefined) {
-    var matricula = normalizarMatricula(payload.matricula);
+    var matricula = normalizarMatricula_(payload.matricula);
     if (matricula !== plano.matricula.de) {
       if (!inscricao) {
         return { erro: 'Este aluno não tem inscrição: ele veio só da lista oficial, e a matrícula ' +
@@ -2303,7 +2306,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
   }
 
   if (payload.nome !== undefined) {
-    var nome = formatarNome(payload.nome);
+    var nome = formatarNome_(payload.nome);
     if (nome !== plano.nome.de) {
       if (!inscricao) return { erro: 'Este aluno não tem inscrição — não há nome digitado para corrigir.' };
       if (!nome) return { erro: 'O nome da inscrição não pode ficar em branco.' };
@@ -2313,7 +2316,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
   }
 
   if (payload.nome_oficial !== undefined) {
-    var oficial = formatarNome(payload.nome_oficial);
+    var oficial = formatarNome_(payload.nome_oficial);
     if (oficial !== plano.nomeOficial.de) {
       if (!matriculado) return { erro: 'Este aluno não está na lista oficial importada — não há linha da secretaria para corrigir.' };
       if (!oficial) return { erro: 'O nome da lista oficial não pode ficar em branco.' };
@@ -2323,7 +2326,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
   }
 
   if (payload.turma !== undefined) {
-    // Mesma régua da importação e do cadastro de disciplinas (`normalizarTurma`,
+    // Mesma régua da importação e do cadastro de disciplinas (`normalizarTurma_`,
     // 01_Utils.gs). Este é o TERCEIRO caminho que escreve `matriculados.turma`, e
     // deixá-lo fora da régua devolveria o defeito uma ficha por vez: a turma
     // corrigida à mão em caixa baixa some do cruzamento da disciplina, que casa
@@ -2333,7 +2336,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
     // por uma importação antiga, salvar QUALQUER campo normaliza a turma junto e
     // registra a mudança no log. É correção, não perda — e ela aparece na trilha
     // com o valor de antes e o de depois, como toda edição daqui.
-    var turma = normalizarTurma(payload.turma);
+    var turma = normalizarTurma_(payload.turma);
     if (turma !== plano.turma.de) {
       if (!matriculado) {
         return { erro: 'A turma vem da lista oficial da secretaria, e este aluno ainda não está nela. ' +
@@ -2351,7 +2354,7 @@ function planejarEdicao_(payload, aluno, inscricao, matriculado) {
         return { erro: 'Este aluno não tem inscrição: só quem se inscreveu ocupa vaga em projeto. ' +
                        'Para incluí-lo, use o formulário de cadastro.' };
       }
-      var destino = projetoPorId(destinoId);
+      var destino = projetoPorId_(destinoId);
       if (!destino) return { erro: 'Projeto de destino não encontrado. Recarregue a lista.' };
 
       plano.projeto.para = { id: destinoId, nome: String(destino.nome || ''), projeto: destino };
@@ -2399,7 +2402,7 @@ function aplicarEdicao_(id, aluno, inscricao, matriculado, plano) {
   // Depois, e a ordem é a coisa mais importante deste bloco: quem impede duas
   // inscrições da mesma pessoa no mesmo projeto continua sendo o 409 do banco, e
   // uma consulta ANTES da escrita seria exatamente a conferência otimista que
-  // este sistema tirou do caminho (ver `gravarInscricao`, 04_Inscricoes.gs). Há
+  // este sistema tirou do caminho (ver `gravarInscricao_`, 04_Inscricoes.gs). Há
   // teste que conta as requisições e falha se aparecer consulta antes.
   //
   // Depois também é mais simples: a inscrição aberta já saiu do endereço velho,
@@ -2413,14 +2416,14 @@ function aplicarEdicao_(id, aluno, inscricao, matriculado, plano) {
 
   // ---- 2. a linha da secretaria
   if (plano.nomeOficial.mudou || plano.turma.mudou) {
-    var oficial = { atualizado_em: agora() };
+    var oficial = { atualizado_em: agora_() };
     if (plano.nomeOficial.mudou) oficial.nome = plano.nomeOficial.para;
     if (plano.turma.mudou) oficial.turma = plano.turma.para;
 
-    // `atualizar` é PATCH, e PATCH no Firestore CRIA o documento que não existe.
+    // `atualizar_` é PATCH, e PATCH no Firestore CRIA o documento que não existe.
     // Quem garante que ele existe é a leitura lá de cima — a mesma guarda que
-    // `salvarProjeto` e `resolverAluno` tomam antes de gravar.
-    atualizar(MATRICULADOS_COLECAO, matriculado._id, oficial);
+    // `salvarProjeto_` e `resolverAluno_` tomam antes de gravar.
+    atualizar_(MATRICULADOS_COLECAO, matriculado._id, oficial);
 
     avisos.push('A lista oficial foi corrigida aqui. A próxima importação da lista da secretaria ' +
                 'sobrescreve esta linha pela matrícula — se o arquivo dela ainda tiver o dado antigo, ' +
@@ -2464,7 +2467,7 @@ function aplicarEdicao_(id, aluno, inscricao, matriculado, plano) {
   var mensagem = destino ? avisarMigracao_(destino, avisos) : 'Ficha atualizada.';
 
   // Nome, turma e matrícula mudam os números por status e o histograma de cursos
-  // da aba Painel — os mesmos dez números que `resolverAluno` já invalida.
+  // da aba Painel — os mesmos dez números que `resolverAluno_` já invalida.
   invalidarCachePainel_();
 
   return { ok: true, id: idFinal, mensagem: mensagem, avisos: avisos, reconciliou: Boolean(reconciliacao) };
@@ -2487,11 +2490,11 @@ function vizinhasDaMatricula_(antiga, nova, idRecemGravado) {
   if (!antiga || !nova) return vazio;
 
   try {
-    var ficam = listar(INSCRICOES_COLECAO, {
+    var ficam = listar_(INSCRICOES_COLECAO, {
       campo: 'matricula', valor: antiga, limite: PAINEL_MAX_VIZINHAS
     }).itens;
 
-    var jaUsam = listar(INSCRICOES_COLECAO, {
+    var jaUsam = listar_(INSCRICOES_COLECAO, {
       campo: 'matricula', valor: nova, limite: PAINEL_MAX_VIZINHAS
     }).itens.filter(function (i) {
       // A inscrição que acabou de ser gravada carrega a matrícula nova por
@@ -2575,7 +2578,7 @@ function gravarInscricaoEditada_(inscricao, plano) {
   // refeita: sem isto, a inscrição corrigida continuaria com o visto verde que
   // ganhou pela matrícula de outra pessoa. Uma leitura de ponto.
   if (plano.matricula.mudou) {
-    novo.matricula_conferida = matriculaConhecida(plano.matricula.para) ? 'SIM' : 'NAO';
+    novo.matricula_conferida = matriculaConhecida_(plano.matricula.para) ? 'SIM' : 'NAO';
   }
 
   var velha = String(inscricao._id);
@@ -2597,23 +2600,23 @@ function gravarInscricaoEditada_(inscricao, plano) {
       remendo.projeto_nome = novo.projeto_nome;
     }
 
-    atualizar(INSCRICOES_COLECAO, velha, remendo);
+    atualizar_(INSCRICOES_COLECAO, velha, remendo);
     return { ok: true, id: velha, pessoa: chaveDePessoa_(novo) };
   }
 
   // A mudança de endereço num `:commit` só: criar o novo e apagar o velho, tudo
-  // ou nada (ver o cabeçalho de `editarAluno`). O `apagar` vai SEM `versao` de
+  // ou nada (ver o cabeçalho de `editarAluno_`). O `apagar` vai SEM `versao` de
   // propósito, pelo mesmo motivo da troca do aluno: quem lê o documento é a
   // janela, segundos antes, e uma anulação no meio derrubaria o commit inteiro
   // — o certo é a inscrição mudar de lugar, não a correção morrer.
-  var gravacao = escreverAtomico([
+  var gravacao = escreverAtomico_([
     { criar: { colecao: INSCRICOES_COLECAO, id: nova, objeto: novo } },
     { apagar: { colecao: INSCRICOES_COLECAO, id: velha } }
   ]);
   if (gravacao.jaExistia) {
     // ANTES DE DIZER "não mudei nada", CONFERIR SE MUDEI. O 409 diz que o
     // endereço NOVO está ocupado; ele não diz por quem. Se o `:commit` foi
-    // aplicado e só a resposta se perdeu (503 retentado — ver `escreverAtomico`,
+    // aplicado e só a resposta se perdeu (503 retentado — ver `escreverAtomico_`,
     // 02_Repo.gs), quem ocupa o endereço novo é ESTA inscrição, o endereço velho
     // já não existe, e responder "não mudei nada" pararia `aplicarEdicao_` antes
     // dos passos 2 e 3: a ficha do aluno continuaria apontando para um documento
@@ -2623,7 +2626,7 @@ function gravarInscricaoEditada_(inscricao, plano) {
     // O VELHO SUMIU = a migração aconteceu, e tanto faz por quem: a pessoa está
     // no projeto de destino e em nenhum outro endereço. Seguir em frente com o
     // id novo é o que deixa banco e ficha dizendo a mesma coisa.
-    if (ler(INSCRICOES_COLECAO, velha)) {
+    if (ler_(INSCRICOES_COLECAO, velha)) {
       return {
         ok: false,
         erro: 'Não mudei nada: já existe uma inscrição desta pessoa neste projeto. ' +
@@ -2660,7 +2663,7 @@ function projetarNoAluno_(id, aluno, inscricao, matriculado, plano, inscricaoId)
   // gravar um nome que a próxima reconciliação desfaria.
   if (plano.nome.mudou || plano.nomeOficial.mudou) {
     var nomeOficial = plano.nomeOficial.mudou ? plano.nomeOficial.para : (matriculado ? matriculado.nome : '');
-    projecao.nome = formatarNome(nomeOficial || plano.nome.para);
+    projecao.nome = formatarNome_(nomeOficial || plano.nome.para);
   }
 
   if (plano.turma.mudou) projecao.turma = plano.turma.para;
@@ -2669,15 +2672,15 @@ function projetarNoAluno_(id, aluno, inscricao, matriculado, plano, inscricaoId)
     projecao.projeto = trocarProjetoNoTexto_(aluno.projeto, plano.projeto.de.nome, plano.projeto.para.nome);
   }
 
-  // A inscrição mudou de endereço: sem esta linha, `detalheAluno` iria buscar um
+  // A inscrição mudou de endereço: sem esta linha, `detalheAluno_` iria buscar um
   // documento que não existe mais e a ficha diria "sem registro correspondente"
   // até a próxima reconciliação.
   if (inscricao && inscricaoId !== String(inscricao._id)) projecao.inscricao_id = inscricaoId;
 
   if (!Object.keys(projecao).length) return;
 
-  projecao.atualizado_em = agora();
-  atualizar(ALUNOS_COLECAO, id, projecao);
+  projecao.atualizado_em = agora_();
+  atualizar_(ALUNOS_COLECAO, id, projecao);
 }
 
 /**
@@ -2712,7 +2715,7 @@ function trocarProjetoNoTexto_(texto, antigo, novo) {
  */
 function reconciliarDepoisDaEdicao_() {
   try {
-    var resumo = reconciliar();
+    var resumo = reconciliar_();
     marcarReconciliacao_(marcaDaReconciliacao_());
     return { resumo: resumo, erro: '' };
   } catch (err) {
@@ -2752,16 +2755,16 @@ function registrarEdicao_(id, plano, destino, vizinhas) {
   if (plano.nomeOficial.mudou) partes.push('nome da lista oficial alterado');
   if (plano.turma.mudou) partes.push('turma ' + (plano.turma.de || '(vazia)') + ' -> ' + plano.turma.para);
 
-  if (partes.length) registrar('ALUNO_EDITADO', 'aluno', id, partes.join('; '));
+  if (partes.length) registrar_('ALUNO_EDITADO', 'aluno', id, partes.join('; '));
 
   if (!destino) return;
 
   // Linha própria, e não um pedaço da anterior: é ela que responde "por que este
   // projeto tem 61 inscritos", e ela precisa carregar de onde saiu, para onde foi
-  // e quanto ficou. Quem fez vem de `registrar`, que grava o operador anotado
-  // por `exigirAdmin` — o e-mail da sessão, e não mais o 'anonimo' que
-  // `usuarioAtual()` devolve no painel publicado (04_Log.gs).
-  registrar('ALUNO_MIGRADO', 'aluno', id,
+  // e quanto ficou. Quem fez vem de `registrar_`, que grava o operador anotado
+  // por `exigirAdmin_` — o e-mail da sessão, e não mais o 'anonimo' que
+  // `usuarioAtual_()` devolve no painel publicado (04_Log.gs).
+  registrar_('ALUNO_MIGRADO', 'aluno', id,
     'de "' + (plano.projeto.de.nome || plano.projeto.de.id || 'sem projeto') + '" para "' +
     destino.nome + '" (' + destino.id + '); o destino ficou com ' + destino.inscritos +
     (destino.vagas > 0 ? ' de ' + destino.vagas + ' vagas' : ' inscritos (vagas ilimitadas)') +
@@ -2803,9 +2806,9 @@ function avisarMigracao_(destino, avisos) {
  * abaixo passou a dizer QUAL pessoa exportou (04_Log.gs), e é por ela que essa
  * pergunta tem resposta.
  */
-function exportarCsv(payload) {
+function exportarCsv_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     payload = payload || {};
 
     var pedido = pedidoDeAlunos_(payload);
@@ -2824,7 +2827,7 @@ function exportarCsv(payload) {
       // em dd/mm/aaaa" aqui. A coluna herda a peneira da tela — sem filtro os
       // cancelados sem inscrição não saem; com o filtro "Cancelados", só eles.
       tela.cadastro = tela.situacao_cadastro === 'CANCELADO'
-        ? 'Cancelado em ' + (formatarData(tela.cancelado_em) || '?')
+        ? 'Cancelado em ' + (formatarData_(tela.cancelado_em) || '?')
         : '';
       linhas.push(colunas.map(function (c) {
         return String(tela[c] === undefined || tela[c] === null ? '' : tela[c]);
@@ -2838,7 +2841,7 @@ function exportarCsv(payload) {
       }).join(';');
     }).join('\r\n');
 
-    registrar('EXPORTACAO', 'alunos', '',
+    registrar_('EXPORTACAO', 'alunos', '',
       (linhas.length - 1) + ' linhas' + (varrido.truncado ? ' (TRUNCADO no teto de ' + PAINEL_TETO_EXPORTACAO + ')' : ''));
 
     return { ok: true, csv: '﻿' + csv, linhas: linhas.length - 1 };
@@ -2882,7 +2885,7 @@ function protegerFormulaCsv_(v) {
  * `lerTudo(LOTES).reverse().slice(0, 50)` no sistema sobre Sheets vira ordenação
  * e limite no banco. Ordena por CAMPO, nunca por `__name__` DESCENDENTE: o índice
  * automático de `__name__` só cobre ascendente, e pedir o contrário devolve 400
- * "The query requires an index" (a armadilha que `ultimosRegistros` em 04_Log.gs
+ * "The query requires an index" (a armadilha que `ultimosRegistros_` em 04_Log.gs
  * pagou).
  *
  * O campo é `criado_em`, e a escolha é do outro lado: `registrarLote_`
@@ -2896,18 +2899,19 @@ function protegerFormulaCsv_(v) {
  * entrar por outro caminho, sem `criado_em`, a aba ficaria eternamente vazia sem
  * nenhum sinal, que é o modo de falha mais caro de encontrar. Uma segunda
  * consulta sem ordenação distingue "não há lotes" de "há, e não sei ordenar".
- * Os nomes dos campos que a tela lê são ditados pelo `Admin.html` (1322-1330).
+ * Os nomes dos campos que a tela lê são ditados pela aba Importações do painel
+ * (docs/painel/index.html).
  */
-function listarLotes(payload) {
+function listarLotes_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    var itens = listar(LOTES_COLECAO, {
+    var itens = listar_(LOTES_COLECAO, {
       ordenarPor: 'criado_em', direcao: 'DESC', limite: PAINEL_LIMITE_LOTES
     }).itens;
 
     if (!itens.length) {
-      itens = listar(LOTES_COLECAO, { limite: PAINEL_LIMITE_LOTES }).itens;
+      itens = listar_(LOTES_COLECAO, { limite: PAINEL_LIMITE_LOTES }).itens;
     }
 
     return {
@@ -2946,17 +2950,17 @@ function listarLotes(payload) {
 /**
  * Os últimos registros da trilha de auditoria.
  *
- * `ultimosRegistros` (04_Log.gs) já faz a pergunta certa ao banco — ordenação por
+ * `ultimosRegistros_` (04_Log.gs) já faz a pergunta certa ao banco — ordenação por
  * `criado_em` DESC com teto. Reimplementar aqui só criaria um segundo lugar onde
  * a armadilha do `__name__` poderia voltar.
  */
-function listarLog(payload) {
+function listarLog_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     return {
       ok: true,
-      itens: ultimosRegistros(PAINEL_LIMITE_LOG).map(function (l) {
+      itens: ultimosRegistros_(PAINEL_LIMITE_LOG).map(function (l) {
         return {
           timestamp: l.timestamp,
           usuario: l.usuario,
@@ -2990,11 +2994,11 @@ function listarLog(payload) {
  * descrição — do contrário uma chave criada à mão sumiria da tela e viraria
  * configuração invisível.
  */
-function lerConfiguracoes(payload) {
+function lerConfiguracoes_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    var atual = lerConfig();
+    var atual = lerConfig_();
     var itens = [];
     var vistas = {};
 
@@ -3027,12 +3031,14 @@ function lerConfiguracoes(payload) {
 }
 
 /**
- * Endereço público desta implantação, para a coordenação copiar.
+ * O endereço `/exec` desta implantação. A aba Configurações o mostra como o
+ * endereço do SERVIDOR — sem link, porque ele não abre página (ver "Nenhuma
+ * resposta é página", em 08_Api.gs) —, e o aquecimento o usa para o ping.
  *
  * Existe aqui, e com nome próprio, porque o projeto novo não tem o `urlWebApp()`
  * que o sistema sobre Sheets guarda em 03_Setup.gs (arquivo que nem foi trazido —
  * ele existia para criar abas e menus de planilha). Devolve '' fora de uma
- * implantação publicada, e o `Admin.html` simplesmente esconde o cartão.
+ * implantação publicada, e o painel simplesmente esconde o cartão.
  */
 function urlDoWebApp_() {
   try {
@@ -3054,7 +3060,7 @@ function urlDoWebApp_() {
  *   2. `admin_emails` é a lista de quem entra, e não um texto: ela vai para
  *      `regravarAllowlist_` (07_Auth.gs), que é quem recusa esvaziar a lista,
  *      derruba a sessão de quem saiu e registra na trilha. Gravar por aqui era a
- *      porta dos fundos das guardas de `removerAdmin`;
+ *      porta dos fundos das guardas de `removerAdmin_`;
  *   3. `coordenadores_gerais` é a lista de QUEM PODE O QUÊ, e tem a mesma
  *      história: ela aparece nesta tela de qualquer jeito (a lista de chaves
  *      conhecidas inclui o que já está no banco), então ela vai para
@@ -3063,6 +3069,12 @@ function urlDoWebApp_() {
  *   4. chave marcada como segredo em CONFIG_SEGREDOS não passa por aqui. O mapa
  *      está vazio hoje — a guarda fica pelo dia em que não estiver.
  *
+ * E uma quinta, que não é sobre trancar e sim sobre para onde vai o link de
+ * entrada: `url_painel` só aceita um dos endereços de PAINEIS_ACEITOS
+ * (07b_LinkPorEmail.gs), ou vazio, que é o padrão. O link que sai por e-mail
+ * leva um código que vale uma sessão; um endereço digitado aqui seria o lugar
+ * para onde esse código vai.
+ *
  * A guarda que existia para `modo_acesso_painel` foi embora com a chave: não há
  * mais modo de acesso a configurar, porque as duas portas remotas coexistem
  * sempre (ver o topo de 07_Auth.gs).
@@ -3070,12 +3082,12 @@ function urlDoWebApp_() {
  * O log guarda a chave, nunca o valor: por aqui passam os textos de
  * consentimento, e trilha de auditoria não é lugar de dado de tela.
  */
-function salvarConfiguracao(payload) {
+function salvarConfiguracao_(payload) {
   try {
     // Cobra o NÍVEL por dentro, e não só no despacho: por aqui passam as duas
     // listas de acesso, então esta é uma das quatro funções pelas quais um
     // professor se promoveria se a cobrança da rota um dia saísse do lugar.
-    exigirCoordenador(payload && payload.token);
+    exigirCoordenador_(payload && payload.token);
     payload = payload || {};
 
     var chave = String(payload.chave || '').trim();
@@ -3094,13 +3106,22 @@ function salvarConfiguracao(payload) {
     if (chave === 'admin_emails') return regravarAllowlist_(valor, payload.token);
     // A linha gêmea, e pela mesma razão: `coordenadores_gerais` decide o que
     // cada um pode, e o campo de texto não pode ser a porta dos fundos das
-    // guardas de `definirNivel`. `regravarGerais_` recusa o campo vazio (que
+    // guardas de `definirNivel_`. `regravarGerais_` recusa o campo vazio (que
     // promoveria todo mundo pelo piso) e o e-mail que não está na lista de
     // acesso (que seria inerte, com a tela dizendo "salvo").
     if (chave === 'coordenadores_gerais') return regravarGerais_(valor, payload.token);
 
-    gravarConfig(chave, valor);
-    registrar('CONFIG', 'config', chave, 'alterado');
+    if (chave === 'url_painel' && valor.trim() && !painelAceito_(valor)) {
+      return {
+        ok: false,
+        erro: 'O painel só pode morar em ' + PAINEIS_ACEITOS.join(' ou ') + ' (ou deixe vazio, ' +
+              'que é o padrão). Outro endereço precisa entrar primeiro no código do servidor ' +
+              '(07b_LinkPorEmail.gs). Nada foi alterado.'
+      };
+    }
+
+    gravarConfig_(chave, valor);
+    registrar_('CONFIG', 'config', chave, 'alterado');
     return { ok: true };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -3113,5 +3134,5 @@ function chaveConhecida_(chave) {
   CONFIG_PADRAO.forEach(function (p) {
     if (p.chave === chave) conhecida = true;
   });
-  return conhecida || lerConfig()[chave] !== undefined;
+  return conhecida || lerConfig_()[chave] !== undefined;
 }

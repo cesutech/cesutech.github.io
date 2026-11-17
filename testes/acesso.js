@@ -148,7 +148,7 @@ function ambiente(opcoes) {
   if (opcoes.clientId !== null) {
     amb.propriedades.set('GOOGLE_CLIENT_ID', opcoes.clientId || CLIENT_ID);
   }
-  if (opcoes.allowlist !== undefined) amb.api.gravarConfig('admin_emails', opcoes.allowlist);
+  if (opcoes.allowlist !== undefined) amb.api.gravarConfig_('admin_emails', opcoes.allowlist);
 
   return amb;
 }
@@ -225,7 +225,7 @@ teste('token emitido para OUTRO aplicativo Google é recusado', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom({ aud: '999888-outroapp.apps.googleusercontent.com' }));
 
-  const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  const r = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
   igual(r.ok, false);
   igual(r.token, undefined, 'não pode sair sessão de um token que não é nosso');
@@ -240,7 +240,7 @@ teste('sem GOOGLE_CLIENT_ID configurado, recusa — e nem sai para a rede', () =
   const amb = ambiente({ clientId: null, allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom());
 
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
   igual(amb.tokeninfo.chamadas.length, 0);
   verdadeiro(linhasDoLog(amb).some((l) => l.detalhe.indexOf('GOOGLE_CLIENT_ID') !== -1),
     'a trilha precisa nomear a propriedade que resolve');
@@ -251,14 +251,14 @@ teste('as duas grafias de iss valem, e uma terceira não', () => {
 
   ['accounts.google.com', 'https://accounts.google.com'].forEach((iss) => {
     responder(amb, tokenBom({ iss: iss }));
-    igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, true, iss + ' devia valer');
+    igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, true, iss + ' devia valer');
   });
 
   responder(amb, tokenBom({ iss: 'https://accounts.google.com.evil.example' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 
   responder(amb, tokenBom({ iss: '' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 });
 
 teste('token vencido é recusado, e o vencimento é conferido aqui', () => {
@@ -268,13 +268,13 @@ teste('token vencido é recusado, e o vencimento é conferido aqui', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
   responder(amb, tokenBom({ exp: String(Math.floor(new Date().getTime() / 1000) - 1) }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 
   responder(amb, tokenBom({ exp: '' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false, 'exp ausente não é exp no futuro');
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false, 'exp ausente não é exp no futuro');
 
   responder(amb, tokenBom({ exp: 'depois' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false, 'exp ilegível não é exp no futuro');
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false, 'exp ilegível não é exp no futuro');
 });
 
 teste('conta sem e-mail confirmado não entra', () => {
@@ -283,10 +283,10 @@ teste('conta sem e-mail confirmado não entra', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
   responder(amb, tokenBom({ email_verified: 'false' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 
   responder(amb, tokenBom({ email_verified: undefined }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false, 'campo ausente não é verdadeiro');
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false, 'campo ausente não é verdadeiro');
 });
 
 teste('o campo email_verified chega como TEXTO, e o booleano também vale', () => {
@@ -296,10 +296,10 @@ teste('o campo email_verified chega como TEXTO, e o booleano também vale', () =
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
   responder(amb, tokenBom({ email_verified: 'true' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, true);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, true);
 
   responder(amb, tokenBom({ email_verified: true }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, true);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, true);
 });
 
 teste('a conferência acontece na ordem certa: aud antes do e-mail', () => {
@@ -309,7 +309,7 @@ teste('a conferência acontece na ordem certa: aud antes do e-mail', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom({ aud: 'outro.apps.googleusercontent.com', email: 'coordenacao@exemplo.com' }));
 
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 });
 
 grupo('entrarComGoogle — falhar é recusar, nunca deixar passar');
@@ -317,7 +317,7 @@ grupo('entrarComGoogle — falhar é recusar, nunca deixar passar');
 teste('tokeninfo respondendo erro é recusa', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, { error: 'invalid_token' }, 400);
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 });
 
 teste('Google fora do ar é recusa, e não permissão', () => {
@@ -327,7 +327,7 @@ teste('Google fora do ar é recusa, e não permissão', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   amb.tokeninfo.lancar = true;
 
-  const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  const r = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
   igual(r.ok, false);
   igual(r.token, undefined);
 });
@@ -335,7 +335,7 @@ teste('Google fora do ar é recusa, e não permissão', () => {
 teste('resposta ilegível do tokeninfo é recusa', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, '<html>manutenção</html>', 200);
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
 });
 
 teste('o que nem parece JWT é recusado sem sair para a rede', () => {
@@ -343,7 +343,7 @@ teste('o que nem parece JWT é recusado sem sair para a rede', () => {
   responder(amb, tokenBom());
 
   ['', 'nada', 'a.b', 'a.b.c.d', 'a b.c.d', null, undefined, 12345].forEach((v) => {
-    igual(amb.api.entrarComGoogle(v).ok, false, JSON.stringify(v) + ' passou');
+    igual(amb.api.entrarComGoogle_(v).ok, false, JSON.stringify(v) + ' passou');
   });
   igual(amb.tokeninfo.chamadas.length, 0,
     'formato ruim não pode gastar requisição de saída — é a mesma cota do Firestore');
@@ -353,7 +353,7 @@ teste('token absurdamente grande é recusado sem sair para a rede', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const enorme = 'a'.repeat(3000) + '.' + 'b'.repeat(3000) + '.' + 'c'.repeat(3000);
 
-  igual(amb.api.entrarComGoogle(enorme).ok, false);
+  igual(amb.api.entrarComGoogle_(enorme).ok, false);
   igual(amb.tokeninfo.chamadas.length, 0);
 });
 
@@ -363,7 +363,7 @@ teste('a chamada ao Google pede para ler o corpo do erro', () => {
   // falar com o Google" para um token simplesmente vencido.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom());
-  amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
   const chamada = amb.tokeninfo.chamadas[0];
   igual(chamada.opcoes.muteHttpExceptions, true);
@@ -372,14 +372,14 @@ teste('a chamada ao Google pede para ler o corpo do erro', () => {
 });
 
 teste('enxurrada de token recusado não vira enxurrada de escrita', () => {
-  // O log de recusa passa por `registrarRecusa`, que agrupa por janela: uma
+  // O log de recusa passa por `registrarRecusa_`, que agrupa por janela: uma
   // escrita por motivo por dez minutos. Sem isso, esta rota anônima seria um
   // gerador de escritas contra as 20 mil por dia do plano Spark — o freio
   // derrubaria o sistema mais depressa que o abuso.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, { error: 'invalid_token' }, 400);
 
-  for (let i = 0; i < 40; i++) amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  for (let i = 0; i < 40; i++) amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
   igual(acoesDoLog(amb).length, 1, 'quarenta recusas, uma linha');
 });
@@ -394,7 +394,7 @@ teste('conta da allowlist entra, e a caixa do e-mail não importa', () => {
   const amb = ambiente({ allowlist: 'COORDENACAO@Exemplo.com , outra@exemplo.com' });
   responder(amb, tokenBom({ email: 'coordenacao@EXEMPLO.com' }));
 
-  const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  const r = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.via, 'google');
@@ -406,9 +406,9 @@ teste('o token emitido é uma sessão de verdade, e exigirAdmin o aceita', () =>
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom());
 
-  const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
-  igual(amb.api.exigirAdmin(r.token), true);
-  igual(amb.api.sessaoAtiva(r.token).ok, true);
+  const r = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
+  igual(amb.api.exigirAdmin_(r.token), true);
+  igual(amb.api.sessaoAtiva_(r.token).ok, true);
 });
 
 teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => {
@@ -418,9 +418,9 @@ teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => 
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom());
 
-  const porGoogle = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
-  const porLink = amb.api.entrarComLink(tokenDoEmail(amb));
+  const porGoogle = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  const porLink = amb.api.entrarComLink_(tokenDoEmail(amb));
 
   igual(amb.api.emailDaSessao_(porGoogle.token), 'coordenacao@exemplo.com');
   igual(amb.api.emailDaSessao_(porLink.token), 'coordenacao@exemplo.com');
@@ -431,22 +431,22 @@ teste('as duas portas remotas sabem QUEM entrou — a do PIN não sabia', () => 
     ['via conta Google (ID token)', 'via link por e-mail']);
 
   // E a COLUNA "Quem" também: a entrada é a única ação em que a pessoa se
-  // identifica antes de existir sessão, então `exigirAdmin` não passa por ela e
+  // identifica antes de existir sessão, então `exigirAdmin_` não passa por ela e
   // as duas portas anotam o operador por conta própria.
   //
-  // Mutação que derruba: tirar `anotarOperador_` de `entrarComGoogle` — este
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComGoogle_` — este
   // ambiente é o publicado (`usuario: ''`), e a coluna volta a 'anonimo' na
   // linha que diz que alguém entrou. SÓ A DO GOOGLE: as duas portas rodam na
   // MESMA execução simulada aqui, e `OPERADOR_DA_EXECUCAO` é global ao script
   // (04_Log.gs), então a linha do link herda o nome que a do Google anotou. Quem
   // segura a porta do link é o teste seguinte, com ambiente próprio.
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
   igual(trilha.map((l) => l.usuario), ['coordenacao@exemplo.com', 'coordenacao@exemplo.com']);
 });
 
 teste('e a porta do LINK sabe sozinha — sem nenhum login antes na mesma execução', () => {
   // Em produção não se herda nada: entrar por link é uma execução do Apps
-  // Script inteiramente separada, sem `entrarComGoogle` nenhum antes. Sem a
+  // Script inteiramente separada, sem `entrarComGoogle_` nenhum antes. Sem a
   // anotação, a ÚNICA linha que diz que alguém entrou pela porta dos fundos
   // sairia assinada por 'anonimo' — e é justamente a porta que se usa quando
   // alguma coisa já deu errado.
@@ -455,14 +455,14 @@ teste('e a porta do LINK sabe sozinha — sem nenhum login antes na mesma execu�
   // depois de DUAS chamadas na mesma execução está medindo a variável herdada,
   // e não a anotação daquela chamada.
   //
-  // Mutação que derruba: tirar `anotarOperador_` de `entrarComLink`.
+  // Mutação que derruba: tirar `anotarOperador_` de `entrarComLink_`.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
-  igual(amb.api.entrarComLink(tokenDoEmail(amb)).ok, true, 'o link não abriu a porta');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  igual(amb.api.entrarComLink_(tokenDoEmail(amb)).ok, true, 'o link não abriu a porta');
 
   const trilha = linhasDoLog(amb).filter((l) => l.acao === 'LOGIN');
   igual(trilha.length, 1, 'a cena devia ter UMA entrada só, a do link');
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
   igual(trilha[0].usuario, 'coordenacao@exemplo.com',
     'a linha do link saiu assinada por ' + trilha[0].usuario);
 });
@@ -473,7 +473,7 @@ teste('conta fora da allowlist não entra, e a recusa nomeia a própria conta', 
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom({ email: 'estranho@exemplo.com' }));
 
-  const r = amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  const r = amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
   igual(r.ok, false);
   igual(r.token, undefined);
@@ -488,14 +488,14 @@ teste('modoDeAcesso não anuncia o botão que vai recusar todo mundo', () => {
   // Botão anunciado que recusa é pior do que botão ausente: o professor tenta,
   // lê "conta sem acesso" e conclui que o problema é a conta dele.
   const semClientId = ambiente({ clientId: null, allowlist: 'coordenacao@exemplo.com' });
-  igual(semClientId.api.modoDeAcesso().google, { disponivel: false, clientId: '' });
+  igual(semClientId.api.modoDeAcesso_().google, { disponivel: false, clientId: '' });
 
   const semLista = ambiente({ allowlist: '' });
-  igual(semLista.api.modoDeAcesso().google.disponivel, false);
-  igual(semLista.api.modoDeAcesso().allowlistVazia, true);
+  igual(semLista.api.modoDeAcesso_().google.disponivel, false);
+  igual(semLista.api.modoDeAcesso_().allowlistVazia, true);
 
   const pronto = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  igual(pronto.api.modoDeAcesso().google, { disponivel: true, clientId: CLIENT_ID });
+  igual(pronto.api.modoDeAcesso_().google, { disponivel: true, clientId: CLIENT_ID });
 });
 
 teste('nem oferece o link quando ele não tem como virar e-mail', () => {
@@ -504,47 +504,47 @@ teste('nem oferece o link quando ele não tem como virar e-mail', () => {
   // mensagem que não vem — e não haveria nada na tela explicando.
   //
   // Isto responde sobre o ESTADO DO SISTEMA, nunca sobre um endereço: a frase
-  // única de `pedirLinkDeAcesso` continua intacta, e nada aqui diz quem está na
+  // única de `pedirLinkDeAcesso_` continua intacta, e nada aqui diz quem está na
   // lista. Ver `linkDeAcessoDisponivel_` (07b_LinkPorEmail.gs).
   const pronto = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  igual(pronto.api.modoDeAcesso().linkDisponivel, true);
+  igual(pronto.api.modoDeAcesso_().linkDisponivel, true);
 
   const semCota = ambiente({ allowlist: 'coordenacao@exemplo.com', cota: 0 });
-  igual(semCota.api.modoDeAcesso().linkDisponivel, false, 'a tela prometeu um e-mail que não sai');
+  igual(semCota.api.modoDeAcesso_().linkDisponivel, false, 'a tela prometeu um e-mail que não sai');
 
   const semLista = ambiente({ allowlist: '' });
-  igual(semLista.api.modoDeAcesso().linkDisponivel, false, 'não há para quem mandar');
+  igual(semLista.api.modoDeAcesso_().linkDisponivel, false, 'não há para quem mandar');
 });
 
 teste('e a tela de login não gasta as vagas da hora só de ser aberta', () => {
-  // `excedeuPedidosDeLink_` INCREMENTA o contador; `modoDeAcesso` precisa
+  // `excedeuPedidosDeLink_` INCREMENTA o contador; `modoDeAcesso_` precisa
   // perguntar sem consumir. Se as duas fossem a mesma função, sessenta visitas
   // anônimas à tela — que é pública — fechariam a porta de recuperação sozinhas.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
-  for (let i = 0; i < 100; i++) amb.api.modoDeAcesso();
+  for (let i = 0; i < 100; i++) amb.api.modoDeAcesso_();
 
-  igual(amb.api.modoDeAcesso().linkDisponivel, true, 'a tela se fechou sozinha');
-  igual(amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com').ok, true);
+  igual(amb.api.modoDeAcesso_().linkDisponivel, true, 'a tela se fechou sozinha');
+  igual(amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com').ok, true);
   igual(destinatarios(amb), ['coordenacao@exemplo.com'],
     'olhar para a tela consumiu o teto da hora');
 });
 
 teste('o campo de texto de admin_emails não esvazia a lista pelas costas', () => {
-  // Era a porta dos fundos das duas guardas de `removerAdmin`: `salvarConfiguracao`
+  // Era a porta dos fundos das duas guardas de `removerAdmin_`: `salvarConfiguracao_`
   // gravava `admin_emails` em branco sem passar por elas. Achado da revisão de
   // segurança de 07/08 — hoje a chave vai para `regravarAllowlist_`.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const token = amb.api.criarSessao_('coordenacao@exemplo.com');
 
-  const r = amb.api.salvarConfiguracao({ token: token, chave: 'admin_emails', valor: '' });
+  const r = amb.api.salvarConfiguracao_({ token: token, chave: 'admin_emails', valor: '' });
   igual(r.ok, false);
-  amb.api.limparCacheConfig();
-  igual(amb.api.listarAdmins({ token: token }).emails, ['coordenacao@exemplo.com']);
+  amb.api.limparCacheConfig_();
+  igual(amb.api.listarAdmins_({ token: token }).emails, ['coordenacao@exemplo.com']);
 });
 
 teste('sem client id, mas com a identidade chegando sozinha, a porta 1 entra', () => {
-  // Faltar GOOGLE_CLIENT_ID derruba o `entrarComGoogle`, mas NÃO derruba o
+  // Faltar GOOGLE_CLIENT_ID derruba o `entrarComGoogle_`, mas NÃO derruba o
   // caminho 1: numa implantação Workspace com "Executar como: Usuário que
   // acessa" o login por conta funciona sem client id nenhum. É o cenário que o
   // projeto pode assumir quando mudar para a conta institucional.
@@ -553,26 +553,26 @@ teste('sem client id, mas com a identidade chegando sozinha, a porta 1 entra', (
     getActiveUser: () => ({ getEmail: () => 'outra@exemplo.com' })
   };
 
-  const r = amb.api.autenticar();
+  const r = amb.api.autenticar_();
   igual(r.ok, true, 'a identidade visível devia entrar sozinha: ' + r.erro);
   igual(r.via, 'email');
-  igual(amb.api.modoDeAcesso().identidadeVisivel, true, 'a tela precisa saber disso');
+  igual(amb.api.modoDeAcesso_().identidadeVisivel, true, 'a tela precisa saber disso');
 });
 
 teste('sem client id e sem identidade visível, sobra o link por e-mail', () => {
   // Esta é a implantação real: USER_DEPLOYING com conta comum, onde
-  // `usuarioAtual()` volta 'anonimo' sempre. Sem client id o `entrarComGoogle`
+  // `usuarioAtual_()` volta 'anonimo' sempre. Sem client id o `entrarComGoogle_`
   // recusa antes de sair para a rede, e o caminho 1 nunca dispara — as duas
   // portas do 07_Auth.gs estão fechadas ao mesmo tempo, e é exatamente o dia
   // para o qual a segunda porta existe.
   const amb = ambiente({ clientId: null, allowlist: 'outra@exemplo.com' });
 
-  igual(amb.api.modoDeAcesso().google.disponivel, false);
-  igual(amb.api.autenticar().ok, false);
+  igual(amb.api.modoDeAcesso_().google.disponivel, false);
+  igual(amb.api.autenticar_().ok, false);
 
-  igual(amb.api.pedirLinkDeAcesso('outra@exemplo.com').ok, true);
+  igual(amb.api.pedirLinkDeAcesso_('outra@exemplo.com').ok, true);
   igual(destinatarios(amb), ['outra@exemplo.com'], 'a única porta que sobrava não abriu');
-  igual(amb.api.entrarComLink(tokenDoEmail(amb)).ok, true);
+  igual(amb.api.entrarComLink_(tokenDoEmail(amb)).ok, true);
 });
 
 teste('uma enxurrada de tokens de mentira NÃO freia o link por e-mail', () => {
@@ -583,9 +583,9 @@ teste('uma enxurrada de tokens de mentira NÃO freia o link por e-mail', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, { error: 'invalid_token' }, 400);
 
-  for (let i = 0; i < 80; i++) amb.api.entrarComGoogle(TOKEN_BEM_FORMADO);
+  for (let i = 0; i < 80; i++) amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO);
 
-  igual(amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com').ok, true);
+  igual(amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com').ok, true);
   igual(destinatarios(amb), ['coordenacao@exemplo.com'],
     'o link ficou na fila por tentativas que não eram dele');
 });
@@ -612,7 +612,7 @@ teste('endereço da allowlist recebe uma mensagem que não parece golpe', () => 
   // tentando entrar.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
-  igual(amb.api.pedirLinkDeAcesso('Coordenacao@Exemplo.com ').ok, true);
+  igual(amb.api.pedirLinkDeAcesso_('Coordenacao@Exemplo.com ').ok, true);
   igual(destinatarios(amb), ['coordenacao@exemplo.com'], 'a caixa do endereço decidiu algo');
 
   const mensagem = amb.correio.enviados[0];
@@ -623,23 +623,96 @@ teste('endereço da allowlist recebe uma mensagem que não parece golpe', () => 
 });
 
 teste('o link do e-mail aponta para o painel configurado, com o token na query', () => {
-  // `url_painel` é config, e não código, porque o endereço muda quando o
-  // repositório trocar de casa — e ninguém vai lembrar de reimplantar o Apps
-  // Script por causa disso.
+  // `url_painel` escolhe entre os endereços de PAINEIS_ACEITOS (07b_LinkPorEmail.gs);
+  // o que se confere aqui é a forma: a chave sem a barra do fim vale o mesmo
+  // endereço, e o token vai na query.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.gravarConfig('url_painel', 'https://cesutech.github.io/painel');
+  amb.api.gravarConfig_('url_painel', 'https://cesutech.github.io/painel');
 
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   const url = /(https?:\S+)/.exec(amb.correio.enviados[0].body)[1];
   igual(url, 'https://cesutech.github.io/painel/?entrar=' + tokenDoEmail(amb),
     'a barra que falta no fim da configuração não pode virar link quebrado');
 });
 
+/**
+ * Endereços que `url_painel` pode ter no banco sem ter passado pela tela — o
+ * console do Firestore, um backup restaurado, uma versão antiga do servidor — e
+ * que não são o painel. Cada um é uma forma diferente de "quase": outro host, o
+ * host certo como prefixo de outro, sem TLS, o caminho certo com sufixo.
+ */
+const PAINEIS_FALSOS = [
+  'https://outro-host.exemplo/',
+  'https://cesutech.github.io.outro-host.exemplo/painel/',
+  'http://cesutech.github.io/painel/',
+  'https://cesutech.github.io/painel/outra-coisa/',
+  'https://cesutech.github.io/',
+  '  https://outro-host.exemplo/painel  '
+];
+
+teste('url_painel fora da lista do código não vale: o link do e-mail sai com o padrão, e o console diz por quê', () => {
+  // O link leva um código que vale uma sessão, num e-mail que o próprio sistema
+  // assina. Com a chave apontando para outro lugar, o e-mail continuaria
+  // verdadeiro e o código iria para quem estivesse do outro lado.
+  //
+  // Mutação que derruba: `urlDoPainel_` voltar a devolver o que estiver na chave
+  // (com ou sem a barra), ou aceitar qualquer endereço que COMECE pelo do painel.
+  PAINEIS_FALSOS.forEach((falso) => {
+    const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+    const impresso = comConsoleCapturado(amb);
+    amb.api.gravarConfig_('url_painel', falso);
+
+    igual(amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com').ok, true, falso);
+
+    const url = /(https?:\S+)/.exec(amb.correio.enviados[0].body)[1];
+    igual(url, 'https://cesutech.github.io/painel/?entrar=' + tokenDoEmail(amb),
+      'o link foi para o endereço da chave: ' + JSON.stringify(falso));
+    verdadeiro(impresso.some((l) => /^ERRO /.test(l) && l.indexOf('url_painel') !== -1),
+      'a chave foi ignorada em silêncio: ' + JSON.stringify(impresso));
+  });
+});
+
+teste('o socorro do editor também: liberarAcesso imprime o endereço do código, e não o da chave', () => {
+  // `liberarAcesso` cria uma sessão e imprime o endereço que a carrega. Ela roda
+  // no editor, e o endereço é copiado de lá para o navegador — o mesmo risco do
+  // e-mail, com uma sessão de oito horas em vez de um código de quinze minutos.
+  //
+  // Mutação que derruba: `liberarAcesso_` montar o endereço com a chave crua, ou
+  // `urlDoPainel_` aceitar a chave fora da lista.
+  const amb = ambiente({ allowlist: '' });
+  const impresso = comConsoleCapturado(amb);
+  amb.api.gravarConfig_('url_painel', 'https://outro-host.exemplo/painel/');
+
+  const url = amb.api.liberarAcesso_('professor@unicesusc.edu.br');
+
+  verdadeiro(url.indexOf('https://cesutech.github.io/painel/?sessao=') === 0, url);
+  igual(impresso.join('\n').indexOf('outro-host.exemplo/painel/?'), -1,
+    'o editor imprimiu um endereço com a sessão para outro host');
+});
+
+teste('o padrão de url_painel, a lista do código e o que o /exec anuncia são o mesmo endereço', () => {
+  // São três lugares que dizem onde o painel mora: o padrão da chave
+  // (CONFIG_PADRAO), a lista que a chave pode escolher (PAINEIS_ACEITOS) e o
+  // endereço da resposta sem rota (ENDERECO_DO_PAINEL). Divergirem é o padrão da
+  // chave ser recusado pela própria lista, ou o `/exec` mandar as pessoas para
+  // um lugar de onde o link não sai.
+  //
+  // Mutação que derruba: trocar um dos três sem os outros dois.
+  const amb = ambiente({ allowlist: '' });
+  const padrao = amb.api.CONFIG_PADRAO.filter((c) => c.chave === 'url_painel')[0];
+  verdadeiro(padrao, 'url_painel sumiu de CONFIG_PADRAO');
+
+  igual(amb.api.PAINEIS_ACEITOS[0], amb.api.ENDERECO_DO_PAINEL);
+  igual(padrao.valor, amb.api.PAINEIS_ACEITOS[0]);
+  igual(amb.api.painelAceito_(padrao.valor), true, 'a lista recusa o padrão da própria chave');
+  igual(amb.api.urlDoPainel_(), amb.api.PAINEIS_ACEITOS[0], 'chave vazia não deu o padrão');
+});
+
 teste('endereço de fora da allowlist não recebe nada — e não descobre nada', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
-  const r = amb.api.pedirLinkDeAcesso('estranho@exemplo.com');
+  const r = amb.api.pedirLinkDeAcesso_('estranho@exemplo.com');
 
   igual(r.ok, true, 'a recusa apareceu na resposta — ver invasao.js, seção do oráculo');
   igual(destinatarios(amb), []);
@@ -650,12 +723,12 @@ teste('o que não tem forma de e-mail morre no primeiro passo, de graça', () =>
   // encostar no teto global — que é o recurso a preservar para quem digitou um
   // endereço de verdade.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   amb.falso.requisicoes.length = 0;
 
   ['', '   ', 'sem-arroba', 'a@b', 'a b@exemplo.com', null, undefined, 12345,
     'x'.repeat(250) + '@exemplo.com'].forEach((valor) => {
-    igual(amb.api.pedirLinkDeAcesso(valor).ok, true, JSON.stringify(valor));
+    igual(amb.api.pedirLinkDeAcesso_(valor).ok, true, JSON.stringify(valor));
   });
 
   igual(destinatarios(amb), []);
@@ -668,7 +741,7 @@ teste('cota de envio esgotada: nada sai, e o log diz por quê', () => {
   // no dia seguinte, por que o link "não chegou".
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com', cota: 0 });
 
-  const r = amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  const r = amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   igual(r.ok, true, 'a frase única não pode mudar por causa da cota');
   igual(destinatarios(amb), []);
@@ -695,8 +768,8 @@ teste('dois pedidos seguidos: o segundo não envia, e diz a mesma coisa', () => 
   // nós, até a cota diária acabar.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
-  const primeiro = amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
-  const segundo = amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  const primeiro = amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  const segundo = amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   igual(segundo, primeiro, 'o freio virou "calma lá" — quem lê é quem tem o acesso');
   igual(destinatarios(amb), ['coordenacao@exemplo.com'], 'o segundo pedido enviou');
@@ -706,9 +779,9 @@ teste('passados os dois minutos, o mesmo endereço recebe de novo', () => {
   // O freio adia; ele não fecha. Quem não recebeu confere o spam antes disso.
   const amb = comRelogio();
 
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   amb.relogio.avancar(2 * 60 * 1000 + 1);
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   igual(destinatarios(amb).length, 2);
 });
@@ -720,7 +793,7 @@ teste('o teto do dia para de enviar depois de oito', () => {
   const amb = comRelogio();
 
   for (let i = 0; i < 12; i++) {
-    amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+    amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
     amb.relogio.avancar(3 * 60 * 1000);
   }
 
@@ -734,20 +807,20 @@ teste('a contagem do dia vira à meia-noite, e não a cada 24 horas corridas', (
   const amb = comRelogio();
 
   for (let i = 0; i < 9; i++) {
-    amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+    amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
     amb.relogio.avancar(3 * 60 * 1000);
   }
   igual(destinatarios(amb).length, 8);
 
   amb.relogio.avancar(24 * 60 * 60 * 1000);
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   igual(destinatarios(amb).length, 9, 'o dia virou e o contador não zerou');
 });
 
 teste('insistir no mesmo endereço não vira enxurrada de escrita', () => {
   // A recusa é a resposta do caminho que está sendo inundado: se cada uma
   // gravasse uma linha, o freio queimaria as 20 mil escritas do dia mais depressa
-  // que o abuso. `registrarRecusa` (04_Log.gs) agrupa por janela — uma escrita
+  // que o abuso. `registrarRecusa_` (04_Log.gs) agrupa por janela — uma escrita
   // por MOTIVO por dez minutos, independente do volume.
   //
   // É UM motivo só, e isso é resultado de desenho. Houve uma versão com dois:
@@ -756,10 +829,10 @@ teste('insistir no mesmo endereço não vira enxurrada de escrita', () => {
   // fecha a porta de dentro", em invasao.js. Sobrou o freio do endereço, que só
   // atrasa quem insiste.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   const antes = acoesDoLog(amb).length;
-  for (let i = 0; i < 200; i++) amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  for (let i = 0; i < 200; i++) amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   const novas = acoesDoLog(amb).slice(antes);
   igual(novas, ['LINK_FREIO'],
@@ -772,16 +845,16 @@ grupo('entrarComLink — o consumo');
 
 teste('o token do e-mail entra, uma vez só', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const token = tokenDoEmail(amb);
 
-  const primeira = amb.api.entrarComLink(token);
+  const primeira = amb.api.entrarComLink_(token);
   igual(primeira.ok, true, 'erro foi: ' + primeira.erro);
   igual(primeira.via, 'link');
   igual(primeira.usuario, 'coordenacao@exemplo.com');
-  igual(amb.api.exigirAdmin(primeira.token), true, 'a sessão do link não vale no painel');
+  igual(amb.api.exigirAdmin_(primeira.token), true, 'a sessão do link não vale no painel');
 
-  const segunda = amb.api.entrarComLink(token);
+  const segunda = amb.api.entrarComLink_(token);
   igual(segunda.ok, false, 'O MESMO LINK ENTROU DUAS VEZES');
   igual(segunda.token, undefined);
 });
@@ -790,14 +863,14 @@ teste('o token é consumido mesmo quando a criação da sessão falha', () => {
   // Ele é apagado ANTES de a sessão nascer, e é essa ordem que garante que um
   // link que chegou ao fim não seja reusado nem no caminho de erro.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const token = tokenDoEmail(amb);
 
   amb.api.criarSessao_ = () => { throw new Error('PropertiesService fora do ar'); };
-  igual(amb.api.entrarComLink(token).ok, false);
+  igual(amb.api.entrarComLink_(token).ok, false);
 
   delete amb.api.criarSessao_;
-  igual(amb.api.entrarComLink(token).ok, false, 'o link sobreviveu à falha e continuou valendo');
+  igual(amb.api.entrarComLink_(token).ok, false, 'o link sobreviveu à falha e continuou valendo');
 });
 
 teste('quinze minutos valem; dezesseis, não', () => {
@@ -806,15 +879,15 @@ teste('quinze minutos valem; dezesseis, não', () => {
   // telefone destrancado em cima da mesa.
   const amb = comRelogio();
 
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const dentroDoPrazo = tokenDoEmail(amb);
   amb.relogio.avancar(15 * 60 * 1000 - 1000);
-  igual(amb.api.entrarComLink(dentroDoPrazo).ok, true, 'venceu antes da hora');
+  igual(amb.api.entrarComLink_(dentroDoPrazo).ok, true, 'venceu antes da hora');
 
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const vencido = tokenDoEmail(amb);
   amb.relogio.avancar(15 * 60 * 1000 + 1000);
-  igual(amb.api.entrarComLink(vencido).ok, false, 'o link valeu depois dos 15 minutos');
+  igual(amb.api.entrarComLink_(vencido).ok, false, 'o link valeu depois dos 15 minutos');
 });
 
 teste('quem saiu da allowlist entre o pedido e o clique não entra', () => {
@@ -822,14 +895,14 @@ teste('quem saiu da allowlist entre o pedido e o clique não entra', () => {
   // emitido para alguém que, nesses quinze minutos, saiu da coordenação — e quem
   // tirou o acesso espera que ele tenha saído no ato.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('saindo@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('saindo@exemplo.com');
   const token = tokenDoEmail(amb);
 
   const meuToken = amb.api.criarSessao_('coordenacao@exemplo.com');
-  igual(amb.api.removerAdmin({ token: meuToken, email: 'saindo@exemplo.com' }).ok, true);
-  amb.api.limparCacheConfig();
+  igual(amb.api.removerAdmin_({ token: meuToken, email: 'saindo@exemplo.com' }).ok, true);
+  amb.api.limparCacheConfig_();
 
-  igual(amb.api.entrarComLink(token).ok, false, 'o acesso removido entrou pelo link antigo');
+  igual(amb.api.entrarComLink_(token).ok, false, 'o acesso removido entrou pelo link antigo');
 
   const negado = linhasDoLog(amb).filter((l) => l.acao === 'LOGIN_NEGADO')[0];
   verdadeiro(negado !== undefined, 'a trilha precisa registrar o link que chegou tarde demais');
@@ -841,16 +914,16 @@ teste('pedir um link novo invalida o anterior — um token vivo por endereço', 
   // janela de exposição cresceria com a impaciência de quem clicou duas vezes.
   const amb = comRelogio();
 
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const primeiro = tokenDoEmail(amb);
 
   amb.relogio.avancar(3 * 60 * 1000);
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
   const segundo = tokenDoEmail(amb);
 
   verdadeiro(primeiro !== segundo, 'o segundo pedido reaproveitou o token do primeiro');
-  igual(amb.api.entrarComLink(primeiro).ok, false, 'o link antigo continuou valendo');
-  igual(amb.api.entrarComLink(segundo).ok, true);
+  igual(amb.api.entrarComLink_(primeiro).ok, false, 'o link antigo continuou valendo');
+  igual(amb.api.entrarComLink_(segundo).ok, true);
 });
 
 teste('link vencido não fica ocupando lugar nas propriedades', () => {
@@ -858,10 +931,10 @@ teste('link vencido não fica ocupando lugar nas propriedades', () => {
   // "pouco" vezes um semestre de pedidos é como se enche um espaço que ninguém
   // está olhando.
   const amb = comRelogio({ allowlist: 'coordenacao@exemplo.com, outra@exemplo.com' });
-  amb.api.pedirLinkDeAcesso('coordenacao@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
 
   amb.relogio.avancar(16 * 60 * 1000);
-  amb.api.pedirLinkDeAcesso('outra@exemplo.com');
+  amb.api.pedirLinkDeAcesso_('outra@exemplo.com');
 
   const vivos = Array.from(amb.propriedades.keys()).filter((k) => k.indexOf('link_') === 0);
   igual(vivos.length, 1, 'a faxina não passou: ' + JSON.stringify(vivos));
@@ -889,13 +962,13 @@ teste('com a allowlist VAZIA, cria a sessão E repõe o e-mail na lista', () => 
   const amb = ambiente({ allowlist: '' });
   comConsoleCapturado(amb);
 
-  const url = amb.api.liberarAcesso('  Professor@Unicesusc.edu.BR ');
+  const url = amb.api.liberarAcesso_('  Professor@Unicesusc.edu.BR ');
 
   const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
-  igual(amb.api.sessaoAtiva(token).ok, true);
+  igual(amb.api.sessaoAtiva_(token).ok, true);
   igual(amb.api.emailDaSessao_(token), 'professor@unicesusc.edu.br');
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.adminEmails_(), ['professor@unicesusc.edu.br'],
     'a sessão nasceu e a lista continuou vazia — as duas portas seguem fechadas');
 });
@@ -904,23 +977,23 @@ teste('e a partir daí as duas portas remotas voltam a funcionar', () => {
   // O critério de que o conserto consertou: não é a sessão, é o dia seguinte.
   const amb = ambiente({ allowlist: '' });
   comConsoleCapturado(amb);
-  amb.api.liberarAcesso('professor@unicesusc.edu.br');
-  amb.api.limparCacheConfig();
+  amb.api.liberarAcesso_('professor@unicesusc.edu.br');
+  amb.api.limparCacheConfig_();
 
-  igual(amb.api.pedirLinkDeAcesso('professor@unicesusc.edu.br').ok, true);
+  igual(amb.api.pedirLinkDeAcesso_('professor@unicesusc.edu.br').ok, true);
   igual(destinatarios(amb), ['professor@unicesusc.edu.br']);
 
   responder(amb, tokenBom({ email: 'professor@unicesusc.edu.br' }));
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, true);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, true);
 });
 
 teste('quem já está na lista não vira uma segunda linha', () => {
   const amb = ambiente({ allowlist: 'professor@unicesusc.edu.br, outra@exemplo.com' });
   comConsoleCapturado(amb);
 
-  amb.api.liberarAcesso('Professor@Unicesusc.edu.br');
+  amb.api.liberarAcesso_('Professor@Unicesusc.edu.br');
 
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.adminEmails_(), ['professor@unicesusc.edu.br', 'outra@exemplo.com']);
 });
 
@@ -931,7 +1004,7 @@ teste('a sessão criada à mão fica na trilha, com nome', () => {
   const amb = ambiente({ allowlist: '' });
   comConsoleCapturado(amb);
 
-  amb.api.liberarAcesso('professor@unicesusc.edu.br');
+  amb.api.liberarAcesso_('professor@unicesusc.edu.br');
 
   const linha = linhasDoLog(amb).filter((l) => l.acao === 'ACESSO_LIBERADO')[0];
   verdadeiro(linha !== undefined, 'nenhum rastro: ' + JSON.stringify(acoesDoLog(amb)));
@@ -948,7 +1021,7 @@ teste('sem e-mail, ela lança dizendo como se usa', () => {
   ['', '   ', 'sem-arroba', null, undefined].forEach((valor) => {
     let erro = null;
     try {
-      amb.api.liberarAcesso(valor);
+      amb.api.liberarAcesso_(valor);
     } catch (e) {
       erro = e;
     }
@@ -962,9 +1035,9 @@ teste('sem e-mail, ela lança dizendo como se usa', () => {
 teste('o endereço impresso é o do painel, e leva a sessão pronta', () => {
   const amb = ambiente({ allowlist: '' });
   const impresso = comConsoleCapturado(amb);
-  amb.api.gravarConfig('url_painel', 'https://cesutech.github.io/painel/');
+  amb.api.gravarConfig_('url_painel', 'https://cesutech.github.io/painel/');
 
-  const url = amb.api.liberarAcesso('professor@unicesusc.edu.br');
+  const url = amb.api.liberarAcesso_('professor@unicesusc.edu.br');
 
   verdadeiro(url.indexOf('https://cesutech.github.io/painel/?sessao=') === 0, url);
   verdadeiro(impresso.join('\n').indexOf(url) !== -1,
@@ -979,7 +1052,7 @@ teste('exigirAdmin anota quem passou, e a linha seguinte é assinada por ele', (
   // A pergunta que a coluna "Quem" existe para responder é "qual pessoa
   // exportou a base?", e no painel publicado ela respondia 'anonimo': o web app
   // roda como a conta que implantou e `Session.getActiveUser()` volta vazio. A
-  // sessão sabe o e-mail, e `exigirAdmin` é a única linha por onde toda função
+  // sessão sabe o e-mail, e `exigirAdmin_` é a única linha por onde toda função
   // do painel passa com o token na mão.
   //
   // Mutação que derruba: tirar `anotarOperador_(emailDaSessao_(token))` da
@@ -987,10 +1060,10 @@ teste('exigirAdmin anota quem passou, e a linha seguinte é assinada por ele', (
   // oito pessoas que entram no painel.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const token = amb.api.criarSessao_('coordenacao@exemplo.com');
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
 
-  igual(amb.api.exigirAdmin(token), true);
-  amb.api.registrar('EXPORTACAO', 'alunos', '', '300 linhas');
+  igual(amb.api.exigirAdmin_(token), true);
+  amb.api.registrar_('EXPORTACAO', 'alunos', '', '300 linhas');
 
   igual(linhasDoLog(amb).filter((l) => l.acao === 'EXPORTACAO')[0].usuario,
     'coordenacao@exemplo.com');
@@ -999,18 +1072,18 @@ teste('exigirAdmin anota quem passou, e a linha seguinte é assinada por ele', (
 teste('token recusado APAGA o operador — a recusa não herda o nome de quem passou antes', () => {
   // A variável é global ao script. Numa execução que chame a guarda duas vezes
   // — e uma requisição do painel pode chamá-la de novo por dentro, como
-  // `aplicarRevisao` faz com `anularInscricoes` —, a segunda, recusada,
+  // `aplicarRevisao_` faz com `anularInscricoes_` —, a segunda, recusada,
   // sairia assinada pela primeira: a trilha atribuiria a uma pessoa uma ação
   // que o servidor não deixou acontecer.
   //
-  // Mutação que derruba: `exigirAdmin` anotar só no caminho feliz, deixando o
+  // Mutação que derruba: `exigirAdmin_` anotar só no caminho feliz, deixando o
   // nome anterior de pé.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
-  amb.api.exigirAdmin(amb.api.criarSessao_('coordenacao@exemplo.com'));
-  lancou(() => amb.api.exigirAdmin('inventado'), 'Sess');
+  amb.api.exigirAdmin_(amb.api.criarSessao_('coordenacao@exemplo.com'));
+  lancou(() => amb.api.exigirAdmin_('inventado'), 'Sess');
 
-  amb.api.registrar('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
+  amb.api.registrar_('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
   igual(linhasDoLog(amb).filter((l) => l.acao === 'BLOQUEIO')[0].usuario, 'anonimo');
 });
 
@@ -1028,21 +1101,21 @@ teste('as três exigem token, e recusam antes de mexer em qualquer coisa', () =>
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
 
   [
-    ['listarAdmins', {}],
-    ['incluirAdmin', { email: 'novo@exemplo.com' }],
-    ['removerAdmin', { email: 'coordenacao@exemplo.com' }]
+    ['listarAdmins_', {}],
+    ['incluirAdmin_', { email: 'novo@exemplo.com' }],
+    ['removerAdmin_', { email: 'coordenacao@exemplo.com' }]
   ].forEach(([fn, payload]) => {
     const r = amb.api[fn](payload);
     igual(r.ok, false, fn + ' respondeu sem token');
     verdadeiro(/Sess.o expirada/.test(r.erro), fn + ': ' + r.erro);
   });
 
-  igual(amb.api.config('admin_emails'), 'coordenacao@exemplo.com', 'a lista foi mexida sem token');
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com', 'a lista foi mexida sem token');
 });
 
 teste('listar devolve a lista normalizada e diz quem é você', () => {
   const amb = comSessao({ allowlist: ' Coordenacao@Exemplo.com , OUTRA@exemplo.com ,, ' });
-  const r = amb.api.listarAdmins({ token: amb.token });
+  const r = amb.api.listarAdmins_({ token: amb.token });
 
   igual(r.ok, true);
   igual(r.emails, ['coordenacao@exemplo.com', 'outra@exemplo.com']);
@@ -1058,25 +1131,25 @@ teste('sessão sem identidade: "você" é ninguém, e não "anonimo"', () => {
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   const token = amb.api.criarSessao_('');
 
-  igual(amb.api.sessaoAtiva(token).ok, true);
-  igual(amb.api.listarAdmins({ token: token }).voce, '');
+  igual(amb.api.sessaoAtiva_(token).ok, true);
+  igual(amb.api.listarAdmins_({ token: token }).voce, '');
 });
 
 teste('incluir normaliza, grava e registra quem mexeu', () => {
-  // Mutação que derruba: `exigirAdmin` deixar de anotar o operador (a coluna
-  // volta a 'anonimo', que é o que `usuarioAtual()` responde no painel
+  // Mutação que derruba: `exigirAdmin_` deixar de anotar o operador (a coluna
+  // volta a 'anonimo', que é o que `usuarioAtual_()` responde no painel
   // publicado — e este ambiente é o publicado: `usuario: ''`); ou o detalhe
   // voltar a repetir o e-mail que a coluna já diz.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
 
-  const r = amb.api.incluirAdmin({ token: amb.token, email: '  Nova.Pessoa@Exemplo.COM ' });
+  const r = amb.api.incluirAdmin_({ token: amb.token, email: '  Nova.Pessoa@Exemplo.COM ' });
 
   igual(r.ok, true);
   igual(r.emails, ['coordenacao@exemplo.com', 'nova.pessoa@exemplo.com']);
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('admin_emails'), 'coordenacao@exemplo.com, nova.pessoa@exemplo.com');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com, nova.pessoa@exemplo.com');
 
   const linha = linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_INCLUIDO')[0];
   igual(linha.entidade_id, 'nova.pessoa@exemplo.com');
@@ -1090,7 +1163,7 @@ teste('incluir normaliza, grava e registra quem mexeu', () => {
 
 teste('incluir a mesma conta com outra caixa não cria uma segunda linha', () => {
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
-  const r = amb.api.incluirAdmin({ token: amb.token, email: 'COORDENACAO@exemplo.com' });
+  const r = amb.api.incluirAdmin_({ token: amb.token, email: 'COORDENACAO@exemplo.com' });
 
   igual(r.ok, true);
   igual(r.jaEstava, true);
@@ -1101,14 +1174,14 @@ teste('e-mail que não é e-mail é recusado', () => {
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
 
   ['', 'sem-arroba', 'a@b', 'a@ b.com', undefined].forEach((v) => {
-    igual(amb.api.incluirAdmin({ token: amb.token, email: v }).ok, false, JSON.stringify(v));
+    igual(amb.api.incluirAdmin_({ token: amb.token, email: v }).ok, false, JSON.stringify(v));
   });
-  igual(amb.api.listarAdmins({ token: amb.token }).emails.length, 1);
+  igual(amb.api.listarAdmins_({ token: amb.token }).emails.length, 1);
 });
 
 teste('remover quem não está na lista é recusado, e não é silêncio', () => {
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
-  const r = amb.api.removerAdmin({ token: amb.token, email: 'ninguem@exemplo.com' });
+  const r = amb.api.removerAdmin_({ token: amb.token, email: 'ninguem@exemplo.com' });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('não está na lista') !== -1, r.erro);
@@ -1116,18 +1189,18 @@ teste('remover quem não está na lista é recusado, e não é silêncio', () =>
 
 teste('ninguém sai da lista sendo o último — a chave por dentro', () => {
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
-  const r = amb.api.removerAdmin({ token: amb.token, email: 'coordenacao@exemplo.com' });
+  const r = amb.api.removerAdmin_({ token: amb.token, email: 'coordenacao@exemplo.com' });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('único') !== -1, r.erro);
-  igual(amb.api.listarAdmins({ token: amb.token }).emails, ['coordenacao@exemplo.com']);
+  igual(amb.api.listarAdmins_({ token: amb.token }).emails, ['coordenacao@exemplo.com']);
 });
 
 teste('com outra pessoa na lista, sair de si mesmo é permitido', () => {
   // A guarda é contra ESVAZIAR, não contra sair. Quem passou o painel adiante
   // tem o direito de deixar de ser administrador.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, outra@exemplo.com' });
-  const r = amb.api.removerAdmin({ token: amb.token, email: 'coordenacao@exemplo.com' });
+  const r = amb.api.removerAdmin_({ token: amb.token, email: 'coordenacao@exemplo.com' });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.emails, ['outra@exemplo.com']);
@@ -1141,17 +1214,17 @@ teste('a lista NUNCA fica vazia, e a guarda não depende de configuração nenhu
   const amb = ambiente({ allowlist: 'outra@exemplo.com' });
   const token = amb.api.criarSessao_('coordenacao@exemplo.com');
 
-  const r = amb.api.removerAdmin({ token: token, email: 'outra@exemplo.com' });
+  const r = amb.api.removerAdmin_({ token: token, email: 'outra@exemplo.com' });
 
   igual(r.ok, false);
   verdadeiro(/link por e-mail/.test(r.erro),
     'a recusa precisa explicar que as duas portas dependem da lista: ' + r.erro);
-  igual(amb.api.listarAdmins({ token: token }).emails, ['outra@exemplo.com']);
+  igual(amb.api.listarAdmins_({ token: token }).emails, ['outra@exemplo.com']);
 });
 
 teste('e regravarAllowlist_ recusa o mesmo, pelo campo de texto', () => {
   // O mesmo gesto por outro caminho. Testado direto porque é a função que
-  // `salvarConfiguracao` chama, e é nela que a guarda mora.
+  // `salvarConfiguracao_` chama, e é nela que a guarda mora.
   const amb = ambiente({ allowlist: 'outra@exemplo.com' });
   const token = amb.api.criarSessao_('coordenacao@exemplo.com');
 
@@ -1159,7 +1232,7 @@ teste('e regravarAllowlist_ recusa o mesmo, pelo campo de texto', () => {
 
   igual(r.ok, false);
   verdadeiro(/Esvaziar a lista/.test(r.erro), r.erro);
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.adminEmails_(), ['outra@exemplo.com']);
 });
 
@@ -1172,7 +1245,7 @@ teste('e-mail inválido recusa o campo inteiro, em vez de sumir em silêncio', (
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('fulano@exemplo') !== -1, r.erro);
-  amb.api.limparCacheConfig();
+  amb.api.limparCacheConfig_();
   igual(amb.api.adminEmails_(), ['outra@exemplo.com'], 'gravou metade do campo');
 });
 
@@ -1181,22 +1254,509 @@ teste('quem sai da lista perde a sessão na hora', () => {
   // nelas a pessoa removida ainda exportaria o cadastro inteiro.
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
   const dela = amb.api.criarSessao_('Saindo@Exemplo.com');
-  igual(amb.api.sessaoAtiva(dela).ok, true);
+  igual(amb.api.sessaoAtiva_(dela).ok, true);
 
-  igual(amb.api.removerAdmin({ token: amb.token, email: 'saindo@exemplo.com' }).ok, true);
+  igual(amb.api.removerAdmin_({ token: amb.token, email: 'saindo@exemplo.com' }).ok, true);
 
-  igual(amb.api.sessaoAtiva(dela).ok, false);
-  igual(amb.api.sessaoAtiva(amb.token).ok, true, 'a sessão de quem removeu continua valendo');
+  igual(amb.api.sessaoAtiva_(dela).ok, false);
+  igual(amb.api.sessaoAtiva_(amb.token).ok, true, 'a sessão de quem removeu continua valendo');
 });
 
 teste('a conta removida não entra mais pelo Google', () => {
   const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, saindo@exemplo.com' });
   responder(amb, tokenBom({ email: 'saindo@exemplo.com' }));
 
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, true);
-  amb.api.removerAdmin({ token: amb.token, email: 'saindo@exemplo.com' });
-  amb.api.limparCacheConfig();
-  igual(amb.api.entrarComGoogle(TOKEN_BEM_FORMADO).ok, false);
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, true);
+  amb.api.removerAdmin_({ token: amb.token, email: 'saindo@exemplo.com' });
+  amb.api.limparCacheConfig_();
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false);
+});
+
+// ============================ A lista de acesso só guarda e só devolve e-mail
+
+/**
+ * Itens que a lista de acesso pode ter no banco sem ter passado pelas telas — o
+ * console do Firestore, uma versão antiga do servidor, um backup restaurado. Têm
+ * todos um `@` e um domínio, e passariam na forma do formulário do aluno
+ * (`emailValido_`); nenhum tem a forma de um e-mail de acesso.
+ */
+const ITENS_SEM_FORMA = ["x');sinal();('@exemplo.com", "aspa'simples@exemplo.com", 'aspas"duplas@exemplo.com',
+  'nome(teste)@exemplo.com', 'a;b@exemplo.com', 'barra\\invertida@exemplo.com', 'barra/normal@exemplo.com',
+  'menor<maior@exemplo.com'];
+
+teste('a forma de e-mail de acesso: o que passa e o que não passa', () => {
+  // Mutação que derruba: `emailDeAcessoValido_` voltar a ser `emailValido_`, ou
+  // aceitar aspa, parêntese, ponto e vírgula, barra ou `<` antes do `@`.
+  const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
+
+  ['coordenacao@exemplo.com', 'nome.sobrenome@unicesusc.edu.br', 'a+b@exemplo.com',
+    ' Nome_Sobre-Nome@Sub.Exemplo.COM '].forEach((v) => {
+    igual(amb.api.emailDeAcessoValido_(v), true, JSON.stringify(v));
+  });
+  ITENS_SEM_FORMA.concat(['', 'sem-arroba', 'a@b', 'a b@exemplo.com', 'a@exemplo..com',
+    'a@exemplo.com/', '@exemplo.com', null, undefined]).forEach((v) => {
+    igual(amb.api.emailDeAcessoValido_(v), false, JSON.stringify(v));
+  });
+});
+
+teste('item sem forma de e-mail no banco fica de fora: não entra, não recebe link, não vai para a tabela', () => {
+  // A tabela de quem tem acesso põe cada e-mail dentro de botões do painel. O
+  // servidor não manda para lá o que não é e-mail — e a mesma lista é a que
+  // decide quem entra e para quem sai link, então o item não vale em lugar
+  // nenhum.
+  //
+  // O item continua na lista de gerais, porque ela é cruzada com o que está
+  // escrito e não com a lista filtrada: é o que impede o filtro de esvaziá-la e
+  // abrir o piso (o grupo logo abaixo). Lá ele não vale para ninguém — não tem
+  // nível nenhum.
+  //
+  // Mutação que derruba: tirar o filtro da forma de `adminEmails_`; ou
+  // `nivelEm_` perguntar a lista de gerais antes da allowlist.
+  const amb = comSessao({ allowlist: ['coordenacao@exemplo.com'].concat(ITENS_SEM_FORMA).join(', ') });
+  amb.api.gravarConfig_('coordenadores_gerais', 'coordenacao@exemplo.com, ' + ITENS_SEM_FORMA[0]);
+
+  igual(amb.api.adminEmails_(), ['coordenacao@exemplo.com']);
+  igual(amb.api.coordenadoresGerais_(), ['coordenacao@exemplo.com', ITENS_SEM_FORMA[0]]);
+  igual(amb.api.nivelDe_(ITENS_SEM_FORMA[0]), '', 'o item sem forma ganhou nível');
+  igual(amb.api.nivelDe_('coordenacao@exemplo.com'), 'coordenador');
+
+  const r = amb.api.listarAdmins_({ token: amb.token });
+  igual(r.emails, ['coordenacao@exemplo.com']);
+  igual(r.pessoas.map((p) => p.email), ['coordenacao@exemplo.com']);
+
+  ITENS_SEM_FORMA.forEach((item) => {
+    igual(amb.api.emailAutorizado_(item), false, item);
+    igual(amb.api.pedirLinkDeAcesso_(item).ok, true, 'a frase única mudou para ' + item);
+  });
+  igual(destinatarios(amb), [], 'saiu link para um item que não é e-mail');
+});
+
+teste('a gravação seguinte tira o item do banco, e a trilha diz', () => {
+  // A linha ADMIN_DESCARTADO é o que impede o sumiço de ser mudo: fora dela, só
+  // os backups guardam o que estava ali. A sessão do item cai junto (o teste de
+  // baixo).
+  //
+  // Mutação que derruba: tirar o `registrar_('ADMIN_DESCARTADO', ...)` de
+  // `aplicarAcessos_`, ou tirar o filtro de `listaDeEmails_` e deixar a gravação
+  // reescrever o item.
+  const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, ' + ITENS_SEM_FORMA[0] });
+
+  igual(amb.api.incluirAdmin_({ token: amb.token, email: 'nova@exemplo.com' }).ok, true);
+
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com, nova@exemplo.com');
+  const linha = linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_DESCARTADO')[0];
+  verdadeiro(linha !== undefined, 'o item saiu do banco sem rastro: ' + JSON.stringify(acoesDoLog(amb)));
+  igual(linha.entidade_id, ITENS_SEM_FORMA[0]);
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_REMOVIDO').length, 0,
+    'o item não estava na lista que vale — não há o que "remover"');
+});
+
+teste('a sessão do item sem forma cai na gravação que o tira do banco — pelos quatro caminhos', () => {
+  // As portas de hoje não abrem sessão para o item, mas a sessão mora nas
+  // propriedades do projeto e atravessa a troca de versão: a que uma versão
+  // anterior do servidor abriu continua lá. Aqui ela nasce por `criarSessao_`,
+  // como nasceria lá. Sem cair junto com o item, ela seguia valendo — no piso,
+  // como coordenadora —, e nenhum gesto de tela a alcança: `removerAdmin_` não
+  // acha o item na lista que vale.
+  //
+  // Mutação que derruba: tirar o `invalidarSessoesDe_(item)` do laço dos
+  // descartados de `aplicarAcessos_`.
+  const ITEM = "nome.d'exemplo@exemplo.edu.br";
+  const DONO = 'nome.sobrenome@exemplo.edu.br';
+  const GESTOS = [
+    ['o campo admin_emails, sem ninguém entrando',
+      (amb) => amb.api.salvarConfiguracao_({ token: amb.token, chave: 'admin_emails', valor: 'coordenacao@exemplo.com' })],
+    ['o campo admin_emails, com gente entrando',
+      (amb) => amb.api.salvarConfiguracao_({ token: amb.token, chave: 'admin_emails',
+        valor: 'coordenacao@exemplo.com, nova@exemplo.com' })],
+    ['incluir pela tela', (amb) => amb.api.incluirAdmin_({ token: amb.token, email: 'nova@exemplo.com' })],
+    ['o socorro do editor', (amb) => ({ ok: /\?sessao=/.test(amb.api.liberarAcesso_(DONO)) })]
+  ];
+
+  GESTOS.forEach(([gesto, fazer]) => {
+    const amb = comSessao({ allowlist: 'coordenacao@exemplo.com, ' + ITEM });
+    comConsoleCapturado(amb);
+    const sessaoDoItem = amb.api.criarSessao_(ITEM);
+    igual(amb.api.removerAdmin_({ token: amb.token, email: ITEM }).erro, 'Esse e-mail não está na lista de acesso.',
+      gesto + ': o cenário precisa de um item que a tabela não alcança');
+    igual(amb.api.sessaoAtiva_(sessaoDoItem), { ok: true, nivel: 'coordenador' },
+      gesto + ': antes da gravação, a sessão vale — no piso, como coordenadora');
+
+    igual(fazer(amb).ok, true, gesto + ': a gravação não aconteceu');
+
+    igual(linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_DESCARTADO').map((l) => l.entidade_id), [ITEM],
+      gesto + ': o item não saiu do banco');
+    igual(post(amb, { acao: 'painel', fn: 'listarAdmins', token: sessaoDoItem, dados: {} }),
+      { ok: false, erro: amb.api.RECUSA_SESSAO }, gesto + ': a sessão do item descartado continuou valendo');
+    igual(amb.api.sessaoAtiva_(sessaoDoItem), { ok: false }, gesto);
+    igual(amb.api.sessaoAtiva_(amb.token).ok, true, gesto + ': caiu também a sessão de quem gravou');
+  });
+});
+
+teste('as portas de escrita recusam o que a leitura jogaria fora', () => {
+  // Uma porta que aceitasse e uma leitura que descartasse dariam a pior das
+  // respostas: "incluído" na tela, e a pessoa de fora de tudo.
+  //
+  // Mutação que derruba: `incluirAdmin_`, `regravarAllowlist_` ou
+  // `liberarAcesso_` voltarem à forma do formulário do aluno.
+  const amb = comSessao({ allowlist: 'coordenacao@exemplo.com' });
+  comConsoleCapturado(amb);
+
+  ITENS_SEM_FORMA.forEach((item) => {
+    igual(amb.api.incluirAdmin_({ token: amb.token, email: item }).ok, false, 'incluirAdmin_ ' + item);
+
+    const r = amb.api.regravarAllowlist_('coordenacao@exemplo.com, ' + item, amb.token);
+    igual(r.ok, false, 'regravarAllowlist_ ' + item);
+    verdadeiro(/Não parece e-mail/.test(r.erro), r.erro);
+
+    let erro = null;
+    try { amb.api.liberarAcesso_(item); } catch (e) { erro = e; }
+    verdadeiro(erro !== null, 'liberarAcesso_ aceitou ' + item);
+  });
+
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com', 'alguma porta gravou');
+
+  // E a rede do escritor único: um quinto caminho que mandasse o item direto a
+  // `aplicarAcessos_`, sem a recusa com frase, também não o grava.
+  igual(amb.api.aplicarAcessos_(['coordenacao@exemplo.com', 'nova@exemplo.com'].concat(ITENS_SEM_FORMA), [],
+    'por um caminho de teste', true).ok, true);
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('admin_emails'), 'coordenacao@exemplo.com, nova@exemplo.com',
+    'aplicarAcessos_ gravou o que a leitura jogaria fora');
+});
+
+teste('o setup relata a lista que vale — a da tela de login —, e cita à parte o que não tem forma', () => {
+  // Com só itens sem forma, ninguém entra, e é justamente o dia em que o
+  // relatório do editor tem de mandar rodar liberarAcesso. Lendo o texto cru, ele
+  // dizia que havia gente com acesso, e a tela de login dizia que não.
+  //
+  // Mutação que derruba: o setup voltar a ler o texto cru de `admin_emails`, ou
+  // deixar de citar os itens sem forma.
+  const ITEM = ITENS_SEM_FORMA[1];
+  [
+    { cru: ITEM, vazia: true, quem: 'quem tem acesso: VAZIO' },
+    { cru: 'coordenacao@exemplo.com, ' + ITEM, vazia: false, quem: 'quem tem acesso: coordenacao@exemplo.com' }
+  ].forEach((caso) => {
+    const amb = ambiente({ allowlist: caso.cru });
+    amb.api.limparCacheConfig_();
+
+    const r = amb.api.setup_();
+
+    const relatorio = amb.registros.logger;
+    const linhaDeQuem = relatorio.filter((l) => l.indexOf('quem tem acesso:') === 0);
+    igual(r.allowlistVazia, caso.vazia, caso.cru);
+    igual(r.allowlistVazia, amb.api.modoDeAcesso_().allowlistVazia, caso.cru + ': o setup e a tela de login discordam');
+    igual(linhaDeQuem.length, 1, caso.cru + ': ' + JSON.stringify(relatorio));
+    igual(linhaDeQuem[0].indexOf(caso.quem), 0, caso.cru + ': ' + linhaDeQuem[0]);
+    igual(linhaDeQuem[0].indexOf(ITEM), -1, caso.cru + ': o item sem forma apareceu entre quem tem acesso');
+    if (caso.vazia) verdadeiro(/liberarAcesso\(/.test(linhaDeQuem[0]), 'sem a saída: ' + linhaDeQuem[0]);
+    igual(relatorio.filter((l) => l === 'na lista de acesso, sem forma de e-mail (não entram): ' + ITEM).length, 1,
+      caso.cru + ': o item sem forma não foi citado à parte: ' + JSON.stringify(relatorio));
+  });
+});
+
+// ================== O geral sem forma não abre o piso dos coordenadores
+
+/**
+ * O banco que o filtro da forma não pode transformar em "todo mundo é
+ * coordenador": o ÚNICO coordenador geral tem apóstrofo no e-mail — o Google
+ * Workspace aceita, a forma de e-mail de acesso não —, e os outros dois da lista
+ * são professores. O geral deixa de entrar, e é só isso que muda: se a lista de
+ * gerais voltasse vazia por causa do filtro, o piso (`nivelEm_`) faria dos dois
+ * professores coordenadores, e o primeiro gesto de acesso gravaria a promoção.
+ */
+const GERAL_COM_APOSTROFO = "coord.d'exemplo@exemplo.edu.br";
+const PROF_UM = 'professor.um@exemplo.edu.br';
+const PROF_DOIS = 'professor.dois@exemplo.edu.br';
+const DONO_DO_PROJETO = 'nome.sobrenome@exemplo.edu.br';
+
+function comGeralSemForma() {
+  const amb = ambiente({ allowlist: [GERAL_COM_APOSTROFO, PROF_UM, PROF_DOIS].join(', ') });
+  amb.api.gravarConfig_('coordenadores_gerais', GERAL_COM_APOSTROFO);
+  amb.api.limparCacheConfig_();
+  return amb;
+}
+
+/** As duas chaves de acesso como estão no banco, sem o cache da execução no meio. */
+function chavesDeAcesso(amb) {
+  amb.api.limparCacheConfig_();
+  return {
+    admin_emails: amb.api.config_('admin_emails'),
+    coordenadores_gerais: amb.api.config_('coordenadores_gerais')
+  };
+}
+
+teste('o único geral com e-mail sem forma não faz dos professores coordenadores — e o POST os recusa por nível', () => {
+  // Mutação que derruba: `coordenadoresGerais_` cruzar com `adminEmails_` (a
+  // lista já filtrada) em vez de `itensDaAllowlist_`.
+  const amb = comGeralSemForma();
+  igual(amb.api.emailDeAcessoValido_(GERAL_COM_APOSTROFO), false, 'o cenário precisa de um geral que o filtro descarta');
+  igual(amb.api.emailValido_(GERAL_COM_APOSTROFO), true, 'e que a forma de antes aceitava');
+
+  igual(amb.api.nivelDe_(PROF_UM), 'professor');
+  igual(amb.api.nivelDe_(PROF_DOIS), 'professor');
+
+  const token = amb.api.criarSessao_(PROF_UM);
+  igual(amb.api.sessaoAtiva_(token), { ok: true, nivel: 'professor' });
+
+  const r = post(amb, { acao: 'painel', fn: 'listarAdmins', token: token, dados: {} });
+  igual(r.ok, false, 'o professor listou quem tem acesso: ' + JSON.stringify(r));
+  igual(r.motivo, 'NIVEL');
+  igual(r.nivel, 'professor');
+});
+
+teste('nesse banco, o socorro do dono pelo editor deixa um coordenador — ele —, e os professores seguem professores', () => {
+  // `liberarAcesso_` repõe o dono como geral quando a lista de gerais existe
+  // (`faltaNoNivel`). Com a lista cruzada pela forma, ela voltava vazia: o dono
+  // entrava pelo piso, os dois professores junto, e a gravação deixava a chave
+  // de gerais vazia no banco.
+  //
+  // Mutação que derruba: `coordenadoresGerais_` cruzar com a lista filtrada.
+  const amb = comGeralSemForma();
+  comConsoleCapturado(amb);
+
+  const url = amb.api.liberarAcesso_(DONO_DO_PROJETO);
+  const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
+
+  igual(chavesDeAcesso(amb), {
+    admin_emails: [PROF_UM, PROF_DOIS, DONO_DO_PROJETO].join(', '),
+    coordenadores_gerais: DONO_DO_PROJETO
+  });
+  igual(amb.api.nivelDe_(DONO_DO_PROJETO), 'coordenador');
+  igual(amb.api.listarAdmins_({ token: token }).pessoas, [
+    { email: PROF_UM, nivel: 'professor' },
+    { email: PROF_DOIS, nivel: 'professor' },
+    { email: DONO_DO_PROJETO, nivel: 'coordenador' }
+  ]);
+});
+
+teste('nesse banco, nenhum gesto de acesso grava professor como geral — nem com a cobrança do nível fora do caminho', () => {
+  // A primeira barreira é o nível: incluir, rebaixar, remover e o campo de
+  // texto são da coordenação, e o professor é recusado neles (o ataque pelo POST
+  // está em invasao.js). Aqui a cobrança sai do caminho de propósito, para
+  // provar a segunda: a materialização congela o geral que está escrito, e não
+  // a lista inteira, e a guarda do último coordenador recusa a gravação que
+  // deixaria o banco sem nenhum geral que valha.
+  //
+  // Mutação que derruba: `coordenadoresGerais_` cruzar com a lista filtrada
+  // (`materializar_` volta a congelar os professores); ou `aplicarAcessos_`
+  // tomar o "antes" dos gerais pela lista filtrada (o piso passa pela guarda).
+  const amb = comGeralSemForma();
+  const token = amb.api.criarSessao_(PROF_UM);
+  amb.api.exigirCoordenador_ = (t) => amb.api.exigirAdmin_(t);
+  const antes = chavesDeAcesso(amb);
+  const NOVO = 'novo.professor@exemplo.edu.br';
+
+  [
+    ['incluirAdmin_', () => amb.api.incluirAdmin_({ token: token, email: NOVO })],
+    ['definirNivel_', () => amb.api.definirNivel_({ token: token, email: PROF_DOIS, nivel: 'professor' })],
+    ['regravarAllowlist_', () => amb.api.regravarAllowlist_([PROF_UM, PROF_DOIS, NOVO].join(', '), token)],
+    ['removerAdmin_', () => amb.api.removerAdmin_({ token: token, email: PROF_DOIS })]
+  ].forEach(([nome, gesto]) => {
+    const r = gesto();
+    igual(r.ok, false, nome + ' gravou: ' + JSON.stringify(r));
+    verdadeiro(/coordenador geral/.test(r.erro), nome + ' recusou por outro motivo: ' + r.erro);
+    igual(chavesDeAcesso(amb), antes, nome + ' mexeu nas listas de acesso');
+  });
+
+  igual(amb.api.nivelDe_(PROF_UM), 'professor');
+  igual(amb.api.nivelDe_(PROF_DOIS), 'professor');
+});
+
+teste('nesse banco, o geral sem forma não entra, e a próxima gravação o tira das duas chaves com ADMIN_DESCARTADO', () => {
+  // O mesmo de todo item sem forma (o bloco de cima): não entra por porta
+  // nenhuma, e sai do banco na primeira gravação que der certo — aqui a do
+  // socorro do dono, a única possível num banco sem geral que entre.
+  //
+  // Mutação que derruba: tirar o filtro de `adminEmails_` (ele entraria), ou a
+  // linha ADMIN_DESCARTADO de `aplicarAcessos_`.
+  const amb = comGeralSemForma();
+  comConsoleCapturado(amb);
+
+  igual(amb.api.emailAutorizado_(GERAL_COM_APOSTROFO), false);
+  responder(amb, tokenBom({ email: GERAL_COM_APOSTROFO }));
+  igual(amb.api.entrarComGoogle_(TOKEN_BEM_FORMADO).ok, false, 'o geral sem forma entrou pelo Google');
+  igual(amb.api.pedirLinkDeAcesso_(GERAL_COM_APOSTROFO).ok, true, 'a frase única mudou');
+  igual(destinatarios(amb), [], 'saiu link para o geral sem forma');
+
+  amb.api.liberarAcesso_(DONO_DO_PROJETO);
+
+  const chaves = chavesDeAcesso(amb);
+  igual(chaves.admin_emails.indexOf(GERAL_COM_APOSTROFO), -1, 'ficou em admin_emails: ' + chaves.admin_emails);
+  igual(chaves.coordenadores_gerais.indexOf(GERAL_COM_APOSTROFO), -1,
+    'ficou em coordenadores_gerais: ' + chaves.coordenadores_gerais);
+  igual(linhasDoLog(amb).filter((l) => l.acao === 'ADMIN_DESCARTADO').map((l) => l.entidade_id),
+    [GERAL_COM_APOSTROFO]);
+});
+
+teste('com as listas bem formadas, o nível de cada um é o de sempre — o piso só nasce do banco', () => {
+  // A regra de sempre, escrita aqui como oráculo: os gerais cruzados com a
+  // lista de acesso, a lista de gerais vazia é o piso, e quem não está na lista
+  // não é nada. Com tudo bem formado, cruzar com o que está escrito ou com a
+  // lista filtrada dá no mesmo — e a ordem das perguntas de `nivelEm_` também.
+  //
+  // Mutação que derruba: `coordenadoresGerais_` sem o cruzamento (um geral fora
+  // da lista fecharia o piso); `nivelEm_` sem o piso.
+  const A = 'nome.um@exemplo.edu.br';
+  const B = 'nome.dois@exemplo.edu.br';
+  const C = 'nome.tres@exemplo.edu.br';
+  const FORA = 'nome.fora@exemplo.edu.br';
+  const BANCOS = [
+    { admin: [A, B, C].join(', '), gerais: '' },
+    { admin: [A, B, C].join(', '), gerais: A },
+    { admin: [A, B, C].join(', '), gerais: [A, C].join(', ') },
+    { admin: [A, B].join(', '), gerais: FORA },
+    { admin: [A, B].join(', '), gerais: [FORA, B].join(', ') },
+    { admin: ' ' + A.toUpperCase() + ' ,, ' + B, gerais: ' ' + A + ' , ' + A },
+    { admin: '', gerais: A }
+  ];
+
+  function nivelDeSempre(api, email, banco) {
+    const lista = banco.admin.split(',').map((e) => api.normalizarEmail_(e)).filter(Boolean);
+    const chefes = banco.gerais.split(',').map((e) => api.normalizarEmail_(e))
+      .filter((e) => e && lista.indexOf(e) !== -1);
+    const alvo = api.normalizarEmail_(email);
+    if (!alvo) return '';
+    if (!chefes.length) return 'coordenador';
+    if (chefes.indexOf(alvo) !== -1) return 'coordenador';
+    return lista.indexOf(alvo) === -1 ? '' : 'professor';
+  }
+
+  BANCOS.forEach((banco) => {
+    const amb = ambiente({ allowlist: banco.admin });
+    amb.api.gravarConfig_('coordenadores_gerais', banco.gerais);
+    amb.api.limparCacheConfig_();
+    const onde = JSON.stringify(banco);
+
+    [A, B, C, FORA, ''].forEach((email) => {
+      igual(amb.api.nivelDe_(email), nivelDeSempre(amb.api, email, banco), onde + ' ' + email);
+    });
+    const token = amb.api.criarSessao_(A);
+    igual(amb.api.listarAdmins_({ token: token }).pessoas,
+      amb.api.adminEmails_().map((e) => ({ email: e, nivel: nivelDeSempre(amb.api, e, banco) })), onde);
+  });
+});
+
+// ============================ A lista ilegível não é lista vazia
+
+/**
+ * O banco em que NENHUM item de admin_emails tem a forma: os três endereços
+ * separados por ';', como fica quem os digita assim no console do Firestore, e a
+ * lista de gerais com um deles. O texto cru é um item só, a lista de gerais
+ * cruzada com ele volta vazia, e o piso vale: toda sessão aberta antes da edição
+ * é coordenadora. É o estado em que um gesto de tela faria de quem chega
+ * coordenador geral.
+ */
+const LEGIVEIS = ['pessoa.um@exemplo.edu.br', 'pessoa.dois@exemplo.edu.br', 'pessoa.tres@exemplo.edu.br'];
+const NOVATO = 'pessoa.nova@exemplo.edu.br';
+
+function comListaIlegivel() {
+  const amb = ambiente({ allowlist: LEGIVEIS.join('; ') });
+  amb.api.gravarConfig_('coordenadores_gerais', LEGIVEIS[0]);
+  amb.api.limparCacheConfig_();
+  return amb;
+}
+
+teste('com a lista ilegível, os gestos da tela recusam e mandam rodar liberarAcesso no editor — sem gravar nada', () => {
+  // Mutação que derruba: tirar a recusa de `incluirAdmin_`, a de
+  // `regravarAllowlist_` (com gente entrando) ou a de `definirNivel_`.
+  const amb = comListaIlegivel();
+  igual(amb.api.adminEmails_(), [], 'o cenário precisa de uma lista sem nenhum item com forma');
+  igual(amb.api.itensDaAllowlist_().length, 1, 'e com o texto escrito no banco');
+  const sessaoDeAntes = amb.api.criarSessao_(LEGIVEIS[1]);
+  igual(amb.api.sessaoAtiva_(sessaoDeAntes), { ok: true, nivel: 'coordenador' },
+    'no piso, a sessão aberta antes da edição coordena');
+  const antes = chavesDeAcesso(amb);
+
+  [
+    ['incluir pela tela', { fn: 'incluirAdmin', dados: { email: NOVATO } }],
+    ['o campo admin_emails consertado', { fn: 'salvarConfiguracao', dados: { chave: 'admin_emails', valor: LEGIVEIS.join(', ') } }],
+    ['o campo admin_emails com um nome só', { fn: 'salvarConfiguracao', dados: { chave: 'admin_emails', valor: NOVATO } }],
+    ['mudar o nível', { fn: 'definirNivel', dados: { email: LEGIVEIS[1], nivel: 'coordenador' } }]
+  ].forEach(([gesto, pedido]) => {
+    const r = post(amb, Object.assign({ acao: 'painel', token: sessaoDeAntes }, pedido));
+    igual(r, { ok: false, erro: amb.api.RECUSA_LISTA_ILEGIVEL }, gesto);
+    verdadeiro(/liberarAcesso/.test(r.erro) && /editor do Apps Script/.test(r.erro),
+      gesto + ': a recusa não diz a saída: ' + r.erro);
+    igual(chavesDeAcesso(amb), antes, gesto + ' mexeu nas listas de acesso');
+  });
+
+  igual(linhasDoLog(amb).filter((l) => /^ADMIN_|^NIVEL_ALTERADO$/.test(l.acao)).map((l) => l.acao), [],
+    'a trilha registrou uma mudança de acesso que não devia ter acontecido');
+  igual(amb.api.emailAutorizado_(NOVATO), false, 'quem chegaria entrou na lista');
+});
+
+teste('e o conserto pelo editor deixa um coordenador — o dono —, e quem chega depois nasce professor', () => {
+  // A saída que a recusa manda tomar: `liberarAcesso_` repõe o dono, tira o
+  // texto sem forma do banco, e a partir daí a lista é legível.
+  //
+  // E a sessão aberta antes, que no piso coordena, cai JÁ no conserto, e não só
+  // no primeiro incluir: entre os dois a lista de gerais está vazia de novo.
+  //
+  // Mutação que derruba: tirar o `invalidarSessoes_()` de `liberarAcesso_`.
+  const amb = comListaIlegivel();
+  comConsoleCapturado(amb);
+  const sessaoDeAntes = amb.api.criarSessao_(LEGIVEIS[1]);
+  igual(amb.api.sessaoAtiva_(sessaoDeAntes), { ok: true, nivel: 'coordenador' },
+    'o cenário precisa da sessão de antes coordenando pelo piso');
+
+  const url = amb.api.liberarAcesso_(DONO_DO_PROJETO);
+  const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
+  igual(chavesDeAcesso(amb).admin_emails, DONO_DO_PROJETO);
+  igual(amb.api.sessaoAtiva_(sessaoDeAntes), { ok: false },
+    'a sessão de antes seguiu valendo depois do conserto, e no piso ela coordena');
+  igual(amb.api.sessaoAtiva_(token), { ok: true, nivel: 'coordenador' }, 'a sessão do socorro');
+  const liberado = linhasDoLog(amb).filter((l) => l.acao === 'ACESSO_LIBERADO');
+  igual(liberado.length, 1);
+  verdadeiro(/estava ilegível, e as sessões abertas antes caíram/.test(liberado[0].detalhe),
+    'a trilha não conta que as sessões caíram: ' + liberado[0].detalhe);
+
+  const r = amb.api.incluirAdmin_({ token: token, email: NOVATO });
+  igual(r.ok, true, 'incluir depois do conserto: ' + r.erro);
+  igual(r.nivel, 'professor');
+  igual(amb.api.nivelDe_(DONO_DO_PROJETO), 'coordenador');
+});
+
+teste('com a lista legível, o socorro do editor não derruba a sessão de ninguém', () => {
+  // A queda de todas as sessões é do estado ilegível, em que ninguém escrito tem
+  // um e-mail que se possa procurar. Com a lista legível o socorro só acrescenta.
+  //
+  // Mutação que derruba: `liberarAcesso_` derrubar as sessões sempre.
+  const amb = ambiente({ allowlist: LEGIVEIS.join(', ') });
+  amb.api.gravarConfig_('coordenadores_gerais', LEGIVEIS[0]);
+  amb.api.limparCacheConfig_();
+  comConsoleCapturado(amb);
+  const coordenadora = amb.api.criarSessao_(LEGIVEIS[0]);
+  const professora = amb.api.criarSessao_(LEGIVEIS[1]);
+
+  amb.api.liberarAcesso_(DONO_DO_PROJETO);
+
+  igual(amb.api.sessaoAtiva_(coordenadora), { ok: true, nivel: 'coordenador' });
+  igual(amb.api.sessaoAtiva_(professora), { ok: true, nivel: 'professor' });
+  const liberado = linhasDoLog(amb).filter((l) => l.acao === 'ACESSO_LIBERADO');
+  igual(liberado.length, 1);
+  igual(liberado[0].detalhe, 'sessão criada à mão pelo editor do Apps Script');
+});
+
+teste('a lista VAZIA de verdade continua deixando o primeiro nome poder tudo', () => {
+  // A recusa é da lista ilegível, e não da lista filtrada vazia: no painel sem
+  // ninguém, consertado pelo editor, o primeiro nome entra pelo piso.
+  //
+  // Mutação que derruba: `allowlistIlegivel_` perguntar só se a lista filtrada
+  // está vazia.
+  [
+    ['incluir pela tela', (amb, token) => amb.api.incluirAdmin_({ token: token, email: NOVATO })],
+    ['o campo admin_emails', (amb, token) => amb.api.salvarConfiguracao_({ token: token, chave: 'admin_emails', valor: NOVATO })]
+  ].forEach(([gesto, fazer]) => {
+    const amb = ambiente({ allowlist: '' });
+    const token = amb.api.criarSessao_(DONO_DO_PROJETO);
+    const r = fazer(amb, token);
+    igual(r.ok, true, gesto + ': ' + r.erro);
+    amb.api.limparCacheConfig_();
+    igual(amb.api.nivelDe_(NOVATO), 'coordenador', gesto + ': na lista vazia, o primeiro nome entra pelo piso');
+  });
 });
 
 // ================================================== Os dois níveis
@@ -1217,8 +1777,8 @@ const PROFESSORA = 'professora@exemplo.com';
 function comNiveis(opcoes) {
   const o = opcoes || {};
   const amb = ambiente({ allowlist: o.allowlist === undefined ? 'coordenacao@exemplo.com, ' + PROFESSORA : o.allowlist });
-  if (o.gerais !== undefined) amb.api.gravarConfig('coordenadores_gerais', o.gerais);
-  else amb.api.gravarConfig('coordenadores_gerais', 'coordenacao@exemplo.com');
+  if (o.gerais !== undefined) amb.api.gravarConfig_('coordenadores_gerais', o.gerais);
+  else amb.api.gravarConfig_('coordenadores_gerais', 'coordenacao@exemplo.com');
   amb.token = amb.api.criarSessao_(o.eu || 'coordenacao@exemplo.com');
   return amb;
 }
@@ -1226,7 +1786,7 @@ function comNiveis(opcoes) {
 teste('promover e rebaixar mudam o nível, e só dele', () => {
   const amb = comNiveis();
 
-  const promovida = amb.api.definirNivel({
+  const promovida = amb.api.definirNivel_({
     token: amb.token, email: PROFESSORA, nivel: 'coordenador'
   });
   igual(promovida.ok, true, 'erro foi: ' + promovida.erro);
@@ -1235,7 +1795,7 @@ teste('promover e rebaixar mudam o nível, e só dele', () => {
     { email: PROFESSORA, nivel: 'coordenador' }
   ]);
 
-  const rebaixada = amb.api.definirNivel({
+  const rebaixada = amb.api.definirNivel_({
     token: amb.token, email: PROFESSORA, nivel: 'professor'
   });
   igual(rebaixada.ok, true, 'erro foi: ' + rebaixada.erro);
@@ -1257,10 +1817,10 @@ teste('as QUATRO devolvem a mesma forma, e as duas listas concordam', () => {
   const amb = comNiveis();
 
   const respostas = [
-    amb.api.listarAdmins({ token: amb.token }),
-    amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }),
-    amb.api.incluirAdmin({ token: amb.token, email: 'nova@exemplo.com' }),
-    amb.api.removerAdmin({ token: amb.token, email: 'nova@exemplo.com' })
+    amb.api.listarAdmins_({ token: amb.token }),
+    amb.api.definirNivel_({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }),
+    amb.api.incluirAdmin_({ token: amb.token, email: 'nova@exemplo.com' }),
+    amb.api.removerAdmin_({ token: amb.token, email: 'nova@exemplo.com' })
   ];
 
   respostas.forEach((r, i) => {
@@ -1285,9 +1845,9 @@ teste('a trilha do NIVEL_ALTERADO: a COLUNA diz quem mexeu, o detalhe diz o quê
   // Mutação que derruba: gravar a mudança sem a linha (a trilha não responde
   // "quem promoveu quem"); ou pôr o e-mail do operador de volta no detalhe.
   const amb = comNiveis();
-  igual(amb.api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(amb.api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
 
-  amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' });
+  amb.api.definirNivel_({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' });
 
   const linha = linhasDoLog(amb).filter((l) => l.acao === 'NIVEL_ALTERADO')[0];
   verdadeiro(linha !== undefined, 'nenhum rastro: ' + JSON.stringify(acoesDoLog(amb)));
@@ -1299,7 +1859,7 @@ teste('a trilha do NIVEL_ALTERADO: a COLUNA diz quem mexeu, o detalhe diz o quê
 });
 
 teste('mudar de nível é UMA escrita no documento de configuração, e derruba o cache do link', () => {
-  // As duas chaves são campos do MESMO documento. Com dois `gravarConfig` em
+  // As duas chaves são campos do MESMO documento. Com dois `gravarConfig_` em
   // sequência existiria um instante — e, numa execução que morresse no meio, um
   // estado gravado — com a lista de acesso nova e os coordenadores velhos.
   //
@@ -1313,7 +1873,7 @@ teste('mudar de nível é UMA escrita no documento de configuração, e derruba 
     'o cache do link não esquentou: o teste não provaria nada');
 
   amb.falso.requisicoes.length = 0;
-  igual(amb.api.definirNivel({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }).ok, true);
+  igual(amb.api.definirNivel_({ token: amb.token, email: PROFESSORA, nivel: 'coordenador' }).ok, true);
 
   const escritas = amb.falso.requisicoes.filter(
     (r) => r.metodo === 'PATCH' && String(r.url).indexOf('/config/geral') !== -1);
@@ -1340,12 +1900,12 @@ teste('definirNivel recusa nível inventado e e-mail fora da lista, sem gravar n
     { email: 'ninguem@exemplo.com', nivel: 'coordenador' },
     { nivel: 'professor' }
   ].forEach((dados) => {
-    const r = amb.api.definirNivel(Object.assign({ token: amb.token }, dados));
+    const r = amb.api.definirNivel_(Object.assign({ token: amb.token }, dados));
     igual(r.ok, false, JSON.stringify(dados) + ' passou');
   });
 
-  amb.api.limparCacheConfig();
-  igual(amb.api.config('coordenadores_gerais'), 'coordenacao@exemplo.com');
+  amb.api.limparCacheConfig_();
+  igual(amb.api.config_('coordenadores_gerais'), 'coordenacao@exemplo.com');
   igual(acoesDoLog(amb).indexOf('NIVEL_ALTERADO'), -1, 'gravou uma linha para uma recusa');
 });
 
@@ -1357,7 +1917,7 @@ teste('as duas portas continuam distinguíveis na trilha depois da refatoração
   // teste existe: elas não podem ter se perdido no caminho.
   const amb = comNiveis();
 
-  amb.api.salvarConfiguracao({
+  amb.api.salvarConfiguracao_({
     token: amb.token, chave: 'admin_emails',
     valor: 'coordenacao@exemplo.com, nova@exemplo.com'
   });
@@ -1424,7 +1984,7 @@ teste('o ID token só é aceito no corpo — nada viaja em cabeçalho', () => {
 });
 
 teste('sessão do Google abre uma função de painel de outro arquivo', () => {
-  // Prova que o despacho alcança o que já existia: `listarDisciplinas` nasce em
+  // Prova que o despacho alcança o que já existia: `listarDisciplinas_` nasce em
   // 12_Disciplinas.gs e nunca soube que existe login por conta Google.
   const amb = ambiente({ allowlist: 'coordenacao@exemplo.com' });
   responder(amb, tokenBom());

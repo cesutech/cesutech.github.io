@@ -3,7 +3,7 @@
  * (04_Log.gs) sem tocar no Google.
  *
  * O que está sendo provado aqui é o que 07_Auth.gs precisa para rodar:
- * `config()`, `usuarioAtual()` e `registrar()` existem, respondem o contrato do
+ * `config_()`, `usuarioAtual_()` e `registrar_()` existem, respondem o contrato do
  * projeto sobre Sheets e custam o mínimo de leitura possível. O último grupo
  * carrega 07_Auth.gs e 07b_LinkPorEmail.gs e faz um login inteiro pelo link por
  * e-mail — é a prova de que não sobrou função órfã depois que o PIN saiu.
@@ -92,11 +92,11 @@ grupo('Configuração: um documento só, lido uma vez por execução');
 
 teste('lerConfig lê UM documento, e o segundo pedido não vai à rede', () => {
   const { api, falso } = ambiente();
-  api.atualizar('config', 'geral', { cadastro_aberto: 'SIM' });
+  api.atualizar_('config', 'geral', { cadastro_aberto: 'SIM' });
   falso.requisicoes.length = 0;
 
-  igual(api.lerConfig(), { cadastro_aberto: 'SIM' });
-  igual(api.lerConfig(), { cadastro_aberto: 'SIM' });
+  igual(api.lerConfig_(), { cadastro_aberto: 'SIM' });
+  igual(api.lerConfig_(), { cadastro_aberto: 'SIM' });
 
   igual(falso.requisicoes.length, 1, 'a segunda leitura tem de vir do cache');
   igual(ultima(falso).url, RAIZ + '/config/geral');
@@ -104,40 +104,40 @@ teste('lerConfig lê UM documento, e o segundo pedido não vai à rede', () => {
 
 teste('config() chamada cinco vezes custa uma leitura, não cinco', () => {
   const { api, falso } = ambiente();
-  api.atualizar('config', 'geral', { vagas_padrao: '60', cadastro_aberto: 'SIM' });
+  api.atualizar_('config', 'geral', { vagas_padrao: '60', cadastro_aberto: 'SIM' });
   falso.requisicoes.length = 0;
 
-  for (let i = 0; i < 5; i++) api.config('vagas_padrao', '30');
+  for (let i = 0; i < 5; i++) api.config_('vagas_padrao', '30');
   igual(falso.requisicoes.length, 1);
 });
 
 teste('metadados do Repo (_id, _nome) não viram chave de configuração', () => {
   const { api } = ambiente();
-  api.atualizar('config', 'geral', { cadastro_aberto: 'SIM' });
+  api.atualizar_('config', 'geral', { cadastro_aberto: 'SIM' });
 
-  igual(Object.keys(api.lerConfig()), ['cadastro_aberto']);
+  igual(Object.keys(api.lerConfig_()), ['cadastro_aberto']);
 });
 
 teste('chave ausente e chave vazia devolvem o padrão; sem padrão, devolvem \'\'', () => {
   const { api } = ambiente();
-  api.atualizar('config', 'geral', { form_id: '' });
+  api.atualizar_('config', 'geral', { form_id: '' });
 
-  igual(api.config('chave_que_nunca_existiu', 'padrão'), 'padrão', 'ausente');
-  igual(api.config('form_id', 'nenhum'), 'nenhum', 'vazia vale como ausente');
-  igual(api.config('form_id'), '', 'sem padrão');
+  igual(api.config_('chave_que_nunca_existiu', 'padrão'), 'padrão', 'ausente');
+  igual(api.config_('form_id', 'nenhum'), 'nenhum', 'vazia vale como ausente');
+  igual(api.config_('form_id'), '', 'sem padrão');
 });
 
 teste('banco vazio não quebra: lerConfig devolve {} e config devolve o padrão', () => {
   const { api } = ambiente();
-  igual(api.lerConfig(), {});
-  igual(api.config('cadastro_aberto', 'SIM'), 'SIM');
+  igual(api.lerConfig_(), {});
+  igual(api.config_('cadastro_aberto', 'SIM'), 'SIM');
 });
 
 grupo('Configuração: gravação');
 
 teste('gravarConfig mexe em um campo só, cria o documento e não relê o banco', () => {
   const { api, falso } = ambiente();
-  api.gravarConfig('cadastro_aberto', 'NAO');
+  api.gravarConfig_('cadastro_aberto', 'NAO');
 
   igual(falso.requisicoes.length, 1, 'gravar não pode custar uma leitura antes');
   igual(ultima(falso).metodo, 'PATCH');
@@ -147,30 +147,30 @@ teste('gravarConfig mexe em um campo só, cria o documento e não relê o banco'
 
 teste('gravar uma chave não apaga as outras do documento', () => {
   const { api, falso } = ambiente();
-  api.gravarConfig('cadastro_aberto', 'SIM');
-  api.gravarConfig('vagas_padrao', '60');
-  api.gravarConfig('cadastro_aberto', 'NAO');
+  api.gravarConfig_('cadastro_aberto', 'SIM');
+  api.gravarConfig_('vagas_padrao', '60');
+  api.gravarConfig_('cadastro_aberto', 'NAO');
 
   igual(campos(falso, 'config/geral'), { cadastro_aberto: 'NAO', vagas_padrao: '60' });
 });
 
 teste('depois de gravar, config() responde o valor novo sem nova leitura', () => {
   const { api, falso } = ambiente();
-  api.lerConfig();
+  api.lerConfig_();
   falso.requisicoes.length = 0;
 
-  api.gravarConfig('cadastro_aberto', 'NAO');
-  igual(api.config('cadastro_aberto', 'SIM'), 'NAO');
+  api.gravarConfig_('cadastro_aberto', 'NAO');
+  igual(api.config_('cadastro_aberto', 'SIM'), 'NAO');
   igual(falso.requisicoes.length, 1, 'só o PATCH');
 });
 
 teste('limparCacheConfig obriga a próxima leitura a ir ao banco', () => {
   const { api, falso } = ambiente();
-  api.lerConfig();
-  api.limparCacheConfig();
+  api.lerConfig_();
+  api.limparCacheConfig_();
   falso.requisicoes.length = 0;
 
-  api.lerConfig();
+  api.lerConfig_();
   igual(falso.requisicoes.length, 1);
   igual(ultima(falso).metodo, 'GET');
 });
@@ -202,7 +202,7 @@ teste('o mapa de segredos está vazio — nenhuma chave de hoje mora fora do ban
 
 teste('chave marcada como segredo não fala com o Firestore — vai para a propriedade', () => {
   const { api, falso, propriedades } = ambienteComSegredo();
-  api.gravarConfig('form_id', 4321);
+  api.gravarConfig_('form_id', 4321);
 
   igual(falso.requisicoes.length, 0, 'nenhuma chamada ao banco');
   igual(propriedades.get(SEGREDO_DE_MENTIRA), '4321');
@@ -212,18 +212,18 @@ teste('chave marcada como segredo não fala com o Firestore — vai para a propr
 
 teste('config() de um segredo lê a propriedade, e sem ela devolve o padrão', () => {
   const { api, propriedades } = ambienteComSegredo();
-  igual(api.config('form_id', ''), '', 'sem a propriedade');
+  igual(api.config_('form_id', ''), '', 'sem a propriedade');
 
   propriedades.set(SEGREDO_DE_MENTIRA, '4321');
-  igual(api.config('form_id', ''), '4321');
+  igual(api.config_('form_id', ''), '4321');
 });
 
 teste('valor plantado no documento é ignorado — a fonte é a propriedade', () => {
   const { api, propriedades } = ambienteComSegredo();
-  api.atualizar('config', 'geral', { form_id: '0000' });
+  api.atualizar_('config', 'geral', { form_id: '0000' });
   propriedades.set(SEGREDO_DE_MENTIRA, '4321');
 
-  igual(api.config('form_id', ''), '4321');
+  igual(api.config_('form_id', ''), '4321');
 });
 
 grupo('semearConfigPadrao_');
@@ -259,8 +259,8 @@ teste('a descrição da chave fica no código, não no banco', () => {
 
 teste('NÃO sobrescreve o que a coordenação já mudou', () => {
   const { api, falso } = ambiente();
-  api.gravarConfig('texto_esgotado', 'Turma lotada, procure a coordenação.');
-  api.gravarConfig('cadastro_aberto', 'NAO');
+  api.gravarConfig_('texto_esgotado', 'Turma lotada, procure a coordenação.');
+  api.gravarConfig_('cadastro_aberto', 'NAO');
 
   const criadas = api.semearConfigPadrao_();
 
@@ -280,7 +280,7 @@ teste('semear duas vezes seguidas: a segunda não escreve nada', () => {
 
 teste('a descrição de `aluno_projeto_unico` cobre as DUAS portas — é ela que a coordenação lê antes de virar a chave', () => {
   // A tela de Configurações lista as chaves de CONFIG_PADRAO com a descrição
-  // daqui (`lerConfiguracoes`, 10_Painel.gs): ela é o único lugar em que a
+  // daqui (`lerConfiguracoes_`, 10_Painel.gs): ela é o único lugar em que a
   // coordenação lê o que a chave faz antes de virá-la. A frase antiga ("SIM
   // impede o mesmo aluno de se inscrever em mais de um projeto. NAO apenas
   // sinaliza no painel") ficou falsa dos dois lados — o formulário não impede,
@@ -311,7 +311,7 @@ teste('cursos_fases semeado vira lista de opções, sem espaço sobrando', () =>
   const { api } = ambiente();
   api.semearConfigPadrao_();
 
-  const cursos = api.configLista('cursos_fases');
+  const cursos = api.configLista_('cursos_fases');
   igual(cursos.length, 13);
   igual(cursos[0], 'WORK EXPERIENCE - ADM21');
   igual(cursos[12], 'PROJETO INTERDISCIPLINAR II EM MULTIMÍDIA - PMM31');
@@ -319,14 +319,14 @@ teste('cursos_fases semeado vira lista de opções, sem espaço sobrando', () =>
 
 teste('separador com espaço em volta e item vazio não viram opção', () => {
   const { api } = ambiente();
-  api.gravarConfig('turnos', ' Matutino | Noturno ||');
+  api.gravarConfig_('turnos', ' Matutino | Noturno ||');
 
-  igual(api.configLista('turnos'), ['Matutino', 'Noturno']);
+  igual(api.configLista_('turnos'), ['Matutino', 'Noturno']);
 });
 
 teste('chave inexistente devolve lista vazia, não [\'\']', () => {
   const { api } = ambiente();
-  igual(api.configLista('turnos'), []);
+  igual(api.configLista_('turnos'), []);
 });
 
 grupo('Log: o id carrega a hora');
@@ -335,11 +335,11 @@ teste('registrar grava os campos da trilha, com hora local legível', () => {
   const relogio = criarRelogio(INSTANTE);
   const { api, falso } = ambiente({ relogio, usuario: 'gestao@exemplo.com' });
 
-  api.registrar('LOGIN', 'painel', 'gestao@exemplo.com', 'via link por e-mail');
+  api.registrar_('LOGIN', 'painel', 'gestao@exemplo.com', 'via link por e-mail');
 
   const chave = chavesDaColecao(falso, 'log')[0];
   igual(campos(falso, chave), {
-    // `criado_em` é o campo por onde `ultimosRegistros` ordena, e é o mesmo
+    // `criado_em` é o campo por onde `ultimosRegistros_` ordena, e é o mesmo
     // carimbo que abre o id — se um dia divergirem, a ordem da tela deixa de
     // bater com a ordem do id.
     criado_em: '20260805T225012123Z',
@@ -356,7 +356,7 @@ teste('registrar grava os campos da trilha, com hora local legível', () => {
 teste('o id começa pelo carimbo UTC, sem separador, e traz sufixo aleatório', () => {
   const relogio = criarRelogio(INSTANTE);
   const { api, falso } = ambiente({ relogio });
-  api.registrar('LOGIN', 'painel', 'x', '');
+  api.registrar_('LOGIN', 'painel', 'x', '');
 
   const id = chavesDaColecao(falso, 'log')[0].split('/')[1];
   verdadeiro(/^20260805T225012123Z_[0-9a-f]{6}$/.test(id), 'id foi ' + id);
@@ -368,7 +368,7 @@ teste('ids gravados em instantes diferentes ordenam como o tempo ordena', () => 
 
   const acoes = ['PRIMEIRA', 'SEGUNDA', 'TERCEIRA'];
   acoes.forEach((acao) => {
-    api.registrar(acao, 'painel', '', '');
+    api.registrar_(acao, 'painel', '', '');
     relogio.avancar(1500);
   });
 
@@ -383,11 +383,11 @@ teste('dois registros no mesmo milissegundo não se perdem', () => {
   const relogio = criarRelogio(INSTANTE);
   const { api, falso } = ambiente({ relogio });
 
-  // Sem o sufixo aleatório, o segundo `inserir` bateria em ALREADY_EXISTS e o
+  // Sem o sufixo aleatório, o segundo `inserir_` bateria em ALREADY_EXISTS e o
   // evento sumiria — colisão de id aqui não é registro duplicado, é registro
   // perdido.
-  api.registrar('LOGIN', 'painel', '', '');
-  api.registrar('LOGIN_FALHOU', 'painel', '', '');
+  api.registrar_('LOGIN', 'painel', '', '');
+  api.registrar_('LOGIN_FALHOU', 'painel', '', '');
 
   igual(chavesDaColecao(falso, 'log').length, 2);
 });
@@ -402,11 +402,11 @@ teste('ultimosRegistros ordena por criado_em decrescente com limite, sem exigir 
   const { api, falso } = ambiente({ relogio });
 
   ['PRIMEIRA', 'SEGUNDA', 'TERCEIRA'].forEach((acao) => {
-    api.registrar(acao, 'painel', '', '');
+    api.registrar_(acao, 'painel', '', '');
     relogio.avancar(1000);
   });
 
-  const ultimos = api.ultimosRegistros(2);
+  const ultimos = api.ultimosRegistros_(2);
   igual(ultimos.map((r) => r.acao), ['TERCEIRA', 'SEGUNDA']);
   igual(ultima(falso).corpo.structuredQuery, {
     from: [{ collectionId: 'log' }],
@@ -417,10 +417,10 @@ teste('ultimosRegistros ordena por criado_em decrescente com limite, sem exigir 
 
 teste('ultimosRegistros tem teto e padrão — ninguém pede a coleção inteira', () => {
   const { api, falso } = ambiente();
-  api.ultimosRegistros();
+  api.ultimosRegistros_();
   igual(ultima(falso).corpo.structuredQuery.limit, 50, 'padrão');
 
-  api.ultimosRegistros(99999);
+  api.ultimosRegistros_(99999);
   igual(ultima(falso).corpo.structuredQuery.limit, 500, 'teto');
 });
 
@@ -430,7 +430,7 @@ teste('Firestore fora do ar: registrar não lança, e o erro vai para o console'
   const { api, falso, registros } = ambiente();
   falso.forcar(500, 'INTERNAL', 'backend error');
 
-  api.registrar('INSCRICAO', 'inscricoes', 'insc_1', 'aluno gravado');
+  api.registrar_('INSCRICAO', 'inscricoes', 'insc_1', 'aluno gravado');
 
   igual(chavesDaColecao(falso, 'log').length, 0, 'o log não foi gravado');
   igual(registros.erros.length, 1, 'mas o console soube');
@@ -439,13 +439,13 @@ teste('Firestore fora do ar: registrar não lança, e o erro vai para o console'
 
 teste('sem FIRESTORE_PROJETO, registrar continua sem lançar', () => {
   const { api } = ambiente({ projeto: null });
-  api.registrar('LOGIN', 'painel', '', '');
+  api.registrar_('LOGIN', 'painel', '', '');
 });
 
 teste('detalhe em objeto vira JSON; detalhe ausente vira {}', () => {
   const { api, falso } = ambiente();
-  api.registrar('IMPORTACAO', 'lotes', 'lote_1', { linhas: 320, arquivo: 'turmas.xlsx' });
-  api.registrar('LOGIN', 'painel', '');
+  api.registrar_('IMPORTACAO', 'lotes', 'lote_1', { linhas: 320, arquivo: 'turmas.xlsx' });
+  api.registrar_('LOGIN', 'painel', '');
 
   const [primeiro, segundo] = chavesDaColecao(falso, 'log')
     .map((k) => campos(falso, k))
@@ -459,31 +459,31 @@ grupo('usuarioAtual');
 
 teste('devolve o e-mail da sessão quando o Google o mostra', () => {
   const { api } = ambiente({ usuario: 'gestao@exemplo.com' });
-  igual(api.usuarioAtual(), 'gestao@exemplo.com');
+  igual(api.usuarioAtual_(), 'gestao@exemplo.com');
 });
 
 teste('conta comum em web app anônimo: e-mail vazio vira \'anonimo\'', () => {
   const { api } = ambiente({ usuario: '' });
-  igual(api.usuarioAtual(), 'anonimo');
+  igual(api.usuarioAtual_(), 'anonimo');
 });
 
 teste('Session lançando (sem escopo autorizado) também vira \'anonimo\'', () => {
   const { api } = ambiente({ usuario: null });
-  igual(api.usuarioAtual(), 'anonimo');
+  igual(api.usuarioAtual_(), 'anonimo');
 });
 
 grupo('o operador da execução — a coluna "Quem" da trilha');
 
 teste('anotado o operador, a linha é dele e não da identidade da implantação', () => {
   // A ORDEM de `quemOperou_` é o que esta peça inteira compra. Mutação que
-  // derruba: inverter as duas metades (`usuarioAtual() || OPERADOR`) — no
-  // painel publicado `usuarioAtual()` responde 'anonimo', que é um valor
+  // derruba: inverter as duas metades (`usuarioAtual_() || OPERADOR`) — no
+  // painel publicado `usuarioAtual_()` responde 'anonimo', que é um valor
   // verdadeiro em JavaScript, e a coluna voltaria a não dizer nada; ou anotar e
   // não ler, gravando 'gestao@exemplo.com', a conta que IMPLANTOU o web app.
   const { api, falso } = ambiente({ usuario: 'gestao@exemplo.com' });
 
   api.anotarOperador_('professora@exemplo.com');
-  api.registrar('EXPORTACAO', 'alunos', '', '300 linhas');
+  api.registrar_('EXPORTACAO', 'alunos', '', '300 linhas');
 
   const linha = campos(falso, chavesDaColecao(falso, 'log')[0]);
   igual(linha.usuario, 'professora@exemplo.com');
@@ -491,27 +491,27 @@ teste('anotado o operador, a linha é dele e não da identidade da implantação
 
 teste('sem operador, a trilha continua respondendo o que o Apps Script entrega', () => {
   // Os caminhos SEM sessão não mudaram: o formulário do aluno, os gatilhos
-  // diários e o editor não passam por guarda nenhuma, e é `usuarioAtual()` que
+  // diários e o editor não passam por guarda nenhuma, e é `usuarioAtual_()` que
   // responde por eles. Mutação que derruba: `quemOperou_` devolver só o
   // operador — o gatilho de backup e a inscrição do aluno perderiam a única
   // identidade que ainda tinham.
   const { api, falso } = ambiente({ usuario: 'gestao@exemplo.com' });
 
-  api.registrar('BACKUP', 'drive', 'arq1', 'diário');
+  api.registrar_('BACKUP', 'drive', 'arq1', 'diário');
 
   igual(campos(falso, chavesDaColecao(falso, 'log')[0]).usuario, 'gestao@exemplo.com');
 });
 
 teste('anotar vazio APAGA o operador — recusa não herda o nome de quem passou antes', () => {
-  // É o que `exigirAdmin` faz no caminho da recusa. A variável é global ao
+  // É o que `exigirAdmin_` faz no caminho da recusa. A variável é global ao
   // script, e sem a limpeza a segunda chamada de uma mesma execução — recusada
   // — sairia assinada pela primeira. Mutação que derruba: `anotarOperador_`
-  // ignorar vazio, ou `exigirAdmin` só anotar no caminho feliz.
+  // ignorar vazio, ou `exigirAdmin_` só anotar no caminho feliz.
   const { api, falso } = ambiente({ usuario: '' });
 
   api.anotarOperador_('professora@exemplo.com');
   api.anotarOperador_('');
-  api.registrar('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
+  api.registrar_('BLOQUEIO', 'inscricao', '', 'honeypot preenchido');
 
   igual(campos(falso, chavesDaColecao(falso, 'log')[0]).usuario, 'anonimo');
 });
@@ -524,19 +524,19 @@ teste('login por LINK devolve token, e o LOGIN fica na trilha COM NOME', () => {
   // exatamente um endereço da allowlist — é a diferença que justificou a troca.
   const amb = ambienteComLink();
   amb.api.semearConfigPadrao_();
-  amb.api.gravarConfig('admin_emails', 'gestao@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'gestao@exemplo.com');
 
-  igual(amb.api.pedirLinkDeAcesso('Gestao@Exemplo.com').ok, true);
+  igual(amb.api.pedirLinkDeAcesso_('Gestao@Exemplo.com').ok, true);
   igual(amb.correio.enviados.length, 1);
 
-  const r = amb.api.entrarComLink(tokenDoEmail(amb));
+  const r = amb.api.entrarComLink_(tokenDoEmail(amb));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.via, 'link');
   igual(r.usuario, 'gestao@exemplo.com');
   verdadeiro(r.token && r.token.length > 20, 'token foi ' + r.token);
   verdadeiro(amb.propriedades.has('sess_' + r.token), 'a sessão deveria estar guardada');
-  igual(amb.api.sessaoAtiva(r.token).ok, true);
+  igual(amb.api.sessaoAtiva_(r.token).ok, true);
 
   // Sem ordenar: os dois registros podem cair no mesmo milissegundo, e aí quem
   // decide a ordem do id é o sufixo aleatório. Ordem de log tem teste próprio,
@@ -551,9 +551,9 @@ teste('login por LINK devolve token, e o LOGIN fica na trilha COM NOME', () => {
 
 teste('link inventado é recusado, sem token e sem linha de LOGIN', () => {
   const amb = ambienteComLink();
-  amb.api.gravarConfig('admin_emails', 'gestao@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'gestao@exemplo.com');
 
-  const r = amb.api.entrarComLink('f'.repeat(64));
+  const r = amb.api.entrarComLink_('f'.repeat(64));
 
   igual(r.ok, false);
   igual(r.token, undefined);
@@ -562,13 +562,13 @@ teste('link inventado é recusado, sem token e sem linha de LOGIN', () => {
 });
 
 teste('conta na allowlist entra pela identidade da implantação, quando ela existe', () => {
-  // O caminho 1 de `autenticar()`, que hoje nunca dispara em produção
+  // O caminho 1 de `autenticar_()`, que hoje nunca dispara em produção
   // (USER_DEPLOYING + conta Gmail comum devolve 'anonimo') e vale numa
   // implantação Workspace. Ele perdeu o argumento junto com o PIN.
   const amb = ambienteComLink({ usuario: 'gestao@exemplo.com' });
-  amb.api.gravarConfig('admin_emails', 'Gestao@Exemplo.com, outra@exemplo.com');
+  amb.api.gravarConfig_('admin_emails', 'Gestao@Exemplo.com, outra@exemplo.com');
 
-  const r = amb.api.autenticar();
+  const r = amb.api.autenticar_();
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.via, 'email');
@@ -581,7 +581,7 @@ teste('sem identidade visível, autenticar aponta o botão do Google e não pede
   const amb = ambienteComLink();
   amb.api.semearConfigPadrao_();
 
-  const r = amb.api.autenticar();
+  const r = amb.api.autenticar_();
 
   igual(r.ok, false);
   verdadeiro(/Entrar com o Google/.test(r.erro), r.erro);
@@ -592,7 +592,7 @@ teste('modoDeAcesso avisa que a allowlist está vazia', () => {
   const amb = ambienteComLink();
   amb.api.semearConfigPadrao_();
 
-  igual(amb.api.modoDeAcesso(), {
+  igual(amb.api.modoDeAcesso_(), {
     ok: true,
     identidadeVisivel: false,
     usuario: '',
@@ -618,7 +618,7 @@ teste('e não devolve mais modo, pedePin nem googleProvado', () => {
   const amb = ambienteComLink();
   amb.api.semearConfigPadrao_();
 
-  const m = amb.api.modoDeAcesso();
+  const m = amb.api.modoDeAcesso_();
   ['modo', 'pedePin', 'googleProvado'].forEach((campo) => {
     igual(m[campo], undefined, 'a tela de login ainda recebe "' + campo + '"');
   });
@@ -628,7 +628,7 @@ grupo('registrarRecusa: recusa em massa não vira escrita em massa');
 
 // Este grupo existe por causa de um buraco que os 213 testes anteriores não
 // pegavam, e não pegavam por um motivo específico: o `apoio.js` não tinha
-// CacheService. `registrarRecusa` engolia a ausência no catch e caía no registro
+// CacheService. `registrarRecusa_` engolia a ausência no catch e caía no registro
 // direto, então tudo passava sem exercitar uma linha do agrupamento. O falso
 // ganhou um CacheService com expiração presa ao relógio para estes testes.
 
@@ -636,7 +636,7 @@ teste('a primeira recusa da janela grava; as seguintes, não', () => {
   const { api, falso } = criarAmbiente({ arquivos: GS_BASE, relogio: criarRelogio(INSTANTE) });
 
   for (let i = 0; i < 50; i++) {
-    api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot preenchido', 'honeypot');
+    api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot preenchido', 'honeypot');
   }
 
   igual(chavesDaColecao(falso, 'log').length, 1, '50 recusas, 1 documento');
@@ -645,10 +645,10 @@ teste('a primeira recusa da janela grava; as seguintes, não', () => {
 teste('cada motivo tem a própria janela — um não abafa o outro', () => {
   const { api, falso } = criarAmbiente({ arquivos: GS_BASE, relogio: criarRelogio(INSTANTE) });
 
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'sem origem', 'sem_origem');
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'rápido demais', 'rapido_demais');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'sem origem', 'sem_origem');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'rápido demais', 'rapido_demais');
 
   igual(chavesDaColecao(falso, 'log').length, 3, 'três motivos, três documentos');
 });
@@ -657,13 +657,13 @@ teste('a janela reabre, e a gravação seguinte diz quantas foram engolidas', ()
   const relogio = criarRelogio(INSTANTE);
   const { api, falso } = criarAmbiente({ arquivos: GS_BASE, relogio });
 
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
   for (let i = 0; i < 9; i++) {
-    api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+    api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
   }
 
   relogio.avancar(601 * 1000);
-  api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
 
   const detalhes = chavesDaColecao(falso, 'log').map((k) => campos(falso, k).detalhe);
   igual(detalhes.length, 2, 'duas janelas, dois documentos');
@@ -677,8 +677,8 @@ teste('sem CacheService, registra direto — perder a trilha é pior que a escri
   const ambiente = criarAmbiente({ arquivos: GS_BASE, relogio: criarRelogio(INSTANTE) });
   delete ambiente.api.CacheService;
 
-  ambiente.api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
-  ambiente.api.registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  ambiente.api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
+  ambiente.api.registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot', 'honeypot');
 
   igual(chavesDaColecao(ambiente.falso, 'log').length, 2, 'sem cache, cada recusa grava');
 });

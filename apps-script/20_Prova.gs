@@ -3,7 +3,10 @@
  *
  * Cada função aqui prova UMA afirmação sobre o banco. Nenhuma é chamada pelo
  * sistema: rode pelo menu de execução do editor do Apps Script, escolha a função
- * e leia o registro de execução (Ctrl+Enter mostra o log).
+ * e leia o registro de execução (Ctrl+Enter mostra o log). E só pelo editor: a
+ * primeira linha de cada uma é `exigirDono_()` (07_Auth.gs), que recusa a
+ * execução pedida por outra conta que não a que está rodando o script — algumas
+ * delas escrevem e apagam no banco.
  *
  * As provas vieram do spike feito no projeto sobre Sheets
  * (branch feature/spike-firestore, 21_SpikeFirestore.gs), onde serviram para
@@ -68,18 +71,24 @@ var PROVA_TAMANHO_PAGINA = 200;
  * `provaLimpar()` não mexe nessas duas coleções: elas não têm o prefixo.
  */
 function provaConfigELog() {
+  exigirDono_();
+  return provaConfigELog_();
+}
+
+/** O trabalho de `provaConfigELog`, depois da guarda. É esta que o código chama por dentro. */
+function provaConfigELog_() {
   Logger.log('=== provaConfigELog ===');
 
   var criadas = semearConfigPadrao_();
   Logger.log('semearConfigPadrao_: ' + criadas.length + ' chave(s) criada(s)' +
     (criadas.length ? ' — ' + criadas.join(', ') : ' (o banco já estava semeado)'));
 
-  // Ida e volta de verdade: sem descartar o cache, `config()` responderia da
+  // Ida e volta de verdade: sem descartar o cache, `config_()` responderia da
   // memória desta execução e a prova não teria provado nada.
   var carimbo = new Date().toISOString();
-  gravarConfig(CHAVE_PROVA, carimbo);
-  limparCacheConfig();
-  var lido = config(CHAVE_PROVA, '');
+  gravarConfig_(CHAVE_PROVA, carimbo);
+  limparCacheConfig_();
+  var lido = config_(CHAVE_PROVA, '');
   Logger.log('gravei ' + CHAVE_PROVA + ' = ' + carimbo);
   Logger.log('li     ' + CHAVE_PROVA + ' = ' + lido);
 
@@ -88,15 +97,15 @@ function provaConfigELog() {
   // em que alguém acrescentar um segredo a CONFIG_SEGREDOS, esta linha é o que
   // prova que ele não foi parar no documento que o formulário público lê.
   var segredoNoBanco = Object.keys(CONFIG_SEGREDOS).some(function (chave) {
-    return lerConfig()[chave] !== undefined;
+    return lerConfig_()[chave] !== undefined;
   });
   Logger.log('algum segredo dentro do documento de config: ' + (segredoNoBanco ? 'SIM' : 'NAO'));
 
-  var cursos = configLista('cursos_fases');
-  Logger.log('configLista(cursos_fases): ' + cursos.length + ' opção(ões)');
+  var cursos = configLista_('cursos_fases');
+  Logger.log('configLista_(cursos_fases): ' + cursos.length + ' opção(ões)');
 
-  registrar('PROVA', 'config', CHAVE_PROVA, 'provaConfigELog ' + carimbo);
-  var ultimos = ultimosRegistros(5);
+  registrar_('PROVA', 'config', CHAVE_PROVA, 'provaConfigELog ' + carimbo);
+  var ultimos = ultimosRegistros_(5);
 
   Logger.log('últimos registros do log (mais novo primeiro):');
   ultimos.forEach(function (r) {
@@ -105,8 +114,8 @@ function provaConfigELog() {
   });
 
   // Devolve a chave ao estado neutro. Não existe "apagar campo" na camada de
-  // dados; vazio é o mesmo que ausente para `config()`, que devolve o padrão.
-  gravarConfig(CHAVE_PROVA, '');
+  // dados; vazio é o mesmo que ausente para `config_()`, que devolve o padrão.
+  gravarConfig_(CHAVE_PROVA, '');
 
   var ordenado = provaOrdemDecrescente_(ultimos.map(function (r) { return r._id; }));
   var ok = lido === carimbo && !segredoNoBanco && ultimos.length > 0 &&
@@ -144,6 +153,12 @@ function provaOrdemDecrescente_(ids) {
  * precisar ler este código para entender o resultado.
  */
 function provaConectar() {
+  exigirDono_();
+  return provaConectar_();
+}
+
+/** O trabalho de `provaConectar`, depois da guarda. É esta que o código chama por dentro. */
+function provaConectar_() {
   Logger.log('=== provaConectar ===');
 
   try {
@@ -151,7 +166,7 @@ function provaConectar() {
     var banco = fsBanco_();
     Logger.log('projeto Firestore: ' + projeto + ' / banco: ' + banco);
 
-    var lido = ler(COL_CONEXAO, 'ping');
+    var lido = ler_(COL_CONEXAO, 'ping');
     Logger.log('leitura de ' + COL_CONEXAO + '/ping: ' +
       (lido ? 'documento existe' : 'documento não existe — e isso é sucesso'));
 
@@ -208,7 +223,7 @@ function provaDiagnostico_(erro) {
   }
 
   if (codigo === 404 || status === 'NOT_FOUND') {
-    Logger.log('Documento inexistente não chega aqui — `ler` devolve null nesse caso.');
+    Logger.log('Documento inexistente não chega aqui — `ler_` devolve null nesse caso.');
     Logger.log('404 aqui é o BANCO que não foi encontrado:');
     Logger.log('1. FIRESTORE_PROJETO tem o ID do projeto (unicesusc-cesutech), e não o número.');
     Logger.log('2. O Firestore foi criado no console do Firebase? Deve estar em');
@@ -244,28 +259,34 @@ function provaDiagnostico_(erro) {
  *
  * A chave é montada à mão porque `chaveDedup_` mora em 04_Inscricoes.gs, que
  * ainda não foi trazido. A regra reproduzida é a dele: projeto + pessoa, com
- * `hash` de 01_Utils.gs, que é a mesma função dos dois lados.
+ * `hash_` de 01_Utils.gs, que é a mesma função dos dois lados.
  */
 function provaUnicidade() {
+  exigirDono_();
+  return provaUnicidade_();
+}
+
+/** O trabalho de `provaUnicidade`, depois da guarda. É esta que o código chama por dentro. */
+function provaUnicidade_() {
   var dados = {
     projeto_id: 'proj_prova',
     projeto_nome: 'PROJETO DA PROVA',
     matricula: '09110001',
     nome: 'Aluno de Teste',
     email: 'aluno.teste@exemplo.com',
-    criado_em: agora()
+    criado_em: agora_()
   };
 
-  var chave = hash(dados.projeto_id + '::' + dados.matricula);
+  var chave = hash_(dados.projeto_id + '::' + dados.matricula);
 
   // Recomeço limpo: a chave é estável, então rodar duas vezes seguidas mostraria
   // "já existia" nas duas gravações e esconderia a prova. Apagar o que não
   // existe é idempotente no Firestore, então não precisa de guarda.
-  excluir(COL_DEDUP, chave);
+  excluir_(COL_DEDUP, chave);
 
-  var primeira = inserir(COL_DEDUP, dados, chave);
-  var segunda = inserir(COL_DEDUP, dados, chave);
-  var total = contar(COL_DEDUP, { campo: 'matricula', valor: dados.matricula });
+  var primeira = inserir_(COL_DEDUP, dados, chave);
+  var segunda = inserir_(COL_DEDUP, dados, chave);
+  var total = contar_(COL_DEDUP, { campo: 'matricula', valor: dados.matricula });
 
   Logger.log('=== provaUnicidade ===');
   Logger.log('chave de dedup (projeto + matrícula) = ' + chave);
@@ -295,6 +316,12 @@ function provaUnicidade() {
  * um documento, e viajam juntos por construção.
  */
 function provaOrdenacaoNaoCorrompe() {
+  exigirDono_();
+  return provaOrdenacaoNaoCorrompe_();
+}
+
+/** O trabalho de `provaOrdenacaoNaoCorrompe`, depois da guarda. É esta que o código chama por dentro. */
+function provaOrdenacaoNaoCorrompe_() {
   var alunos = [
     { matricula: '09110001', nome: 'Ana Prado', curso_fase: 'ADS11' },
     { matricula: '00042000', nome: 'Bruno Lima', curso_fase: 'ADM21' },
@@ -306,11 +333,11 @@ function provaOrdenacaoNaoCorrompe() {
   var esperado = {};
   alunos.forEach(function (a) {
     esperado[a.matricula] = a.nome + '|' + a.curso_fase;
-    inserir(COL_ORDENACAO, a, a.matricula);
+    inserir_(COL_ORDENACAO, a, a.matricula);
   });
 
-  var porNome = listar(COL_ORDENACAO, { ordenarPor: 'nome', direcao: 'ASC' }).itens;
-  var porMatricula = listar(COL_ORDENACAO, { ordenarPor: 'matricula', direcao: 'DESC' }).itens;
+  var porNome = listar_(COL_ORDENACAO, { ordenarPor: 'nome', direcao: 'ASC' }).itens;
+  var porMatricula = listar_(COL_ORDENACAO, { ordenarPor: 'matricula', direcao: 'DESC' }).itens;
 
   Logger.log('=== provaOrdenacaoNaoCorrompe ===');
   Logger.log('por nome (crescente):');
@@ -343,7 +370,13 @@ function provaOrdenacaoNaoCorrompe() {
  * `forcarFormatoTexto_` e `normalizarCelula_` existem lá só para desfazer isso.
  */
 function provaTipoForte() {
-  var id = uid('tipos');
+  exigirDono_();
+  return provaTipoForte_();
+}
+
+/** O trabalho de `provaTipoForte`, depois da guarda. É esta que o código chama por dentro. */
+function provaTipoForte_() {
+  var id = uid_('tipos');
   var original = {
     matricula: '09110001',
     data_nascimento: '2002-05-09',
@@ -354,8 +387,8 @@ function provaTipoForte() {
     codigo: '007'
   };
 
-  inserir(COL_TIPOS, original, id);
-  var lido = ler(COL_TIPOS, id);
+  inserir_(COL_TIPOS, original, id);
+  var lido = ler_(COL_TIPOS, id);
 
   Logger.log('=== provaTipoForte ===');
   var iguais = true;
@@ -393,17 +426,23 @@ function provaTipoForte() {
  *    derruba as outras provas.
  */
 function provaVazao(n) {
+  exigirDono_();
+  return provaVazao_(n);
+}
+
+/** O trabalho de `provaVazao`, depois da guarda. É esta que o código chama por dentro. */
+function provaVazao_(n) {
   var total = Number(n) > 0 ? Math.floor(Number(n)) : 20;
   var carimbo = new Date().getTime();
 
   var inicio = new Date().getTime();
   for (var i = 0; i < total; i++) {
-    inserir(COL_VAZAO, {
+    inserir_(COL_VAZAO, {
       projeto_id: 'proj_prova',
       matricula: 'PROVA' + carimbo + i,
       nome: 'Aluno Sintetico ' + i,
       email: 'sintetico' + i + '@exemplo.com',
-      criado_em: agora()
+      criado_em: agora_()
     }, 'vazao_' + carimbo + '_' + i);
   }
   var ms = new Date().getTime() - inicio;
@@ -422,7 +461,7 @@ function provaVazao(n) {
 }
 
 /**
- * Prova 6: `atualizarEmLote` e `excluirEmLote` com versão (02_Repo.gs) contra o
+ * Prova 6: `atualizarEmLote_` e `excluirEmLote_` com versão (02_Repo.gs) contra o
  * Firestore de verdade.
  *
  * É o ÚNICO ponto em que o falso dos testes (testes/apoio.js) pode divergir do
@@ -435,7 +474,7 @@ function provaVazao(n) {
  *      CPF e a linha original sobrevivem;
  *   2. o patch num id inexistente devolve 404 NOT_FOUND e NADA do lote é
  *      aplicado — nem o documento bom que veio antes dele;
- *   3. o `updateTime` que `ler`/`listar` devolvem em `_versao` serve tal qual
+ *   3. o `updateTime` que `ler_`/`listar_` devolvem em `_versao` serve tal qual
  *      como `currentDocument.updateTime`: o patch com a versão CERTA entra, e
  *      o patch com a versão de ANTES de uma reescrita volta FAILED_PRECONDITION
  *      sem aplicar nada (a corrida do Aplicar, 05c_Revisao.gs);
@@ -444,20 +483,26 @@ function provaVazao(n) {
  * Custa ~5 escritas, ~6 leituras e três commits recusados. `provaLimpar()` apaga.
  */
 function provaAtualizarEmLote() {
+  exigirDono_();
+  return provaAtualizarEmLote_();
+}
+
+/** O trabalho de `provaAtualizarEmLote`, depois da guarda. É esta que o código chama por dentro. */
+function provaAtualizarEmLote_() {
   Logger.log('=== provaAtualizarEmLote ===');
   var carimbo = String(new Date().getTime());
   var id = 'patch_' + carimbo;
 
-  escreverEmLote(COL_PATCH, [{
+  escreverEmLote_(COL_PATCH, [{
     _id: id, matricula: 'PROVA' + carimbo, nome: 'Aluno Sintetico', cpf: '00000000000',
     raw_json: '["Aluno Sintetico","PROVA' + carimbo + '"]', lote_id: 'L_prova'
   }]);
 
-  var patches = atualizarEmLote(COL_PATCH, [{
-    _id: id, situacao_cadastro: 'CANCELADO', cancelado_em: agora(),
+  var patches = atualizarEmLote_(COL_PATCH, [{
+    _id: id, situacao_cadastro: 'CANCELADO', cancelado_em: agora_(),
     cancelado_por: 'prova@exemplo.com', cancelado_lote_id: 'L_prova_2'
   }]);
-  var depois = ler(COL_PATCH, id);
+  var depois = ler_(COL_PATCH, id);
   var preservou = depois && depois.nome === 'Aluno Sintetico' && depois.cpf === '00000000000' &&
     depois.lote_id === 'L_prova' && depois.situacao_cadastro === 'CANCELADO';
   Logger.log('1. patch em documento existente: ' + patches + ' patch(es); ' +
@@ -465,39 +510,39 @@ function provaAtualizarEmLote() {
 
   var recusou = '';
   try {
-    atualizarEmLote(COL_PATCH, [
+    atualizarEmLote_(COL_PATCH, [
       { _id: id, situacao_cadastro: 'REPROVADO' },
       { _id: id + '_fantasma', situacao_cadastro: 'CANCELADO' }
     ]);
   } catch (e) {
     recusou = e.status || e.message;
   }
-  var intacto = ler(COL_PATCH, id);
-  var fantasma = ler(COL_PATCH, id + '_fantasma');
+  var intacto = ler_(COL_PATCH, id);
+  var fantasma = ler_(COL_PATCH, id + '_fantasma');
   var atomico = recusou === 'NOT_FOUND' && intacto && intacto.situacao_cadastro === 'CANCELADO' && fantasma === null;
   Logger.log('2. id inexistente no lote: ' + (recusou ? 'recusou com ' + recusou : 'NÃO recusou') +
     '; o bom ficou ' + (intacto && intacto.situacao_cadastro) + '; fantasma: ' + (fantasma ? 'CRIADO' : 'não criado') +
     ' -> ' + (atomico ? 'OK — nada do lote entrou' : 'FALHOU'));
 
-  // 3. A versão. `listar` é o caminho da releitura do Aplicar; `ler` confere
+  // 3. A versão. `listar_` é o caminho da releitura do Aplicar; `ler_` confere
   // que os dois dizem a mesma coisa. Com a versão certa o patch entra; depois
   // de uma reescrita (a reimportação do meio tempo) a versão velha é recusada.
-  var relido = listar(COL_PATCH, { campo: 'lote_id', valor: 'L_prova' }).itens.filter(function (d) { return d._id === id; })[0];
-  var mesmaVersao = Boolean(relido && relido._versao) && relido._versao === (ler(COL_PATCH, id) || {})._versao;
+  var relido = listar_(COL_PATCH, { campo: 'lote_id', valor: 'L_prova' }).itens.filter(function (d) { return d._id === id; })[0];
+  var mesmaVersao = Boolean(relido && relido._versao) && relido._versao === (ler_(COL_PATCH, id) || {})._versao;
   var entrou = false;
   try {
-    entrou = atualizarEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova2@exemplo.com' }]) === 1 &&
-      (ler(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
+    entrou = atualizarEmLote_(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova2@exemplo.com' }]) === 1 &&
+      (ler_(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
   } catch (e) {
     Logger.log('3a. patch com a versão certa foi RECUSADO: ' + (e.status || e.message));
   }
   var recusouVersao = '';
   try {
-    atualizarEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova3@exemplo.com' }]);
+    atualizarEmLote_(COL_PATCH, [{ _id: id, _versao: relido._versao, cancelado_por: 'prova3@exemplo.com' }]);
   } catch (e) {
     recusouVersao = e.status || e.message;
   }
-  var ficouComA2 = (ler(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
+  var ficouComA2 = (ler_(COL_PATCH, id) || {}).cancelado_por === 'prova2@exemplo.com';
   var versionado = mesmaVersao && entrou && recusouVersao === 'FAILED_PRECONDITION' && ficouComA2;
   Logger.log('3. versão: ler/listar iguais: ' + mesmaVersao + '; patch com a versão certa entrou: ' + entrou +
     '; patch com a versão velha: ' + (recusouVersao ? 'recusou com ' + recusouVersao : 'NÃO recusou') +
@@ -506,11 +551,11 @@ function provaAtualizarEmLote() {
   // 4. O delete com a versão velha.
   var recusouDelete = '';
   try {
-    excluirEmLote(COL_PATCH, [{ _id: id, _versao: relido._versao }]);
+    excluirEmLote_(COL_PATCH, [{ _id: id, _versao: relido._versao }]);
   } catch (e) {
     recusouDelete = e.status || e.message;
   }
-  var sobreviveu = ler(COL_PATCH, id) !== null;
+  var sobreviveu = ler_(COL_PATCH, id) !== null;
   var deleteSeguro = recusouDelete === 'FAILED_PRECONDITION' && sobreviveu;
   Logger.log('4. delete com a versão velha: ' + (recusouDelete ? 'recusou com ' + recusouDelete : 'NÃO recusou') +
     '; o documento ' + (sobreviveu ? 'ficou' : 'SUMIU') + ' -> ' + (deleteSeguro ? 'OK' : 'FALHOU'));
@@ -522,7 +567,7 @@ function provaAtualizarEmLote() {
 }
 
 /**
- * Prova do `:commit` MISTO — `escreverAtomico` (02_Repo.gs) contra o Firestore
+ * Prova do `:commit` MISTO — `escreverAtomico_` (02_Repo.gs) contra o Firestore
  * de verdade.
  *
  * Sem número no nome de propósito: já existem dois "Prova 6" neste arquivo, e o
@@ -533,7 +578,7 @@ function provaAtualizarEmLote() {
  * depende: copiar a inscrição antiga para a quarentena, apagá-la e criar a nova
  * — tudo ou nada. O falso dos testes (testes/apoio.js) imita as precondições;
  * aqui se mede se o banco concorda. Divergiu, corrigem-se o falso e
- * `escreverAtomico` — nunca o contrário.
+ * `escreverAtomico_` — nunca o contrário.
  *
  * É o item 1 do checklist de ligar `aluno_projeto_unico=SIM` (README). Três
  * afirmações:
@@ -541,7 +586,7 @@ function provaAtualizarEmLote() {
  *   1. `gravar` (upsert noutra coleção) + `apagar` + `criar` (`exists:false`)
  *      aplica os TRÊS numa requisição só;
  *   2. com o id do `criar` JÁ OCUPADO, o commit inteiro volta ALREADY_EXISTS,
- *      `escreverAtomico` devolve `{ jaExistia: true }` sem lançar, e o `apagar`
+ *      `escreverAtomico_` devolve `{ jaExistia: true }` sem lançar, e o `apagar`
  *      do mesmo lote NÃO foi aplicado — é isso que impede a troca de deixar o
  *      aluno sem inscrição nenhuma;
  *   3. `gravar` com `versao` de um documento que foi reescrito no meio tempo
@@ -551,6 +596,12 @@ function provaAtualizarEmLote() {
  * Custa ~6 escritas, ~6 leituras e dois commits recusados. `provaLimpar()` apaga.
  */
 function provaCommitMisto() {
+  exigirDono_();
+  return provaCommitMisto_();
+}
+
+/** O trabalho de `provaCommitMisto`, depois da guarda. É esta que o código chama por dentro. */
+function provaCommitMisto_() {
   Logger.log('=== provaCommitMisto ===');
   var carimbo = String(new Date().getTime());
   var velha = 'troca_velha_' + carimbo;
@@ -558,16 +609,16 @@ function provaCommitMisto() {
 
   // A inscrição de partida, como o aluno a teria: ela é o que a troca copia,
   // apaga e substitui.
-  escreverEmLote(COL_TROCA, [{
+  escreverEmLote_(COL_TROCA, [{
     _id: velha, projeto_id: 'p_x', projeto_nome: 'Projeto X',
     matricula: 'PROVA' + carimbo, nome: 'Aluno Sintetico', email: 'aluno@exemplo.com'
   }]);
-  var original = ler(COL_TROCA, velha);
+  var original = ler_(COL_TROCA, velha);
 
   // 1. Os três verbos, duas coleções, uma requisição.
-  var r1 = escreverAtomico([
+  var r1 = escreverAtomico_([
     { gravar: { colecao: COL_QUARENTENA, id: velha, objeto: Object.assign({}, original, {
-      anulado_em: agora(), anulado_por: 'aluno', anulado_motivo: 'TROCA', trocado_para: nova
+      anulado_em: agora_(), anulado_por: 'aluno', anulado_motivo: 'TROCA', trocado_para: nova
     }) } },
     { apagar: { colecao: COL_TROCA, id: velha } },
     { criar: { colecao: COL_TROCA, id: nova, objeto: {
@@ -575,31 +626,31 @@ function provaCommitMisto() {
       nome: 'Aluno Sintetico', email: 'aluno@exemplo.com', trocada_de: velha
     } } }
   ]);
-  var copia = ler(COL_QUARENTENA, velha);
+  var copia = ler_(COL_QUARENTENA, velha);
   var aplicou = r1.aplicado && !r1.jaExistia && r1.id === nova &&
-    ler(COL_TROCA, velha) === null && (ler(COL_TROCA, nova) || {}).projeto_id === 'p_y' &&
+    ler_(COL_TROCA, velha) === null && (ler_(COL_TROCA, nova) || {}).projeto_id === 'p_y' &&
     copia !== null && copia.anulado_motivo === 'TROCA' && copia.nome === 'Aluno Sintetico';
   Logger.log('1. gravar + apagar + criar: ' + (aplicou
     ? 'OK — a antiga saiu, a cópia ficou inteira na outra coleção e a nova nasceu'
-    : 'FALHOU — velha: ' + JSON.stringify(ler(COL_TROCA, velha)) +
-      '; nova: ' + JSON.stringify(ler(COL_TROCA, nova)) + '; cópia: ' + JSON.stringify(copia)));
+    : 'FALHOU — velha: ' + JSON.stringify(ler_(COL_TROCA, velha)) +
+      '; nova: ' + JSON.stringify(ler_(COL_TROCA, nova)) + '; cópia: ' + JSON.stringify(copia)));
 
   // 2. O id do `criar` já ocupado. O `apagar` do mesmo lote não pode entrar: se
   // entrasse, o aluno ficaria sem a antiga E sem a nova.
   var outra = 'troca_outra_' + carimbo;
-  escreverEmLote(COL_TROCA, [{ _id: outra, projeto_id: 'p_z', nome: 'Outro Sintetico' }]);
+  escreverEmLote_(COL_TROCA, [{ _id: outra, projeto_id: 'p_z', nome: 'Outro Sintetico' }]);
   var r2 = null;
   var lancou = '';
   try {
-    r2 = escreverAtomico([
+    r2 = escreverAtomico_([
       { apagar: { colecao: COL_TROCA, id: outra } },
       { criar: { colecao: COL_TROCA, id: nova, objeto: { projeto_id: 'p_y', nome: 'Nao Deve Entrar' } } }
     ]);
   } catch (e) {
     lancou = e.status || e.message;
   }
-  var sobreviveu = ler(COL_TROCA, outra) !== null;
-  var intacta = (ler(COL_TROCA, nova) || {}).nome === 'Aluno Sintetico';
+  var sobreviveu = ler_(COL_TROCA, outra) !== null;
+  var intacta = (ler_(COL_TROCA, nova) || {}).nome === 'Aluno Sintetico';
   var jaExistia = Boolean(r2 && r2.jaExistia && !r2.aplicado) && !lancou && sobreviveu && intacta;
   Logger.log('2. `criar` em id ocupado: ' + (lancou ? 'LANÇOU ' + lancou : 'devolveu jaExistia=' +
     (r2 && r2.jaExistia)) + '; o documento do `apagar` ' + (sobreviveu ? 'ficou' : 'SUMIU') +
@@ -607,11 +658,11 @@ function provaCommitMisto() {
     ' -> ' + (jaExistia ? 'OK — nada do lote entrou' : 'FALHOU'));
 
   // 3. A versão: alguém reescreve o documento entre a leitura e o commit.
-  var lido = ler(COL_TROCA, outra);
-  escreverEmLote(COL_TROCA, [Object.assign({}, lido, { nome: 'Reescrito Por Outro' })]);
+  var lido = ler_(COL_TROCA, outra);
+  escreverEmLote_(COL_TROCA, [Object.assign({}, lido, { nome: 'Reescrito Por Outro' })]);
   var recusouVersao = '';
   try {
-    escreverAtomico([
+    escreverAtomico_([
       { gravar: { colecao: COL_TROCA, id: outra, objeto: Object.assign({}, lido, { nome: 'Promovido' }),
                   versao: lido._versao } },
       { apagar: { colecao: COL_TROCA, id: nova } }
@@ -619,8 +670,8 @@ function provaCommitMisto() {
   } catch (e) {
     recusouVersao = e.status || e.message;
   }
-  var ficouReescrito = (ler(COL_TROCA, outra) || {}).nome === 'Reescrito Por Outro';
-  var novaViva = ler(COL_TROCA, nova) !== null;
+  var ficouReescrito = (ler_(COL_TROCA, outra) || {}).nome === 'Reescrito Por Outro';
+  var novaViva = ler_(COL_TROCA, nova) !== null;
   var versionado = recusouVersao === 'FAILED_PRECONDITION' && ficouReescrito && novaViva;
   Logger.log('3. `gravar` com a versão velha: ' + (recusouVersao ? 'recusou com ' + recusouVersao : 'NÃO recusou') +
     '; o documento ficou como o outro o deixou: ' + ficouReescrito +
@@ -653,6 +704,12 @@ function provaCommitMisto() {
  * some sozinha quando o último documento dela é apagado.
  */
 function provaLimpar() {
+  exigirDono_();
+  return provaLimpar_();
+}
+
+/** O trabalho de `provaLimpar`, depois da guarda. É esta que o código chama por dentro. */
+function provaLimpar_() {
   var colecoes = fsColecoes_().filter(function (c) {
     return String(c).indexOf(PREFIXO_PROVA) === 0;
   });
@@ -691,11 +748,11 @@ function provaApagarColecao_(colecao) {
 
   var apagados = 0;
   for (var pagina = 0; pagina < PROVA_MAX_PAGINAS; pagina++) {
-    var itens = listar(colecao, { limite: PROVA_TAMANHO_PAGINA }).itens;
+    var itens = listar_(colecao, { limite: PROVA_TAMANHO_PAGINA }).itens;
     if (!itens.length) return apagados;
 
     itens.forEach(function (item) {
-      excluir(colecao, item._id);
+      excluir_(colecao, item._id);
       apagados++;
     });
   }
@@ -709,13 +766,19 @@ function provaApagarColecao_(colecao) {
  *
  * Existe porque o painel ainda não lista nada, e "acho que passaram três" não é
  * uma frase sobre a qual se decide. A contagem sai da mesma agregação que
- * `reservarVaga` usa para decidir a vaga — se este relatório disser ABERTO com o
+ * `reservarVaga_` usa para decidir a vaga — se este relatório disser ABERTO com o
  * teto estourado, o problema é a regra, e não a leitura.
  */
 function diagnostico() {
+  exigirDono_();
+  return diagnostico_();
+}
+
+/** O trabalho de `diagnostico`, depois da guarda. É esta que o código chama por dentro. */
+function diagnostico_() {
   Logger.log('=== diagnostico ===');
 
-  var projetos = listar(PROJETOS_COLECAO, {}).itens;
+  var projetos = listar_(PROJETOS_COLECAO, {}).itens;
   if (!projetos.length) {
     Logger.log('nenhum projeto cadastrado');
     return;
@@ -733,7 +796,7 @@ function diagnostico() {
       teto > 0 && inscritos > teto ? '  <<< TETO ESTOURADO' : '');
   });
 
-  var total = contar(INSCRICOES_COLECAO, {});
+  var total = contar_(INSCRICOES_COLECAO, {});
   Logger.log('total de inscrições no banco: %s', total);
 }
 
@@ -766,12 +829,18 @@ function diagnostico() {
  * esta função.
  */
 function autorizar() {
+  exigirDono_();
+  return autorizar_();
+}
+
+/** O trabalho de `autorizar`, depois da guarda. É esta que o código chama por dentro. */
+function autorizar_() {
   Logger.log('=== autorizar ===');
   Logger.log('Escopos do manifesto: script.external_request, datastore, ' +
     'drive.file, script.scriptapp, userinfo.email, script.send_mail.');
 
   // userinfo.email — quem o painel vai registrar como autor de cada ação.
-  Logger.log('e-mail autorizado: %s', usuarioAtual());
+  Logger.log('e-mail autorizado: %s', usuarioAtual_());
 
   // drive.file — a chamada mais barata que exige o escopo.
   try {

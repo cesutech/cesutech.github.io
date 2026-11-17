@@ -80,7 +80,7 @@
  * freio que uma pessoa possa acionar contra outra.
  *
  * O que sobrou de global é o modo degradado: sem CacheService esta porta FECHA
- * (ver `pedirLinkDeAcesso`). Fecha para todos, inclusive para quem a atacaria, e
+ * (ver `pedirLinkDeAcesso_`). Fecha para todos, inclusive para quem a atacaria, e
  * o `liberarMeuAcesso()` do editor não passa por aqui.
  */
 
@@ -146,11 +146,11 @@ var LINK_EMAIL_MAX = 254;
  * Devolve SEMPRE `{ ok: true, mensagem: LINK_RESPOSTA_UNICA }`. Nenhum ramo
  * abaixo pode mudar isso — ver a PRIMEIRA decisão, no topo do arquivo.
  */
-function pedirLinkDeAcesso(email) {
+function pedirLinkDeAcesso_(email) {
   var resposta = { ok: true, mensagem: LINK_RESPOSTA_UNICA };
 
   try {
-    var alvo = normalizarEmail(email);
+    var alvo = normalizarEmail_(email);
 
     // Passo 1 — formato. Barato de propósito: barra o laço de terminal antes de
     // ele encostar em qualquer outra coisa.
@@ -188,7 +188,7 @@ function pedirLinkDeAcesso(email) {
       // por requisição — e uma enxurrada anônima gastaria a cota que o
       // FORMULÁRIO DO ALUNO usa, derrubando a razão de o sistema existir para
       // salvar a porta dos fundos. Registrar cada recusa também não serve: o
-      // agrupamento de `registrarRecusa` depende do mesmo cache, e sob
+      // agrupamento de `registrarRecusa_` depende do mesmo cache, e sob
       // enxurrada viraria uma escrita por requisição.
       //
       // O `console.error` é de graça e não tem cota. E `liberarMeuAcesso()`, no
@@ -209,7 +209,7 @@ function pedirLinkDeAcesso(email) {
     // lê a mesma frase da primeira, e não "calma lá". A diferença importaria só
     // para quem está automatizando.
     if (!freioDoLinkLibera_(alvo)) {
-      registrarRecusa('LINK_FREIO', 'painel', alvo,
+      registrarRecusa_('LINK_FREIO', 'painel', alvo,
         'pedidos de link acima do permitido para o endereço', 'link_freio_' + alvo);
       return resposta;
     }
@@ -252,7 +252,7 @@ function enviarLink_(email) {
   faxinaLinks_();
 
   if (MailApp.getRemainingDailyQuota() <= 0) {
-    registrar('LINK_SEM_COTA', 'painel', email,
+    registrar_('LINK_SEM_COTA', 'painel', email,
       'cota diária de envio de e-mail esgotada — link não enviado');
     return;
   }
@@ -277,7 +277,7 @@ function enviarLink_(email) {
     name: 'Painel CESUTECH'
   });
 
-  registrar('LINK_ENVIADO', 'painel', email, 'link de acesso enviado');
+  registrar_('LINK_ENVIADO', 'painel', email, 'link de acesso enviado');
 }
 
 /**
@@ -337,7 +337,7 @@ function corpoDoEmail_(token) {
  * perdeu o acesso recebem a mesma frase. Ela não tem nada a esconder de quem
  * está com o link na mão, mas tem de quem está chutando.
  */
-function entrarComLink(token) {
+function entrarComLink_(token) {
   var recusa = {
     ok: false,
     erro: 'Este link não vale mais. Peça um novo na tela de acesso — cada link ' +
@@ -354,7 +354,7 @@ function entrarComLink(token) {
     if (!bruto) return recusa;
 
     var dados = JSON.parse(bruto);
-    var email = normalizarEmail(dados && dados.email);
+    var email = normalizarEmail_(dados && dados.email);
     var expiraEm = Number(dados && dados.expira_em);
 
     // Consumido aqui, aconteça o que acontecer daqui para baixo.
@@ -364,18 +364,18 @@ function entrarComLink(token) {
     if (!expiraEm || new Date().getTime() > expiraEm) return recusa;
 
     if (!email || !emailAutorizado_(email)) {
-      registrar('LOGIN_NEGADO', 'painel', email || 'anonimo',
+      registrar_('LOGIN_NEGADO', 'painel', email || 'anonimo',
         'link válido, mas o endereço não está mais autorizado');
       return recusa;
     }
 
     // Como na porta do Google (07_Auth.gs): a entrada é a única ação em que a
-    // pessoa se identifica antes de existir sessão, e `exigirAdmin` — que anota
+    // pessoa se identifica antes de existir sessão, e `exigirAdmin_` — que anota
     // o operador nas demais — não passa por aqui. A posse da caixa já provou o
     // endereço e a allowlist acabou de ser conferida, então a linha diz quem
     // entrou. A recusa acima continua sem operador: ninguém entrou.
     anotarOperador_(email);
-    registrar('LOGIN', 'painel', email, 'via link por e-mail');
+    registrar_('LOGIN', 'painel', email, 'via link por e-mail');
     // O nível vai junto, como nas outras duas portas (07_Auth.gs): quem entra
     // pela recuperação vê a mesma tela que veria entrando pelo Google.
     return {
@@ -402,17 +402,59 @@ function impressaoDoLink_(token) {
 }
 
 /**
- * O endereço do painel, para montar o link.
+ * O endereço do painel, para montar o link — e ele só pode ser um dos de
+ * PAINEIS_ACEITOS, logo abaixo.
  *
- * Config, e não código, porque o endereço do painel pode mudar — outra conta,
- * um domínio próprio — e ninguém vai lembrar de reimplantar o Apps Script por
- * causa disso. O padrão existe para o sistema nunca enviar um link quebrado por
- * falta de configuração.
+ * O link leva um código que, trocado no painel, vira uma sessão de oito horas,
+ * num e-mail que o próprio sistema assina. Um endereço que aponte para outro
+ * lugar entrega esse código a quem estiver do outro lado, e o e-mail continua
+ * verdadeiro: não há o que a pessoa estranhar. Por isso `url_painel` não é mais um texto livre — ela
+ * ESCOLHE entre os endereços de PAINEIS_ACEITOS, que estão no código. O mesmo
+ * vale para o endereço que `liberarAcesso` imprime no editor, que passa por
+ * aqui.
+ *
+ * A chave era texto livre para uma mudança de casa não exigir reimplantar o
+ * Apps Script. O preço de fechá-la é esse: mudar o painel de casa é acrescentar
+ * o endereço novo em PAINEIS_ACEITOS, publicar o servidor, e só então trocar a
+ * chave. A tela recusa o endereço fora da lista (`salvarConfiguracao_`,
+ * 10_Painel.gs), e o que já estiver no banco fora dela não vale: o link sai com
+ * o padrão, e o console diz por quê.
+ *
+ * Vazia, a chave dá o padrão, que é o que impede o link quebrado por falta de
+ * configuração.
  */
 function urlDoPainel_() {
-  var url = String(config('url_painel', '')).trim();
-  if (!url) url = 'https://cesutech.github.io/painel/';
-  return url.charAt(url.length - 1) === '/' ? url : url + '/';
+  var configurado = enderecoDoPainel_(config_('url_painel', ''));
+  if (!configurado) return PAINEIS_ACEITOS[0];
+  if (PAINEIS_ACEITOS.indexOf(configurado) !== -1) return configurado;
+
+  console.error('url_painel não é um dos endereços do painel; o link vai com o padrão (' +
+    PAINEIS_ACEITOS[0] + '). Valor gravado: ' + configurado.slice(0, 120));
+  return PAINEIS_ACEITOS[0];
+}
+
+/**
+ * Os endereços em que o painel pode morar. O primeiro é o padrão.
+ *
+ * Hoje é um só, e é o mesmo que o `/exec` sem rota anuncia (ENDERECO_DO_PAINEL,
+ * 08_Api.gs) e o padrão de `url_painel` (CONFIG_PADRAO, 00_Config.gs): há teste
+ * que falha se os três discordarem (testes/acesso.js). Uma lista, e não uma
+ * constante, para a mudança de casa ter onde acontecer sem tirar o endereço
+ * antigo do ar no mesmo dia.
+ */
+var PAINEIS_ACEITOS = ['https://cesutech.github.io/painel/'];
+
+/** O endereço como ele é comparado: sem espaço nas pontas e com a barra no fim. */
+function enderecoDoPainel_(url) {
+  var texto = String(url === null || url === undefined ? '' : url).trim();
+  if (!texto) return '';
+  return texto.charAt(texto.length - 1) === '/' ? texto : texto + '/';
+}
+
+/** `url` é um dos endereços do painel? Vazio não é: quem quer o padrão deixa a chave vazia. */
+function painelAceito_(url) {
+  var endereco = enderecoDoPainel_(url);
+  return endereco !== '' && PAINEIS_ACEITOS.indexOf(endereco) !== -1;
 }
 
 /**
@@ -465,7 +507,7 @@ var LINK_CACHE_ALLOWLIST = 'link_allowlist';
  * "atacar esta rota não faz nada".
  *
  * O preço é uma janela de até cinco minutos em que um endereço recém-removido
- * ainda RECEBE o e-mail. Ele não ENTRA: `entrarComLink` reconfere a allowlist no
+ * ainda RECEBE o e-mail. Ele não ENTRA: `entrarComLink_` reconfere a allowlist no
  * clique, e essa conferência é sempre fresca. E a janela nem chega a abrir no
  * caso normal, porque quem mexe na lista derruba o cache junto
  * (`esquecerAllowlistDoLink_`).
@@ -508,7 +550,7 @@ function allowlistParaLink_() {
  *
  * Sem isto, tirar alguém do acesso continuaria mandando link para essa pessoa
  * por até cinco minutos — e "tirei o acesso" tem de valer no instante em que se
- * clica, que é a mesma razão pela qual `removerAdmin` já derruba a sessão.
+ * clica, que é a mesma razão pela qual `removerAdmin_` já derruba a sessão.
  */
 function esquecerAllowlistDoLink_() {
   try {
@@ -528,9 +570,9 @@ function esquecerAllowlistDoLink_() {
  *
  * NÃO É VAZAMENTO, e a distinção importa: isto responde sobre o ESTADO DO
  * SISTEMA (há cota? o teto da hora estourou? há alguém na lista?), nunca sobre
- * um endereço. A frase única de `pedirLinkDeAcesso` continua intacta, e nada
+ * um endereço. A frase única de `pedirLinkDeAcesso_` continua intacta, e nada
  * aqui permite descobrir quem está na allowlist — só se ela está vazia, que
- * `modoDeAcesso` já contava antes disto existir.
+ * `modoDeAcesso_` já contava antes disto existir.
  *
  * O que um atacante aprende: que ele conseguiu esgotar a cota. Ele saberia de
  * qualquer jeito, parando de receber; e quem PRECISA saber é a coordenação, que
@@ -591,23 +633,49 @@ function faxinaLinks_() {
  * (Este é o mesmo `Session` que volta vazio no web app anônimo, e por isso o
  * sistema todo precisa do botão do Google. No editor ele responde: a diferença é
  * o `executeAs` da implantação, não a API. Ver o topo de 07_Auth.gs.)
+ *
+ * E é essa mesma diferença que a primeira linha cobra: `exigirDono_` (07_Auth.gs)
+ * só deixa passar a execução em que a conta que pediu é a que roda, e nunca
+ * dentro de uma requisição ao web app — o que sobra, na prática, é o editor. Se
+ * ela recusar você no editor, a saída está escrita em `liberarAcesso`, logo
+ * abaixo.
  */
 function liberarMeuAcesso() {
+  exigirDono_();
+  return liberarMeuAcesso_();
+}
+
+/** O trabalho de `liberarMeuAcesso`, depois da guarda. É esta que o código chama por dentro. */
+function liberarMeuAcesso_() {
   var email = '';
   try {
-    email = normalizarEmail(Session.getEffectiveUser().getEmail());
+    email = normalizarEmail_(Session.getEffectiveUser().getEmail());
   } catch (e) {
     email = '';
   }
 
+  // Pela casca, a guarda já exigiu este e-mail; ele só falta aqui se o Apps
+  // Script deixar de entregá-lo entre uma pergunta e a outra. A saída, nesse
+  // caso, é a mesma da guarda — e não `liberarAcesso`, que tem a mesma guarda.
   if (!email) {
-    throw new Error(
-      'O Apps Script não entregou o e-mail desta conta. Confira se userinfo.email está no ' +
-      'manifesto. Se estiver, escreva no editor uma função de uma linha e rode ELA (o botão ' +
-      'Executar não passa argumentos):  function socorro() { liberarAcesso("seu-email@dominio"); }'
-    );
+    throw new Error('O Apps Script não entregou o e-mail desta conta. Confira se userinfo.email ' +
+      'está no appsscript.json e rode de novo; se continuar, a saída está no comentário de ' +
+      'liberarAcesso (07b_LinkPorEmail.gs).');
   }
-  return liberarAcesso(email);
+
+  // A conta do editor também tem de ter a forma da lista de acesso
+  // (`emailDeAcessoValido_`, 07_Auth.gs) — e um apóstrofo, que o Google
+  // Workspace aceita, fica de fora dela. Sem esta conferência a recusa sairia de
+  // `liberarAcesso_` com a frase de quem esqueceu o argumento, e aqui ninguém
+  // esqueceu nada. A saída é outro endereço, que tenha a forma: a casca
+  // `liberarAcesso` passa pela guarda nesta mesma conta, e o comentário dela diz
+  // como.
+  if (!emailDeAcessoValido_(email)) {
+    throw new Error('A conta ' + email + ' não tem a forma que a lista de acesso aceita (antes do @, ' +
+      'só letras sem acento, dígitos e . _ % + -). Rode liberarAcesso("<outro endereço, com essa ' +
+      'forma>"), como diz o comentário de liberarAcesso (07b_LinkPorEmail.gs).');
+  }
+  return liberarAcesso_(email);
 }
 
 /**
@@ -626,9 +694,37 @@ function liberarMeuAcesso() {
  *
  * POR QUE ISTO NÃO É UMA PORTA DOS FUNDOS: para chamá-la é preciso abrir o
  * projeto no editor do Apps Script, e quem consegue isso já pode reescrever
- * `entrarComLink` inteiro. Ela não concede nada que esse acesso já não
+ * `entrarComLink_` inteiro. Ela não concede nada que esse acesso já não
  * concedesse; o que ela faz é tornar o caminho explícito, curto e REGISTRADO —
  * em vez de deixar cada um improvisar o seu.
+ *
+ * "Só pelo editor" não é uma suposição sobre quem a chama: é a primeira linha
+ * dela (`exigirDono_`, 07_Auth.gs), que recusa qualquer execução dentro de uma
+ * requisição ao web app e qualquer uma em que a conta que pediu não seja a que
+ * roda.
+ *
+ * SE A GUARDA RECUSAR VOCÊ NO EDITOR — a frase fala em `userinfo.email` —, o
+ * Apps Script não entregou o seu e-mail, e `liberarMeuAcesso` e esta param no
+ * mesmo lugar. Primeiro confira o escopo `userinfo.email` no appsscript.json e
+ * rode de novo, autorizando o projeto com a sua conta. Se nem assim, a saída é de
+ * quem tem o editor aberto: apague a primeira linha desta função (`exigirDono_();`)
+ * ali mesmo no editor, rode o `socorro()` de cima e ponha a linha de volta em
+ * seguida. Isso fica só no editor — não vai para o repositório, e não se cria
+ * versão nova da implantação nesse meio-tempo. A guarda não protege a função de
+ * quem tem o editor (essa pessoa poderia reescrevê-la de qualquer jeito); protege
+ * de quem não tem.
+ *
+ * SE A CONTA DO EDITOR NÃO TIVER A FORMA da lista de acesso — antes do @, só
+ * letras sem acento, dígitos e `. _ % + -` (`emailDeAcessoValido_`, 07_Auth.gs);
+ * um apóstrofo, que o Google Workspace aceita, fica de fora —, `liberarMeuAcesso`
+ * para dizendo "A conta ... não tem a forma que a lista de acesso aceita". A
+ * guarda passa (a conta é a mesma que roda), e a saída é esta função, com outro
+ * endereço que tenha a forma, pelo mesmo `socorro()` de cima:
+ *
+ *     function socorro() { liberarAcesso('nome.sobrenome@unicesusc.edu.br'); }
+ *
+ * A sessão nasce para esse endereço, e é por ele que se entra nos dias seguintes:
+ * pelo botão do Google, com a conta dele, ou pelo link por e-mail.
  *
  * Ela NÃO está na lista de funções que a API despacha (08_Api.gs), e não pode
  * entrar: seria, aí sim, uma porta dos fundos anônima.
@@ -636,7 +732,7 @@ function liberarMeuAcesso() {
  * O e-mail é acrescentado à allowlist quando ainda não estiver nela, e a razão
  * NÃO é a que estava escrita aqui. Dizia-se que "uma sessão para alguém fora da
  * lista morreria na primeira função do painel que confere" — e nenhuma função do
- * painel confere: `exigirAdmin` valida o token e mais nada. A sessão duraria as
+ * painel confere: `exigirAdmin_` valida o token e mais nada. A sessão duraria as
  * oito horas inteiras. Quem confiasse na frase suporia uma guarda que não
  * existe, que é o pior tipo de comentário errado.
  *
@@ -646,13 +742,30 @@ function liberarMeuAcesso() {
  * durar mais que uma tarde.
  */
 function liberarAcesso(email) {
-  var alvo = normalizarEmail(email);
-  if (!alvo || alvo.indexOf('@') === -1) {
+  exigirDono_();
+  return liberarAcesso_(email);
+}
+
+/** O trabalho de `liberarAcesso`, depois da guarda. É esta que o código chama por dentro. */
+function liberarAcesso_(email) {
+  var alvo = normalizarEmail_(email);
+  // A forma da lista de acesso (`emailDeAcessoValido_`, 07_Auth.gs): um e-mail
+  // que não a tivesse entraria no banco e ficaria de fora de `adminEmails_` — a
+  // sessão nasceria para alguém que as duas portas recusam no dia seguinte.
+  if (!emailDeAcessoValido_(alvo)) {
     throw new Error('Informe um e-mail: liberarAcesso("professor@unicesusc.edu.br")');
   }
 
   var lista = adminEmails_();
   var gerais = coordenadoresGerais_();
+  // Com a lista ILEGÍVEL (`allowlistIlegivel_`, 07_Auth.gs) toda sessão aberta
+  // antes vale como coordenadora pelo piso, e continuaria valendo depois do
+  // socorro: a lista de gerais fica vazia de novo, e só o primeiro incluir pela
+  // tela a fecharia. Quem estava escrito no texto sem forma não tem um e-mail que
+  // se possa procurar (os endereços separados por ';' são UM item), então caem
+  // TODAS, antes de nascer a de agora — o mesmo que o `invalidarSessoes` do
+  // editor faria. Quem tinha acesso entra de novo depois de incluído pela tela.
+  var ilegivel = allowlistIlegivel_();
   var faltaNaLista = lista.indexOf(alvo) === -1;
   // Só quando a lista de gerais EXISTE: vazia, o piso já faz dele coordenador,
   // e escrevê-la aqui congelaria níveis que ninguém pediu para congelar.
@@ -666,7 +779,7 @@ function liberarAcesso(email) {
     // emergência que desemboca num painel de professor não conserta nada: o
     // professor não abre Configurações, que é exatamente o que se veio
     // consertar. E não concede privilégio novo — quem roda isto está com o
-    // editor do Apps Script aberto e poderia reescrever `exigirCoordenador`
+    // editor do Apps Script aberto e poderia reescrever `exigirCoordenador_`
     // inteiro.
     //
     // A escrita passa pelo escritor único (`aplicarAcessos_`, 07_Auth.gs) pela
@@ -683,16 +796,23 @@ function liberarAcesso(email) {
     if (!reposto.ok) throw new Error('Não consegui repor o acesso: ' + reposto.erro);
   }
 
+  if (ilegivel) invalidarSessoes_();
   var token = criarSessao_(alvo);
-  registrar('ACESSO_LIBERADO', 'painel', alvo,
-    'sessão criada à mão pelo editor do Apps Script');
+  registrar_('ACESSO_LIBERADO', 'painel', alvo,
+    'sessão criada à mão pelo editor do Apps Script' +
+    (ilegivel ? '; a lista de acesso estava ilegível, e as sessões abertas antes caíram' : ''));
 
   var url = urlDoPainel_() + '?sessao=' + token;
   console.log(
     '\n\nAcesso liberado para ' + alvo + '.\n\n' +
     'Abra este endereço. Ele carrega uma sessão comum, de 8 horas — abrir de novo\n' +
     'dentro desse prazo continua funcionando, e depois dele não funciona mais:\n\n' + url + '\n\n' +
-    'Depois de entrar, confira em Configurações quem está na lista de acesso.\n'
+    'Depois de entrar, confira em Configurações quem está na lista de acesso.\n' +
+    (ilegivel
+      ? 'A lista de acesso gravada não tinha nenhum e-mail com forma de endereço: ela ficou só\n' +
+        'com ' + alvo + ', e as sessões abertas antes caíram. Inclua as outras pessoas pela tela\n' +
+        'Quem tem acesso.\n'
+      : '')
   );
   return url;
 }

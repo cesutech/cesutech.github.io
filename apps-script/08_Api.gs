@@ -12,8 +12,12 @@
  *   POST acao=inscricao   JSON   a inscrição vinda do site
  *   POST acao=login       JSON   as cinco funções de entrada no painel
  *   POST acao=painel      JSON   as ações do painel, todas com token
- *   GET  (sem `api`)      HTML   Cadastro.html — o formulário interno
- *   GET  ?p=admin         HTML   Admin.html — o painel de gestão
+ *   GET  (sem `api`)      JSON   só a frase de que este endereço é a API, com
+ *                                os endereços do site e do painel — inclusive
+ *                                para o `?p=admin`, que foi o endereço do painel
+ *
+ * Tudo é JSON, e a ausência de página é o requisito: ver "Nenhuma resposta é
+ * página", logo abaixo.
  *
  * As quatro primeiras e o POST são ANÔNIMAS: a implantação é
  * `access: ANYONE_ANONYMOUS` (appsscript.json), porque o aluno se inscreve sem
@@ -37,6 +41,24 @@
  * O outro lado do contrato está em `docs/assets/app.js:513`. Mudar um dos dois
  * sem o outro quebra a inscrição inteira, e quebra calada.
  *
+ * ---------------------------------------------- Nenhuma resposta é página
+ *
+ * Até 16/11/2026 o `doGet` sem `api` servia duas páginas do HtmlService: o
+ * formulário interno antigo (Cadastro.html) e um aviso de que o painel tinha
+ * mudado de endereço (Admin.html). O site e o painel não dependem de nenhuma das
+ * duas: os dois moram no GitHub Pages e falam com este projeto só por `fetch`
+ * (conferido em docs/). O que não se confere daqui é uma página de FORA que
+ * incorpore o `/exec` — o formulário interno nasceu para ser incorporado no
+ * Google Sites —: incorporada, ela passa a mostrar a resposta JSON do `doGet`
+ * sem rota, com o endereço do site.
+ *
+ * E página do HtmlService não é só HTML: ela leva junto a ponte
+ * `google.script.run`, que conversa com as funções do projeto por fora deste
+ * roteador. Um servidor cuja porta da frente confere token, lista branca e nível
+ * não pode ter uma porta lateral que não confere nada. Por isso as duas páginas
+ * saíram, e o projeto não tem mais HtmlService nenhum — há teste que falha se
+ * ele voltar (testes/portas.js).
+ *
  * ------------------------------------------------------ Orçamento de leitura
  *
  * O plano Spark dá 50 mil leituras de DOCUMENTO por dia. A conta para UM aluno
@@ -59,7 +81,7 @@
  *                               que chega à contagem sem já ter lido a
  *                               configuração por outro motivo. É UM por execução,
  *                               não um por projeto — o cache de execução de
- *                               `config()` responde as outras P-1 vezes.
+ *                               `config_()` responde as outras P-1 vezes.
  *                               As P agregações são COBRADAS uma a uma e vão
  *                               todas numa ida só (`contarInscritosDe_`,
  *                               09_Projetos.gs): o que o paralelismo corta é
@@ -74,7 +96,7 @@
  *   GET ?api=matricula   3      configuração + o projeto + o documento da matrícula
  *   POST inscrição       6      04_Inscricoes.gs: configuração, matrícula, projeto,
  *                               outros projetos do aluno, o projeto de novo
- *                               (dentro de `reservarVaga`) e a contagem de vagas
+ *                               (dentro de `reservarVaga_`) e a contagem de vagas
  *   GET ?api=projetos  2 x (1+P) app.js recarrega a lista depois do sucesso
  *
  * A TROCA DE PROJETO, que só existe com `aluno_projeto_unico=SIM` e que o modo
@@ -154,7 +176,7 @@
  * lista seria refeita a cada poucos segundos, que é o instante em que o cache
  * precisa existir. O preço é uma contagem de vagas com até
  * CACHE_ROTAS_S segundos de atraso no CARTÃO do site. Isso não vende vaga
- * nenhuma: quem decide a vaga é `reservarVaga` (09_Projetos.gs), que conta
+ * nenhuma: quem decide a vaga é `reservarVaga_` (09_Projetos.gs), que conta
  * dentro do lock e no instante do envio. Um aluno pode ver "3 restantes" e
  * receber a recusa por ESGOTADO — caminho que o site já trata, porque a lista
  * sempre foi um retrato do passado (`anunciarPerdaDeVaga`, app.js:554).
@@ -162,15 +184,16 @@
  * ---------------------------------------- Por que o painel virou rota de POST
  *
  * `google.script.run` só existe dentro de uma página SERVIDA pelo Apps Script —
- * ele é uma ponte entre o iframe do `?p=admin` e este projeto, e não um endereço
+ * ele era a ponte entre o iframe do `?p=admin` e este projeto, e não um endereço
  * de rede. Um painel hospedado no GitHub Pages não tem essa ponte: para ele,
  * este projeto é um site de outro domínio, e a única forma de conversar é HTTP.
  *
  * Daí `acao: 'painel'`, que despacha para as funções que já existem em
  * 05_Importacao.gs, 06_Reconciliacao.gs, 07_Auth.gs, 09_Projetos.gs,
  * 10_Painel.gs, 11_Banners.gs e 12_Disciplinas.gs. NENHUMA delas mudou: todas
- * recebem um payload com `token` e começam por `exigirAdmin`, exatamente como
- * quando eram chamadas pela ponte. O que muda é quem as chama.
+ * recebem um payload com `token` e começam por `exigirAdmin_`, exatamente como
+ * quando eram chamadas pela ponte. O que mudou foi quem as chama — e, desde que
+ * as páginas saíram, este despacho é o ÚNICO que as chama.
  *
  * Isso é POST, e não GET, por duas razões: metade delas ESCREVE (salvar projeto,
  * confirmar importação, remover disciplina), e as outras carregam payload que
@@ -221,7 +244,7 @@ var IDEMPOTENCIA_PREFIXO = 'idem_';
 /**
  * Resposta maior que isto não é guardada — a repetição volta a executar.
  *
- * O item do `CacheService` tem teto de 100 KB, e `exportarCsv` devolve o CSV
+ * O item do `CacheService` tem teto de 100 KB, e `exportarCsv_` devolve o CSV
  * INTEIRO no corpo: um cadastro grande passa do teto e o `put` estoura. Guardar
  * menos é a degradação certa (a repetição fica sem proteção, como era antes),
  * e exportar duas vezes gera dois arquivos iguais e duas linhas na trilha — nada
@@ -235,7 +258,14 @@ var IDEMPOTENCIA_MAX_CARACTERES = 50000;
 
 // ------------------------------------------------------------ Roteamento
 
+/**
+ * A primeira linha de `doGet` e de `doPost` é a mesma, e a posição é o requisito:
+ * marcar a execução como requisição ao web app (`EM_REQUISICAO_WEB`, 07_Auth.gs)
+ * antes de qualquer outra coisa, para que nenhuma ferramenta de editor nem
+ * gatilho passe pela guarda dentro dela. Não lê nada — o ping continua de graça.
+ */
 function doGet(e) {
+  EM_REQUISICAO_WEB = true;
   var parametros = (e && e.parameter) || {};
 
   if (parametros.api) {
@@ -250,17 +280,44 @@ function doGet(e) {
       //
       // A mensagem é genérica de propósito: o erro do Repo carrega método,
       // caminho e o texto do Google, que não é informação para o aluno. O
-      // original vai para o console, que é o Stackdriver do projeto.
+      // original vai para o console, e um resumo dele para a trilha
+      // (`registrarErroInterno_`, 04_Log.gs), que é onde a coordenação olha.
       console.error('doGet ' + parametros.api + ': ' + err.message);
+      registrarErroInterno_('leitura', err);
       return respostaJson_({ ok: false, erro: 'Não foi possível carregar os dados agora. Tente em instantes.' });
     }
   }
 
-  return paginaHtml_(parametros.p);
+  return respostaJson_(respostaSemRota_());
+}
+
+/** Onde o aluno se inscreve e onde a coordenação trabalha. Os dois no Pages. */
+var ENDERECO_DO_SITE = 'https://cesutech.github.io/';
+var ENDERECO_DO_PAINEL = 'https://cesutech.github.io/painel/';
+
+/**
+ * O que responde quem abre o `/exec` sem `?api=` — um favorito antigo do
+ * `?p=admin`, alguém que copiou o endereço do `config.js`, um curioso.
+ *
+ * Só o que já é público: uma frase e os dois endereços do Pages. Nada de versão,
+ * de configuração, de e-mail ou de identificador — nenhum desses visitantes
+ * precisa deles, e o que não sai daqui não precisa ser defendido.
+ *
+ * ZERO leitura do banco, pela mesma razão do ping: é uma rota anônima, e uma
+ * resposta que lesse a configuração seria cota gasta por quem não pediu nada.
+ */
+function respostaSemRota_() {
+  return {
+    ok: true,
+    mensagem: 'Este endereço é a API do sistema de inscrição do CESUTECH, e não uma página. ' +
+      'A inscrição é feita no site, e a gestão, no painel.',
+    site: ENDERECO_DO_SITE,
+    painel: ENDERECO_DO_PAINEL
+  };
 }
 
 /**
- * As quatro rotas JSON. Rota desconhecida responde JSON, e não a página HTML.
+ * As quatro rotas JSON. Rota desconhecida responde JSON, como todo o resto.
  *
  * O original caía no `else` e servia `Cadastro.html` para quem pediu `?api=`
  * qualquer coisa. Quem chama uma API e recebe HTML vê o `r.json()` estourar e
@@ -293,7 +350,7 @@ function rotaDeLeitura_(parametros) {
       // repetido onde um `curl` o encontra sem procurar — é chave de diagnóstico,
       // e quem a liga precisa confirmar o estado em um olhar. Sai da MESMA
       // função que a lista consulta, então as duas não têm como discordar.
-      return { ok: true, ocupacao_contada: contarOcupacaoNaLista_(), projetos: listarProjetos(true) };
+      return { ok: true, ocupacao_contada: contarOcupacaoNaLista_(), projetos: listarProjetos_(true) };
     });
   }
 
@@ -307,40 +364,6 @@ function rotaDeLeitura_(parametros) {
 }
 
 /**
- * Serve uma das duas páginas do Apps Script.
- *
- * `?p=admin` é o painel; qualquer outra coisa (inclusive nada) é o formulário
- * interno. Não é autenticação: `Admin.html` mostra a tela de login e todas as
- * funções sensíveis começam com `exigirAdmin(token)` (07_Auth.gs). Servir o HTML
- * do painel para quem não entrou não entrega dado nenhum.
- *
- * Repare no que o painel NÃO faz: só o `Cadastro` monta `dadosIniciais` a partir
- * da configuração. Abrir `?p=admin` custa ZERO leitura do Firestore — de
- * propósito, porque é justamente com o banco fora do ar que a coordenação
- * precisa conseguir abrir o painel para descobrir o que houve.
- *
- * Aqui não há try/catch, e é decisão: se `dadosFormularioPublico_()` falhar, o
- * `Cadastro.html` receberia `{}`, leria `DADOS.aberto` como falso e mostraria
- * "as inscrições estão encerradas". Uma falha de infraestrutura contada como
- * decisão da coordenação é pior do que a página de erro do Apps Script, que ao
- * menos não mente.
- */
-function paginaHtml_(pagina) {
-  var arquivo = (String(pagina || 'cadastro') === 'admin') ? 'Admin' : 'Cadastro';
-
-  var tpl = HtmlService.createTemplateFromFile(arquivo);
-  tpl.dadosIniciais = JSON.stringify(
-    arquivo === 'Cadastro' ? dadosFormularioPublico_() : { app: APP.nome, versao: APP.versao }
-  );
-
-  return tpl.evaluate()
-    .setTitle(APP.nome)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    // Sem isso o iframe do Google Sites fica em branco.
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-/**
  * Recebe o formulário hospedado fora do Google.
  *
  * `origem` é carimbada AQUI e sobrescreve o que veio no corpo. É ela que liga a
@@ -350,6 +373,7 @@ function paginaHtml_(pagina) {
  * seria entregar-lhe a chave da guarda.
  */
 function doPost(e) {
+  EM_REQUISICAO_WEB = true;
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return respostaJson_({ ok: false, erro: 'Requisição vazia.' });
@@ -363,7 +387,7 @@ function doPost(e) {
     }
 
     // `JSON.parse('"texto"')` e `JSON.parse('7')` não estouram, e um corpo assim
-    // chegaria a `submeterInscricao` como algo que não tem campo nenhum. O erro
+    // chegaria a `submeterInscricao_` como algo que não tem campo nenhum. O erro
     // pertence a esta camada, que é quem sabe o formato do envelope.
     if (!corpo || typeof corpo !== 'object') {
       return respostaJson_({ ok: false, erro: 'Corpo da requisição inválido.' });
@@ -372,7 +396,7 @@ function doPost(e) {
     switch (corpo.acao || 'inscricao') {
       case 'inscricao':
         corpo.origem = 'SITE_EXTERNO';
-        return respostaJson_(submeterInscricao(corpo));
+        return respostaJson_(submeterInscricao_(corpo));
       case 'login':
         return respostaJson_(rotaDeLogin_(corpo));
       case 'painel':
@@ -382,6 +406,7 @@ function doPost(e) {
     }
   } catch (err) {
     console.error('doPost: ' + err.message);
+    registrarErroInterno_('post', err);
     return respostaJson_({ ok: false, erro: 'Erro interno ao processar a inscrição.' });
   }
 }
@@ -393,44 +418,56 @@ function doPost(e) {
  *
  * Elas são anônimas porque têm de ser: quem ainda não entrou não tem token para
  * apresentar. O que as protege não é o token, é o que cada uma devolve —
- * `modoDeAcesso` só conta como a tela deve ser desenhada, `sessaoAtiva` responde
- * sim ou não sobre um token que o chamador já tem, `sair` só apaga um token que
+ * `modoDeAcesso_` só conta como a tela deve ser desenhada, `sessaoAtiva_` responde
+ * sim ou não sobre um token que o chamador já tem, `sair_` só apaga um token que
  * o chamador já tem, e as três de login têm freio próprio (07_Auth.gs e
  * 07b_LinkPorEmail.gs).
  *
- * `pedirLinkDeAcesso` é a mais exposta das seis, e a que mais depende de não ser
+ * `pedirLinkDeAcesso_` é a mais exposta das seis, e a que mais depende de não ser
  * "melhorada": ela devolve a MESMA frase para endereço autorizado e não
  * autorizado, e é isso que a impede de responder "quem administra o CESUTECH?"
  * a quem perguntar. Ver o topo de 07b_LinkPorEmail.gs.
  *
  * `liberarAcesso` NÃO está aqui e não pode entrar: ela cria sessão sem provar
  * nada, e é segura exatamente porque só se chega a ela pelo editor do Apps
- * Script. Roteá-la seria transformá-la numa porta dos fundos anônima.
+ * Script — o que a primeira linha dela confere (`exigirDono_`, 07_Auth.gs), e que
+ * recusa qualquer coisa dentro de uma requisição ao web app, seja quem for que
+ * esteja logado no navegador. Roteá-la seria transformá-la numa porta dos fundos.
  *
- * Isto NÃO é exposição nova. Hoje o `Admin.html` é servido por `?p=admin` numa
- * implantação `ANYONE_ANONYMOUS` e chama estas mesmas funções por
- * `google.script.run`, sem token e sem login. O que muda é o transporte.
+ * Estas funções de entrada, as rotas de leitura e a inscrição são TUDO o que um
+ * visitante anônimo alcança neste código — e testes/portas.js segura as três
+ * como lista fechada. Não há outro caminho para dentro: o servidor não serve
+ * página (ver "Nenhuma resposta é página", no cabeçalho), e sem página não
+ * existe `google.script.run`. A frase vale para o código desta versão: uma
+ * implantação presa a uma versão anterior responde com o código daquela versão
+ * até ser atualizada ou arquivada.
  *
  * O despacho é escrito à mão, um `if` por nome. Não é falta de elegância: um
  * mapa indexado pelo que o cliente mandou é o começo do caminho que termina em
  * `this[nome](...)`, e aqui a diferença entre os dois é a diferença entre cinco
  * funções e o projeto inteiro.
+ *
+ * O texto comparado é o NOME DO FIO, o que o painel manda (`fn: 'sair'`); a
+ * função chamada é a privada (`sair_`). Os dois coincidiam até 16/11/2026, quando
+ * todo o servidor ganhou o `_` no fim, e o fio ficou como estava — o painel não
+ * precisou mudar uma linha.
  */
 function rotaDeLogin_(corpo) {
   try {
     var fn = String(corpo.fn || '');
 
-    if (fn === 'modoDeAcesso') return modoDeAcesso();
-    if (fn === 'sessaoAtiva') return sessaoAtiva(corpo.token);
-    if (fn === 'sair') return sair(corpo.token);
-    if (fn === 'autenticar') return autenticar();
-    if (fn === 'entrarComGoogle') return entrarComGoogle(corpo.idToken);
-    if (fn === 'pedirLinkDeAcesso') return pedirLinkDeAcesso(corpo.email);
-    if (fn === 'entrarComLink') return entrarComLink(corpo.token);
+    if (fn === 'modoDeAcesso') return modoDeAcesso_();
+    if (fn === 'sessaoAtiva') return sessaoAtiva_(corpo.token);
+    if (fn === 'sair') return sair_(corpo.token);
+    if (fn === 'autenticar') return autenticar_();
+    if (fn === 'entrarComGoogle') return entrarComGoogle_(corpo.idToken);
+    if (fn === 'pedirLinkDeAcesso') return pedirLinkDeAcesso_(corpo.email);
+    if (fn === 'entrarComLink') return entrarComLink_(corpo.token);
 
     return { ok: false, erro: 'Ação desconhecida.' };
   } catch (err) {
     console.error('rotaDeLogin_ ' + corpo.fn + ': ' + err.message);
+    registrarErroInterno_('login', err);
     return { ok: false, erro: 'Erro ao processar o acesso.' };
   }
 }
@@ -451,13 +488,13 @@ function rotaDeLogin_(corpo) {
  *   5. só então chama, com o payload — e com o token carimbado AQUI.
  *
  * O carimbo do token é o mesmo cuidado que o `doPost` tem com `origem` na
- * inscrição: as funções do painel leem `payload.token` e chamam `exigirAdmin`
+ * inscrição: as funções do painel leem `payload.token` e chamam `exigirAdmin_`
  * com ele. Se o token viesse de dentro de `dados`, o cliente poderia mandar um
  * no envelope (que esta função confere) e OUTRO no payload (que a função do
  * painel confere), e a conferência que vale seria a que o cliente escolheu.
  * Sobrescrever fecha isso e mantém a dupla conferência, que é de graça: o
- * `exigirAdmin` lá dentro continua sendo a última palavra, e continua valendo
- * quando a mesma função é chamada por `google.script.run`.
+ * `exigirAdmin_` lá dentro continua sendo a última palavra, e continuaria valendo
+ * se a mesma função um dia fosse chamada por outro caminho.
  *
  * A recusa é UMA frase só, `RECUSA_SESSAO` (07_Auth.gs) — a mesma para token
  * ausente, vencido, forjado, ou de quem saiu da allowlist. Uma recusa que varia
@@ -547,13 +584,13 @@ function rotaDoPainel_(corpo) {
     if (!Object.prototype.hasOwnProperty.call(funcoesDoProfessor_(), fn)) {
       var quem = emailDaSessao_(corpo.token);
       if (nivelDe_(quem) !== 'coordenador') {
-        // A trilha precisa dizer QUAL professor tentou. Nenhum `exigirAdmin`
+        // A trilha precisa dizer QUAL professor tentou. Nenhum `exigirAdmin_`
         // roda neste caminho — a função nem chega a ser chamada —, então o
         // operador é anotado aqui, senão a linha sairia assinada por 'anonimo'
         // e o Histórico não distinguiria as oito pessoas do painel.
         anotarOperador_(quem);
         // A CHAVE DE AGRUPAMENTO LEVA A PESSOA, e não só a função.
-        // `registrarRecusa` grava a primeira de cada chave e engole as iguais
+        // `registrarRecusa_` grava a primeira de cada chave e engole as iguais
         // por dez minutos (04_Log.gs). Agrupando só por `fn`, o segundo
         // professor que batesse na mesma porta dentro da janela não deixaria
         // linha nenhuma — e a coluna "Quem" voltaria a não responder "quem
@@ -562,7 +599,7 @@ function rotaDoPainel_(corpo) {
         // por função a cada dez minutos), e a trilha distingue as oito pessoas.
         // É a mesma forma que o freio do link por e-mail usa
         // (`'link_freio_' + alvo`, 07b_LinkPorEmail.gs).
-        registrarRecusa('NIVEL_NEGADO', 'painel', quem, 'tentou ' + fn,
+        registrarRecusa_('NIVEL_NEGADO', 'painel', quem, 'tentou ' + fn,
           'nivel_' + quem + '_' + fn);
         // 'professor' e não o nível lido: quem cai aqui ou é professor, ou tem
         // sessão que a lista de acesso não reconhece mais — e a tela só sabe
@@ -587,6 +624,7 @@ function rotaDoPainel_(corpo) {
     return resposta;
   } catch (err) {
     console.error('rotaDoPainel_ ' + corpo.fn + ': ' + err.message);
+    registrarErroInterno_('painel', err);
     return { ok: false, erro: err.message };
   }
 }
@@ -603,15 +641,21 @@ function rotaDoPainel_(corpo) {
  *
  * O que NÃO está nesta lista, e por quê:
  *   - `setup`, `semearConfigPadrao_`, `migrarDisciplinas`, `instalarGatilhoDiario`
- *     e afins: são de console, rodam uma vez, e nenhuma delas tem `exigirAdmin`;
- *   - `reconciliar`, `sincronizarRespostasForms`: são o motor, não o botão. O
- *     botão é `rodarReconciliacao` e `sincronizarForms`, que pedem token;
- *   - `submeterInscricao`, `listarProjetos`: já têm rota própria, pública;
- *   - `autenticar`, `entrarComGoogle`, `pedirLinkDeAcesso`, `entrarComLink`,
- *     `modoDeAcesso`, `sair`, `sessaoAtiva`: são de `rotaDeLogin_`, porque rodam
+ *     e afins: são de console, rodam uma vez, e nenhuma delas tem `exigirAdmin_`;
+ *   - `reconciliar_`, `sincronizarRespostasForms_`: são o motor, não o botão. O
+ *     botão é `rodarReconciliacao_` e `sincronizarForms_`, que pedem token;
+ *   - `submeterInscricao_`, `listarProjetos_`: já têm rota própria, pública;
+ *   - `autenticar_`, `entrarComGoogle_`, `pedirLinkDeAcesso_`, `entrarComLink_`,
+ *     `modoDeAcesso_`, `sair_`, `sessaoAtiva_`: são de `rotaDeLogin_`, porque rodam
  *     antes de existir token;
  *   - `liberarAcesso`: é de console, e roteá-la anularia a única coisa que a
  *     torna segura (exigir acesso ao arquivo do projeto).
+ *
+ * A CHAVE É O NOME DO FIO, e o valor é a função. A chave é o que o painel manda
+ * em `fn` (`'listarAlunos'`) e não muda nunca sem o painel mudar junto; o valor
+ * é a função que executa, e ela é PRIVADA (`listarAlunos_`) — desde 16/11/2026
+ * todo o servidor tem o `_` no fim, que é como o Apps Script marca o que não se
+ * alcança de fora do projeto. Esta lista é a única tradução entre os dois.
  *
  * O mapa é montado em tempo de REQUISIÇÃO, e não no escopo do arquivo: o Apps
  * Script carrega os `.gs` em ordem alfabética, e 08_Api.gs vem antes de
@@ -621,76 +665,76 @@ function rotaDoPainel_(corpo) {
 function funcoesDoPainel_() {
   return {
     // 05_Importacao.gs
-    analisarArquivo: analisarArquivo,
-    confirmarImportacao: confirmarImportacao,
-    expurgarLote: expurgarLote,
+    analisarArquivo: analisarArquivo_,
+    confirmarImportacao: confirmarImportacao_,
+    expurgarLote: expurgarLote_,
 
     // 05c_Revisao.gs — a revisão de divergências (21/09): quem estava na lista
     // oficial como a turma do lote e não veio nele. A primeira só lê (está em
     // SO_LEITURA no painel); a segunda anula inscrições, cancela e exclui da
-    // lista oficial, com `exigirAdmin`, confirmação na tela e a linha
+    // lista oficial, com `exigirAdmin_`, confirmação na tela e a linha
     // LOTE_REVISADO no log — como toda escrita de coordenação daqui.
-    revisarLote: revisarLote,
-    aplicarRevisao: aplicarRevisao,
+    revisarLote: revisarLote_,
+    aplicarRevisao: aplicarRevisao_,
 
     // 06_Reconciliacao.gs
-    rodarReconciliacao: rodarReconciliacao,
-    sincronizarForms: sincronizarForms,
+    rodarReconciliacao: rodarReconciliacao_,
+    sincronizarForms: sincronizarForms_,
 
     // 07_Auth.gs — quem tem acesso ao painel. As três de sempre mais
-    // `definirNivel`, que promove e rebaixa: as quatro cobram `exigirCoordenador`
+    // `definirNivel_`, que promove e rebaixa: as quatro cobram `exigirCoordenador_`
     // POR DENTRO, além do despacho, porque são a superfície de escalada de
     // privilégio (ver `funcoesDoProfessor_`).
-    listarAdmins: listarAdmins,
-    incluirAdmin: incluirAdmin,
-    removerAdmin: removerAdmin,
-    definirNivel: definirNivel,
+    listarAdmins: listarAdmins_,
+    incluirAdmin: incluirAdmin_,
+    removerAdmin: removerAdmin_,
+    definirNivel: definirNivel_,
 
     // 09_Projetos.gs
-    salvarProjeto: salvarProjeto,
-    removerProjeto: removerProjeto,
+    salvarProjeto: salvarProjeto_,
+    removerProjeto: removerProjeto_,
 
     // 10_Painel.gs
-    painelEstatisticas: painelEstatisticas,
-    painelProjetos: painelProjetos,
-    inscritosDoProjeto: inscritosDoProjeto,
-    listarAlunos: listarAlunos,
-    atualizarAlunos: atualizarAlunos,
-    detalheAluno: detalheAluno,
-    resolverAluno: resolverAluno,
-    editarAluno: editarAluno,
+    painelEstatisticas: painelEstatisticas_,
+    painelProjetos: painelProjetos_,
+    inscritosDoProjeto: inscritosDoProjeto_,
+    listarAlunos: listarAlunos_,
+    atualizarAlunos: atualizarAlunos_,
+    detalheAluno: detalheAluno_,
+    resolverAluno: resolverAluno_,
+    editarAluno: editarAluno_,
     // As duas do "Incluir aluno" (21/09): a consulta que preenche a janela e a
     // gravação que passa por fora da janela de inscrição e do teto — com
-    // `exigirAdmin` e confirmação, como toda escrita de coordenação daqui.
-    buscarMatriculado: buscarMatriculado,
-    incluirInscricao: incluirInscricao,
-    exportarCsv: exportarCsv,
-    listarLotes: listarLotes,
-    listarLog: listarLog,
-    lerConfiguracoes: lerConfiguracoes,
-    salvarConfiguracao: salvarConfiguracao,
+    // `exigirAdmin_` e confirmação, como toda escrita de coordenação daqui.
+    buscarMatriculado: buscarMatriculado_,
+    incluirInscricao: incluirInscricao_,
+    exportarCsv: exportarCsv_,
+    listarLotes: listarLotes_,
+    listarLog: listarLog_,
+    lerConfiguracoes: lerConfiguracoes_,
+    salvarConfiguracao: salvarConfiguracao_,
 
     // 11_Banners.gs
-    listarBanners: listarBanners,
-    enviarBanner: enviarBanner,
+    listarBanners: listarBanners_,
+    enviarBanner: enviarBanner_,
 
     // 12_Disciplinas.gs
-    listarDisciplinas: listarDisciplinas,
-    inscritosDaDisciplina: inscritosDaDisciplina,
-    matriculadosDaDisciplina: matriculadosDaDisciplina,
-    incluirDisciplinas: incluirDisciplinas,
-    editarDisciplina: editarDisciplina,
-    alternarDisciplina: alternarDisciplina,
-    removerDisciplina: removerDisciplina,
+    listarDisciplinas: listarDisciplinas_,
+    inscritosDaDisciplina: inscritosDaDisciplina_,
+    matriculadosDaDisciplina: matriculadosDaDisciplina_,
+    incluirDisciplinas: incluirDisciplinas_,
+    editarDisciplina: editarDisciplina_,
+    alternarDisciplina: alternarDisciplina_,
+    removerDisciplina: removerDisciplina_,
 
     // 13_Auditorio.gs — as três que MEXEM aqui apagam e ocupam vaga, e é por
     // isso que elas recebem ids explícitos: quem clica precisa ter visto quem
     // está na lista.
-    inscricoesRecentes: inscricoesRecentes,
-    filaDeEspera: filaDeEspera,
-    anularInscricoes: anularInscricoes,
-    restaurarInscricoes: restaurarInscricoes,
-    promoverDaEspera: promoverDaEspera
+    inscricoesRecentes: inscricoesRecentes_,
+    filaDeEspera: filaDeEspera_,
+    anularInscricoes: anularInscricoes_,
+    restaurarInscricoes: restaurarInscricoes_,
+    promoverDaEspera: promoverDaEspera_
   };
 }
 
@@ -704,10 +748,13 @@ function funcoesDoPainel_() {
  * esquecimento abrir uma porta em silêncio, e esquecimento é o modo normal de
  * operação de uma lista que ninguém relê.
  *
+ * As chaves são NOMES DO FIO, como as de `funcoesDoPainel_`: a mesma palavra que
+ * o painel manda em `fn`, sem o `_` da função que executa.
+ *
  * AS DEZ OUTRAS estão todas em `SO_LEITURA` no painel: leem, contam, montam
  * tela, e não escrevem nada — nem uma linha de log.
  *
- * `exportarCsv` É A EXCEÇÃO, e ela é nomeada de propósito: ela
+ * `exportarCsv_` É A EXCEÇÃO, e ela é nomeada de propósito: ela
  * não é leitura pura — GRAVA a linha `EXPORTACAO` na trilha (10_Painel.gs).
  * Ela fica aberta porque é o "exporta os inscritos" do pedido, e é decisão
  * tomada e sabida (J10-4): oito pessoas seguem podendo baixar nome, CPF,
@@ -716,28 +763,28 @@ function funcoesDoPainel_() {
  * responde "qual professor exportou a base".
  *
  * O QUE FICOU DE FORA e parece leitura:
- *   - `atualizarAlunos`: o botão se chama "Atualizar" e parece recarregar, mas
+ *   - `atualizarAlunos_`: o botão se chama "Atualizar" e parece recarregar, mas
  *     ele chama `reconciliarSeValerAPena_` e REESCREVE a coleção `alunos`. Uma
- *     varredura por `inserir(`/`atualizar(` no corpo dela não acha nada — é por
+ *     varredura por `inserir_(`/`atualizar_(` no corpo dela não acha nada — é por
  *     isso que o teste do balde é transitivo;
- *   - `listarAdmins` e `lerConfiguracoes`: são o mapa de quem manda e a lista de
+ *   - `listarAdmins_` e `lerConfiguracoes_`: são o mapa de quem manda e a lista de
  *     chaves, `admin_emails` e `coordenadores_gerais` incluídas. "Não mexe na
  *     lista de acessos" inclui não lê;
- *   - `listarLotes`: ela esteve aberta enquanto o desenho previa a aba
+ *   - `listarLotes_`: ela esteve aberta enquanto o desenho previa a aba
  *     Importações visível ao professor. A decisão de 23/09 mandou a aba SUMIR
  *     (ver `ABAS_DA_COORDENACAO` no painel), e sem ela não sobrou tela nenhuma
  *     do professor que a chame — sobrava só a porta. E a porta entrega
  *     `importado_por` e `revisado_por` (10_Painel.gs), que são o e-mail de quem
- *     importou e o de quem revisou: a mesma trilha que fechar `listarLog`
+ *     importou e o de quem revisou: a mesma trilha que fechar `listarLog_`
  *     existe para não entregar, e o mesmo diretório de quem manda que
  *     `RECUSA_NIVEL` não nomeia de propósito (07_Auth.gs). Fechar a porta e
  *     deixar a janela não é fechar nada;
- *   - `revisarLote`: leitura pura, mas é a metade de leitura de uma tela que só
+ *   - `revisarLote_`: leitura pura, mas é a metade de leitura de uma tela que só
  *     a coordenação aplica, e uma janela que diz "estes 40 serão cancelados" com
  *     o Aplicar morto é a tela mais fácil de ler errado;
- *   - `listarLog`: a trilha nomeia a lista de acesso (`ADMIN_INCLUIDO`,
+ *   - `listarLog_`: a trilha nomeia a lista de acesso (`ADMIN_INCLUIDO`,
  *     `NIVEL_ALTERADO`). Fechar a porta e deixar a janela não é fechar nada;
- *   - `buscarMatriculado`: leitura, mas é a consulta que alimenta "Incluir
+ *   - `buscarMatriculado_`: leitura, mas é a consulta que alimenta "Incluir
  *     aluno", e essa tela inteira é de coordenação.
  */
 function funcoesDoProfessor_() {
@@ -771,7 +818,7 @@ function funcoesDoProfessor_() {
  * Devolver dado a partir da matrícula transformaria este endereço num oráculo: as
  * matrículas da instituição são quase sequenciais, então varrer a faixa
  * entregaria a lista de alunos inteira. A controladora desses dados é a
- * faculdade, e a exposição seria dela. Ver `matriculaConhecida` (04_Inscricoes.gs).
+ * faculdade, e a exposição seria dela. Ver `matriculaConhecida_` (04_Inscricoes.gs).
  *
  * Sobra um bit por consulta ("a matrícula X existe"), e é por isso que existe
  * `excedeuConsultas_`: não impede um determinado, mas encarece a varredura e
@@ -792,10 +839,10 @@ function funcoesDoProfessor_() {
  * reordenamento que `checarMatriculaNaLista_` faz em 04_Inscricoes.gs.
  */
 function conferirMatricula_(bruta, projetoId) {
-  var matricula = normalizarMatricula(bruta);
+  var matricula = normalizarMatricula_(bruta);
 
   // A MESMA RÉGUA DO ENVIO, e não uma conta própria. Até 19/09 esta rota
-  // media `4..20` por conta própria enquanto `validarInscricao` media outra
+  // media `4..20` por conta própria enquanto `validarInscricao_` media outra
   // coisa — e é a régua daqui que o site consulta ao vivo, no `blur` do campo.
   // Duas réguas fazem o site dizer "válida" e o envio responder "inválida" para
   // a mesma matrícula: o aluno não tem como saber em qual acreditar.
@@ -823,8 +870,8 @@ function conferirMatricula_(bruta, projetoId) {
     return { ok: true, valida: true, validaProjeto: false };
   }
 
-  var modo = String(config('modo_validacao_matricula', 'BLOQUEAR')).toUpperCase();
-  var conhecida = matriculaConhecida(matricula);
+  var modo = String(config_('modo_validacao_matricula', 'BLOQUEAR')).toUpperCase();
+  var conhecida = matriculaConhecida_(matricula);
 
   return {
     ok: true,
@@ -864,7 +911,7 @@ function conferirMatricula_(bruta, projetoId) {
  *      auditório inteiro por causa de um contador de segurança.
  */
 function excedeuConsultas_() {
-  var limite = Number(config('limite_consultas_matricula_hora', '5000'));
+  var limite = Number(config_('limite_consultas_matricula_hora', '5000'));
   var props = PropertiesService.getScriptProperties();
   var janela = String(Math.floor(new Date().getTime() / 3600000));
 
@@ -881,7 +928,7 @@ function excedeuConsultas_() {
     // mais depressa do que o abuso que ele existe para conter.
     if (props.getProperty('consultas_avisadas') !== janela) {
       props.setProperty('consultas_avisadas', janela);
-      registrarRecusa('LIMITE_CONSULTA', 'matricula', '', 'teto de ' + limite + '/hora atingido', 'teto_matricula');
+      registrarRecusa_('LIMITE_CONSULTA', 'matricula', '', 'teto de ' + limite + '/hora atingido', 'teto_matricula');
     }
     return true;
   }
@@ -896,8 +943,8 @@ function excedeuConsultas_() {
 /**
  * O que o formulário público precisa para se desenhar.
  *
- * As nove consultas de `config()` abaixo — as duas da janela estão dentro de
- * `janelaDeInscricao_` — saem todas do mesmo documento, que `lerConfig()`
+ * As nove consultas de `config_()` abaixo — as duas da janela estão dentro de
+ * `janelaDeInscricao_` — saem todas do mesmo documento, que `lerConfig_()`
  * guarda pelo resto da execução (03_Config.gs) — uma leitura.
  * `cursosFases` é a exceção e a novidade: ela deixou de sair da chave
  * `cursos_fases` e passa a sair da coleção `disciplinas`, onde a coordenação
@@ -923,8 +970,8 @@ function dadosFormularioPublico_() {
     app: APP.nome,
     versao: APP.versao,
     // `aberto` continua sendo a resposta única a "dá para se inscrever agora?":
-    // o interruptor manual E a janela geral. Cadastro.html só olha isto.
-    aberto: config('cadastro_aberto', 'SIM').toUpperCase() === 'SIM' &&
+    // o interruptor manual E a janela geral.
+    aberto: config_('cadastro_aberto', 'SIM').toUpperCase() === 'SIM' &&
       janela.estado !== 'ANTES' && janela.estado !== 'DEPOIS',
     // O `agora` é o DO SERVIDOR, para o site contar o tempo que falta a partir
     // dele e não do relógio do aluno — celular com a hora errada mostraria
@@ -932,16 +979,16 @@ function dadosFormularioPublico_() {
     // velho, porque a rota inteira responde do cache (`rotaCacheada_`); o site
     // guarda a diferença para o relógio dele e carrega esses segundos junto.
     // Para um contador de dias e horas isso não aparece, e no zero quem decide
-    // é `submeterInscricao`, que lê a hora na hora.
-    janela: { estado: janela.estado, inicio: janela.inicio, fim: janela.fim, agora: agora() },
-    exigirMatricula: config('exigir_matricula', 'SIM').toUpperCase() === 'SIM',
+    // é `submeterInscricao_`, que lê a hora na hora.
+    janela: { estado: janela.estado, inicio: janela.inicio, fim: janela.fim, agora: agora_() },
+    exigirMatricula: config_('exigir_matricula', 'SIM').toUpperCase() === 'SIM',
     matriculaDigitos: matriculaDigitos_(),
-    exigirCpf: config('exigir_cpf', 'NAO').toUpperCase() === 'SIM',
+    exigirCpf: config_('exigir_cpf', 'NAO').toUpperCase() === 'SIM',
     cursosFases: cursosFasesAtivos_(),
-    textoLgpd: config('texto_lgpd', ''),
-    textoDeclaracao: config('texto_declaracao', ''),
-    textoImagem: config('texto_imagem', ''),
-    textoEsgotado: config('texto_esgotado', '')
+    textoLgpd: config_('texto_lgpd', ''),
+    textoDeclaracao: config_('texto_declaracao', ''),
+    textoImagem: config_('texto_imagem', ''),
+    textoEsgotado: config_('texto_esgotado', '')
   };
 }
 
@@ -1072,11 +1119,6 @@ function guardarResposta_(chave, resposta) {
   }
 }
 
-/** Permite quebrar o HTML em arquivos (`<?!= include('Estilos') ?>`). */
-function include(nome) {
-  return HtmlService.createHtmlOutputFromFile(nome).getContent();
-}
-
 // ------------------------------------------------- Aquecimento da instância
 
 /**
@@ -1155,8 +1197,8 @@ var AQUECIMENTO_MINUTOS = 5;
 
 /**
  * Nome do gatilho. Fixo, para `instalarGatilhoAquecimento` reconhecer o que já
- * instalou e não empilhar cópias — mesmo motivo de GATILHO_RECONCILIACAO
- * (06_Reconciliacao.gs).
+ * instalou e não empilhar cópias, e porque o acionador instalado chama por ele —
+ * os mesmos dois motivos de GATILHO_RECONCILIACAO (06_Reconciliacao.gs).
  */
 var GATILHO_AQUECIMENTO = 'aquecerWebApp';
 
@@ -1178,13 +1220,23 @@ var ROTA_PING = 'ping';
  * pior caso, cinco minutos de atraso de um mecanismo cujo único efeito é o tempo
  * de carregamento.
  *
- * E sem `registrar()`, que é uma ESCRITA no Firestore: 288 linhas por dia de
+ * E sem `registrar_()`, que é uma ESCRITA no Firestore: 288 linhas por dia de
  * "acordei" enterrariam a trilha da coordenação embaixo do batimento de um
  * mecanismo interno, e pagariam cota por isso. A falha vai para o console, que é
  * o Stackdriver do projeto — e é lá que se procura no dia em que o site voltar a
  * demorar quarenta segundos.
+ *
+ * A primeira linha confere que quem chama é o acionador deste projeto, ou o dono
+ * no editor (`exigirGatilhoOuDono_`, 07_Auth.gs). O custo dela está escrito lá:
+ * uma leitura da lista de acionadores, sem cota de saída nem de banco.
  */
-function aquecerWebApp() {
+function aquecerWebApp(e) {
+  exigirGatilhoOuDono_(e);
+  return aquecerWebApp_();
+}
+
+/** O trabalho de `aquecerWebApp`, depois da guarda. É esta que o código chama por dentro. */
+function aquecerWebApp_() {
   var url = urlDeAquecimento_();
 
   if (!url) {
@@ -1237,7 +1289,7 @@ function urlDeAquecimento_() {
   var derivada = urlDoWebApp_();
   if (ehExecPublico_(derivada)) return derivada + '?api=' + ROTA_PING;
 
-  var configurada = String(config('url_exec', '')).trim();
+  var configurada = String(config_('url_exec', '')).trim();
   return ehExecPublico_(configurada) ? configurada + '?api=' + ROTA_PING : '';
 }
 
@@ -1304,6 +1356,11 @@ function pingar_(url) {
  * na mesma porta — o dobro da cota gasta para o mesmo efeito, e invisível até
  * alguém abrir a tela de acionadores para procurar.
  *
+ * E idempotente SÓ PARA A CONTA QUE RODA, como lá: `ScriptApp.getProjectTriggers()`
+ * não devolve o acionador que outra conta instalou, e ele não é removido aqui.
+ * ANTES DE RODAR, confira a tela Acionadores do editor (o relógio, no menu da
+ * esquerda): se já houver um `aquecerWebApp`, de outra conta, não rode.
+ *
  * Depois de instalar, ela BATE UMA VEZ e mostra o resultado. É a única hora em
  * que alguém está olhando: se o endereço estiver errado, o gatilho falharia em
  * silêncio a cada cinco minutos e a descoberta seria o site lento de novo, no
@@ -1313,6 +1370,12 @@ function pingar_(url) {
  * menu da esquerda), e lá o gatilho aparece pelo nome `aquecerWebApp`.
  */
 function instalarGatilhoAquecimento() {
+  exigirDono_();
+  return instalarGatilhoAquecimento_();
+}
+
+/** O trabalho de `instalarGatilhoAquecimento`, depois da guarda. É esta que o código chama por dentro. */
+function instalarGatilhoAquecimento_() {
   var removidos = 0;
 
   ScriptApp.getProjectTriggers().forEach(function (g) {
@@ -1330,6 +1393,9 @@ function instalarGatilhoAquecimento() {
   Logger.log('=== instalarGatilhoAquecimento ===');
   if (removidos) Logger.log('gatilhos antigos removidos: %s', removidos);
   Logger.log('a instância passa a ser acordada a cada %s minutos.', AQUECIMENTO_MINUTOS);
+  Logger.log('Esta função só vê e só substitui os acionadores desta conta. Confira a tela ' +
+    'Acionadores (o relógio, no menu da esquerda): se houver outro aquecerWebApp, de outra ' +
+    'conta, apague um dos dois — com os dois, a porta é batida em dobro.');
 
   var url = urlDeAquecimento_();
   if (!url) {

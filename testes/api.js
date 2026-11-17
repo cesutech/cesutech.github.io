@@ -10,7 +10,8 @@
  *   3. a rota de matrícula responde sim/não e NADA mais (requisito de LGPD, não
  *      detalhe de resposta);
  *   4. parâmetro faltando, inválido ou desconhecido responde JSON bem formado, e
- *      não a página HTML nem a página de erro do Apps Script;
+ *      nunca página — nem a de erro do Apps Script. O servidor não serve página
+ *      nenhuma desde 16/11/2026, e o endereço sem rota responde só JSON;
  *   5. o AQUECIMENTO não custa nada e não conta nada: a rota `?api=ping` é medida
  *      em ZERO leitura do Firestore, a resposta dela é conferida caractere a
  *      caractere, e o gatilho que a chama tem a conta da cota testada — é o teste
@@ -23,8 +24,10 @@
  * herdasse o cache da rota anterior seria mentir a favor do próprio número.
  *
  * Os serviços que 08_Api.gs usa e o `apoio.js` não tem — ContentService,
- * HtmlService, CacheService, LockService — são falsos deste arquivo, injetados
- * no sandbox depois do `criarAmbiente` (o objeto devolvido É o global do vm).
+ * CacheService, LockService — são falsos deste arquivo, injetados no sandbox
+ * depois do `criarAmbiente` (o objeto devolvido É o global do vm). HtmlService
+ * NÃO existe aqui, e é de propósito: o servidor não pode mais usá-lo, e um
+ * `doGet` que voltasse a montar página estouraria neste sandbox.
  * Nenhuma linha do `apoio.js` mudou: ele é compartilhado com as outras fases.
  *
  * Uso:  node testes/api.js
@@ -63,10 +66,10 @@ const PASTA_GS = path.join(__dirname, '..', 'apps-script');
 //
 // 07b_LinkPorEmail.gs entrou em 11/08, com a saída do PIN, e por dois motivos que
 // não são de conveniência:
-//   - `gravarConfig('admin_emails', ...)` chama `esquecerAllowlistDoLink_`, que
+//   - `gravarConfig_('admin_emails', ...)` chama `esquecerAllowlistDoLink_`, que
 //     nasce lá. Sem o arquivo, QUALQUER teste que mexa na allowlist estoura com
 //     ReferenceError — e estourava;
-//   - `modoDeAcesso` pergunta a `linkDeAcessoDisponivel_`, também de lá. Sem o
+//   - `modoDeAcesso_` pergunta a `linkDeAcessoDisponivel_`, também de lá. Sem o
 //     arquivo, a rota de login respondia a falha genérica, e o teste dela media o
 //     caminho de erro achando que media o de sucesso.
 const GS = ['00_Config.gs', '01_Utils.gs', '02_Repo.gs', '02b_Drive.gs', '03_Config.gs',
@@ -89,37 +92,6 @@ function contentServiceFalso() {
         getMimeType() { return saida._mime; }
       };
       return saida;
-    }
-  };
-}
-
-/**
- * HtmlService: registra qual arquivo foi pedido e o que o template recebeu.
- * O `dadosIniciais` é lido no `evaluate`, que é quando o Apps Script o leria.
- */
-function htmlServiceFalso(paginas, includes) {
-  return {
-    XFrameOptionsMode: { ALLOWALL: 'ALLOWALL' },
-    createTemplateFromFile(nome) {
-      const registro = { arquivo: nome, dadosIniciais: null, titulo: '', metas: [], xframe: '' };
-      paginas.push(registro);
-
-      return {
-        evaluate() {
-          registro.dadosIniciais = this.dadosIniciais;
-          const saida = {
-            setTitle(t) { registro.titulo = t; return saida; },
-            addMetaTag(n, v) { registro.metas.push([n, v]); return saida; },
-            setXFrameOptionsMode(m) { registro.xframe = m; return saida; },
-            getContent() { return '<html>' + nome + '</html>'; }
-          };
-          return saida;
-        }
-      };
-    },
-    createHtmlOutputFromFile(nome) {
-      includes.push(nome);
-      return { getContent: () => '<!-- ' + nome + ' -->' };
     }
   };
 }
@@ -171,7 +143,7 @@ function cacheServiceFalso(opcoes) {
  * MailApp que guarda em vez de enviar, com a cota sob o controle do teste.
  *
  * Entrou junto com 07b_LinkPorEmail.gs: sem ele, `linkDeAcessoDisponivel_` cai
- * no `catch` de "escopo não concedido" e `modoDeAcesso` responde que a porta de
+ * no `catch` de "escopo não concedido" e `modoDeAcesso_` responde que a porta de
  * recuperação está fechada — o que faria a rota de login ser testada sempre no
  * estado degradado.
  */
@@ -188,7 +160,7 @@ function mailAppFalso(cotaInicial) {
   return correio;
 }
 
-/** LockService mínimo: `reservarVaga` precisa dele, e o doPost passa por lá. */
+/** LockService mínimo: `reservarVaga_` precisa dele, e o doPost passa por lá. */
 function lockServiceFalso() {
   return {
     getScriptLock: () => ({ waitLock() {}, releaseLock() {} })
@@ -209,18 +181,16 @@ function montar(opcoes) {
     usuario: opcoes.usuario === undefined ? '' : opcoes.usuario,
     // Sem `usuarioEfetivo`, a conta que RODA o script é a mesma que a que acessa
     // — aqui, vazia. É o estado de produção: web app anônimo. Só os testes de
-    // `liberarMeuAcesso()` a preenchem, porque só ela roda no editor.
+    // `liberarMeuAcesso_` a preenchem, para provar que ela libera a conta
+    // EFETIVA; no editor de verdade as duas contas são a mesma.
     usuarioEfetivo: opcoes.usuarioEfetivo,
     relogio: opcoes.relogio
   });
 
-  const paginas = [];
-  const includes = [];
   const cache = cacheServiceFalso(opcoes.cache);
   const correio = mailAppFalso(opcoes.cota);
 
   ambiente.api.ContentService = contentServiceFalso();
-  ambiente.api.HtmlService = htmlServiceFalso(paginas, includes);
   ambiente.api.LockService = lockServiceFalso();
   ambiente.api.MailApp = correio.servico;
   // O `Utilities.computeDigest` do `apoio.js` responde MD5 para qualquer
@@ -243,8 +213,6 @@ function montar(opcoes) {
   if (opcoes.semCache) delete ambiente.api.CacheService;
   else ambiente.api.CacheService = cache.servico;
 
-  ambiente.paginas = paginas;
-  ambiente.includes = includes;
   ambiente.cache = cache;
   ambiente.correio = correio;
 
@@ -316,7 +284,7 @@ function leiturasCobradas(ambiente) {
  * requisição HTTP é uma execução nova, com o escopo global zerado.
  */
 function requisicao(ambiente, fn) {
-  ambiente.api.limparCacheConfig();
+  ambiente.api.limparCacheConfig_();
   zerar(ambiente);
   return fn();
 }
@@ -365,7 +333,7 @@ function acoesDoLog(falso) {
 }
 
 function criarProjeto(api, id, campos) {
-  api.inserir('projetos', Object.assign({
+  api.inserir_('projetos', Object.assign({
     codigo: id,
     nome: 'Projeto ' + id,
     descricao: 'Descrição do ' + id,
@@ -385,8 +353,8 @@ function matricular(api, matriculas, extras) {
     // O id É a matrícula NORMALIZADA, como 05_Importacao.gs grava. Semear com o
     // valor cru faria o teste passar com uma chave que a produção nunca usa —
     // e a busca, que normaliza, não acharia nada.
-    const chave = api.normalizarMatricula(m);
-    api.inserir('matriculados', Object.assign({
+    const chave = api.normalizarMatricula_(m);
+    api.inserir_('matriculados', Object.assign({
       matricula: chave, matricula_oficial: chave === m ? '' : m,
       nome: 'Aluno ' + m, curso: 'ADS', email: m + '@aluno.br'
     }, extras || {}), chave);
@@ -484,7 +452,7 @@ teste('texto apagado pela coordenação continua apagado', () => {
   // O padrão de `texto_imagem` é vazio de propósito: se fosse a frase de
   // CONFIG_PADRAO, limpar o campo pelo painel faria a frase voltar sozinha e
   // não haveria como desligar a autorização de imagem.
-  a.api.gravarConfig('texto_imagem', '');
+  a.api.gravarConfig_('texto_imagem', '');
   a.cache.expirar();
 
   igual(corpoDe(get(a, { api: 'config' })).dados.textoImagem, '');
@@ -492,13 +460,13 @@ teste('texto apagado pela coordenação continua apagado', () => {
 
 // ---- a janela geral de inscrição (pedido do Prof. Mário, 19/09, item 5) ----
 
-/** 05/10/2026 às 10:00 em Brasília — `agora()` formata em -03:00. */
+/** 05/10/2026 às 10:00 em Brasília — `agora_()` formata em -03:00. */
 const DENTRO_DA_JANELA = Date.UTC(2026, 9, 5, 13, 0, 0);
 
 function montarNaJanela(chaves) {
   const relogio = criarRelogio(DENTRO_DA_JANELA);
   const a = montar({ relogio });
-  Object.keys(chaves || {}).forEach((chave) => a.api.gravarConfig(chave, chaves[chave]));
+  Object.keys(chaves || {}).forEach((chave) => a.api.gravarConfig_(chave, chaves[chave]));
   a.relogio = relogio;
   return a;
 }
@@ -568,13 +536,6 @@ teste('a janela não custa leitura: continua a configuração mais a consulta da
   igual(quantas(a.falso, LEITURA_CONFIG), 1);
 });
 
-teste('o Cadastro.html recebe `aberto` falso fora da janela — e mostra "encerradas"', () => {
-  const a = montarNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
-  get(a, {});
-
-  igual(JSON.parse(a.paginas[0].dadosIniciais).aberto, false);
-});
-
 teste('o POST fora da janela responde JSON com a data, sem `situacao` de projeto', () => {
   // Sem `situacao`: o site trata resposta com `situacao` como "o projeto
   // lotou/fechou enquanto você preenchia" e redesenha o cartão. A janela é
@@ -596,7 +557,7 @@ teste('devolve só os projetos ativos, com vagas, inscritos e situação', () =>
   criarProjeto(a.api, 'p1', { nome: 'R+ Cidades', vagas: '2', ordem: '1' });
   criarProjeto(a.api, 'p2', { nome: 'Robótica', vagas: '0', ordem: '2' });
   criarProjeto(a.api, 'p3', { nome: 'Escondido', ativo: 'NAO', ordem: '3' });
-  a.api.inserir('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
+  a.api.inserir_('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
 
   const r = corpoDe(get(a, { api: 'projetos' }));
 
@@ -634,7 +595,7 @@ teste('a orientação do formulário viaja junto, como a descrição já viaja',
 teste('projeto cheio sai como ESGOTADO', () => {
   const a = montar();
   criarProjeto(a.api, 'p1', { vagas: '1' });
-  a.api.inserir('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
+  a.api.inserir_('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
 
   const r = corpoDe(get(a, { api: 'projetos' }));
   igual(r.projetos[0].situacao, 'ESGOTADO');
@@ -655,7 +616,7 @@ teste('custa uma consulta mais uma agregação por projeto ATIVO', () => {
   // Quatro, e a quarta é o documento de configuração: `contarInscritos_` pergunta
   // se a fila de espera está ligada (`esperaLigada_`, 09_Projetos.gs). É UMA por
   // execução e não uma por projeto — os dois projetos ativos aqui provam isso, e
-  // é o cache de execução de `config()` que responde a segunda pergunta.
+  // é o cache de execução de `config_()` que responde a segunda pergunta.
   igual(a.falso.requisicoes.length, 4, 'nada além disso');
 });
 
@@ -666,7 +627,7 @@ teste('com a fila de espera ligada, cada projeto custa uma agregação a mais', 
   const a = montar();
   criarProjeto(a.api, 'p1');
   criarProjeto(a.api, 'p2');
-  a.api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  a.api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
   zerar(a);
   a.cache.expirar();
 
@@ -682,9 +643,9 @@ teste('com contar_ocupacao_na_lista em NAO, a rota não faz agregação nenhuma'
   const a = montar();
   criarProjeto(a.api, 'p1', { vagas: '2', ordem: '1' });
   criarProjeto(a.api, 'p2', { vagas: '60', ordem: '2' });
-  a.api.inserir('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
-  a.api.inserir('inscricoes', { projeto_id: 'p1', matricula: 'A2' }, 'i2');
-  a.api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
+  a.api.inserir_('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
+  a.api.inserir_('inscricoes', { projeto_id: 'p1', matricula: 'A2' }, 'i2');
+  a.api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
   zerar(a);
   a.cache.expirar();
 
@@ -703,7 +664,7 @@ teste('com contar_ocupacao_na_lista em NAO, a rota não faz agregação nenhuma'
 teste('com a chave em SIM — o padrão — a rota responde como sempre respondeu', () => {
   const a = montar();
   criarProjeto(a.api, 'p1', { vagas: '2' });
-  a.api.inserir('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
+  a.api.inserir_('inscricoes', { projeto_id: 'p1', matricula: 'A1' }, 'i1');
   zerar(a);
   a.cache.expirar();
 
@@ -723,7 +684,7 @@ teste('o sinal do envelope e o do projeto nunca discordam', () => {
   criarProjeto(a.api, 'p1');
 
   [['NAO', false], ['SIM', true]].forEach((caso) => {
-    a.api.gravarConfig('contar_ocupacao_na_lista', caso[0]);
+    a.api.gravarConfig_('contar_ocupacao_na_lista', caso[0]);
     a.cache.expirar();
     const r = corpoDe(get(a, { api: 'projetos' }));
     igual(r.ocupacao_contada, caso[1]);
@@ -750,7 +711,7 @@ teste('inscrição nova NÃO derruba o cache — é a decisão do arquivo', () =
 
   // Invalidar aqui seria o reflexo óbvio, e destruiria o cache exatamente no
   // pico: no auditório entra inscrição a cada poucos segundos. O cartão fica
-  // atrasado; quem decide a vaga é `reservarVaga`, que conta dentro do lock.
+  // atrasado; quem decide a vaga é `reservarVaga_`, que conta dentro do lock.
   const r = corpoDe(get(a, { api: 'projetos' }));
   igual(r.projetos[0].inscritos, 0, 'o cartão ainda mostra o retrato de antes');
   igual(a.falso.requisicoes.length, 0, 'e não custou leitura');
@@ -823,7 +784,7 @@ teste('modo AVISAR responde bloqueia:false', () => {
   const a = montar();
   criarProjeto(a.api, 'p1');
   matricular(a.api, ['9110001']);
-  a.api.gravarConfig('modo_validacao_matricula', 'AVISAR');
+  a.api.gravarConfig_('modo_validacao_matricula', 'AVISAR');
 
   igual(corpoDe(get(a, { api: 'matricula', m: '9999999', p: 'p1' })).bloqueia, false);
 });
@@ -836,7 +797,7 @@ teste('matrícula CANCELADA na lista oficial responde o corpo IDÊNTICO ao de in
   const a = montar();
   criarProjeto(a.api, 'p1');
   matricular(a.api, ['9110001']);
-  a.api.atualizarEmLote('matriculados', [{
+  a.api.atualizarEmLote_('matriculados', [{
     _id: '9110001', situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'prof@exemplo.com', cancelado_lote_id: 'L2'
   }]);
@@ -897,7 +858,7 @@ teste('a rota usa a MESMA régua do envio — e não uma conta própria', () => 
   igual(corpoDe(get(a, { api: 'matricula', m: '91100011', p: 'p1' })).motivo, 'FORMATO');
 
   // E a régua acompanha a configuração — a mesma que o envio lê.
-  a.api.gravarConfig('matricula_digitos', '6');
+  a.api.gravarConfig_('matricula_digitos', '6');
   igual(corpoDe(get(a, { api: 'matricula', m: '911000', p: 'p1' })).motivo !== 'FORMATO', true,
     'com 6 configurado, 6 dígitos tem formato');
 });
@@ -961,7 +922,7 @@ teste('passado o teto, responde indisponivel e o site libera', () => {
   const a = montar();
   criarProjeto(a.api, 'p1');
   matricular(a.api, ['9110001']);
-  a.api.gravarConfig('limite_consultas_matricula_hora', '2');
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '2');
 
   igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, true);
   igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, true);
@@ -973,7 +934,7 @@ teste('passado o teto, responde indisponivel e o site libera', () => {
 teste('o teto registra UMA vez por janela, e não uma por requisição recusada', () => {
   const a = montar();
   criarProjeto(a.api, 'p1');
-  a.api.gravarConfig('limite_consultas_matricula_hora', '0');
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '0');
 
   for (let i = 0; i < 5; i++) get(a, { api: 'matricula', m: '9110001', p: 'p1' });
 
@@ -988,7 +949,7 @@ teste('a janela seguinte volta a contar do zero', () => {
   const a = montar({ relogio: relogio });
   criarProjeto(a.api, 'p1');
   matricular(a.api, ['9110001']);
-  a.api.gravarConfig('limite_consultas_matricula_hora', '1');
+  a.api.gravarConfig_('limite_consultas_matricula_hora', '1');
 
   igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).existe, true);
   igual(corpoDe(get(a, { api: 'matricula', m: '9110001', p: 'p1' })).indisponivel, true);
@@ -999,16 +960,15 @@ teste('a janela seguinte volta a contar do zero', () => {
 
 // ------------------------------------------------------------ rotas e páginas
 
-grupo('doGet — rota desconhecida e as duas páginas');
+grupo('doGet — rota desconhecida e o endereço sem rota');
 
-teste('?api=lixo responde JSON de erro, e não a página de cadastro', () => {
+teste('?api=lixo responde JSON de erro', () => {
   const a = montar();
   const saida = get(a, { api: 'lixo' });
 
   igual(saida.getMimeType(), 'application/json');
   igual(corpoDe(saida).ok, false);
   verdadeiro(corpoDe(saida).erro.indexOf('lixo') !== -1);
-  igual(a.paginas.length, 0, 'nenhuma página foi montada');
 });
 
 teste('rota desconhecida não devolve o parâmetro inteiro de volta', () => {
@@ -1017,50 +977,45 @@ teste('rota desconhecida não devolve o parâmetro inteiro de volta', () => {
   verdadeiro(erro.length < 100, 'o eco do parâmetro é cortado: ' + erro.length);
 });
 
-teste('sem parâmetro nenhum, serve o Cadastro com os dados iniciais', () => {
+teste('sem parâmetro nenhum, responde JSON: o endereço é a API, e a resposta aponta o site e o painel', () => {
+  // Era aqui que o Cadastro.html era servido. O servidor não serve mais página
+  // (ver "Nenhuma resposta é página", em 08_Api.gs), e quem abre o endereço sem
+  // rota recebe uma frase e os dois endereços do Pages. Este sandbox nem tem
+  // HtmlService: um `doGet` que voltasse a montar página estouraria aqui.
   const a = montar();
+  const saida = get(a, {});
+
+  igual(saida.getMimeType(), 'application/json');
+  const corpo = corpoDe(saida);
+  igual(corpo.site, 'https://cesutech.github.io/');
+  igual(corpo.painel, 'https://cesutech.github.io/painel/');
+  verdadeiro(/é a API/.test(corpo.mensagem), corpo.mensagem);
+});
+
+teste('?p=admin, o endereço antigo do painel, cai na mesma resposta — e qualquer outro p= também', () => {
+  const a = montar();
+  const semRota = get(a, {}).getContent();
+
+  ['admin', 'cadastro', 'inventada'].forEach((p) => {
+    igual(get(a, { p: p }).getContent(), semRota, '?p=' + p);
+  });
+});
+
+teste('o endereço sem rota custa ZERO leitura do Firestore', () => {
+  // Rota anônima: uma resposta que lesse a configuração seria cota gasta por
+  // quem não pediu nada — a mesma razão do ping.
+  const a = montar();
+
   get(a, {});
-
-  igual(a.paginas.length, 1);
-  igual(a.paginas[0].arquivo, 'Cadastro');
-  igual(JSON.parse(a.paginas[0].dadosIniciais).aberto, true);
-  igual(a.paginas[0].xframe, 'ALLOWALL', 'sem isso o iframe do Google Sites fica em branco');
-  igual(a.paginas[0].metas, [['viewport', 'width=device-width, initial-scale=1']]);
-});
-
-teste('?p=admin serve o painel', () => {
-  const a = montar();
+  igual(a.falso.requisicoes.length, 0, 'sem parâmetro');
   get(a, { p: 'admin' });
-
-  igual(a.paginas[0].arquivo, 'Admin');
-  igual(JSON.parse(a.paginas[0].dadosIniciais).app, a.api.APP.nome);
+  igual(a.falso.requisicoes.length, 0, '?p=admin');
 });
 
-teste('abrir o painel custa ZERO leitura do Firestore', () => {
+teste('doGet sem evento nenhum não estoura, e responde o mesmo JSON', () => {
   const a = montar();
-  get(a, { p: 'admin' });
-
-  // É de propósito: com o banco fora do ar, a coordenação ainda precisa
-  // conseguir abrir o painel para descobrir o que houve.
-  igual(a.falso.requisicoes.length, 0);
-});
-
-teste('página desconhecida cai no Cadastro', () => {
-  const a = montar();
-  get(a, { p: 'inventada' });
-  igual(a.paginas[0].arquivo, 'Cadastro');
-});
-
-teste('doGet sem evento nenhum não estoura', () => {
-  const a = montar();
-  requisicao(a, () => a.api.doGet());
-  igual(a.paginas[0].arquivo, 'Cadastro');
-});
-
-teste('include devolve o conteúdo do arquivo pedido', () => {
-  const a = montar();
-  igual(a.api.include('Estilos'), '<!-- Estilos -->');
-  igual(a.includes, ['Estilos']);
+  const saida = requisicao(a, () => a.api.doGet());
+  igual(saida.getContent(), get(a, {}).getContent());
 });
 
 // ------------------------------------------------------------ doPost
@@ -1154,7 +1109,7 @@ teste('corpo que não é JSON responde erro de corpo, e não erro interno', () =
 teste('JSON que não é objeto também é corpo inválido', () => {
   const a = montar();
   // `JSON.parse('"oi"')` e `JSON.parse('7')` não estouram: sem esta guarda o
-  // valor desceria até `submeterInscricao` como algo sem campo nenhum.
+  // valor desceria até `submeterInscricao_` como algo sem campo nenhum.
   igual(corpoDe(post(a, '"oi"')).erro, 'Corpo da requisição inválido.');
   igual(corpoDe(post(a, '7')).erro, 'Corpo da requisição inválido.');
   igual(corpoDe(post(a, 'null')).erro, 'Corpo da requisição inválido.');
@@ -1202,7 +1157,7 @@ teste('inscrição sem projeto entra pelo mesmo endereço', () => {
  */
 grupo('doPost acao=painel — a ponte que substitui o google.script.run');
 
-/** Uma sessão de verdade, criada como `autenticar` a cria. */
+/** Uma sessão de verdade, criada como `autenticar_` a cria. */
 function sessao(a, email) {
   return a.api.criarSessao_(email || 'coordenacao@exemplo.com');
 }
@@ -1236,7 +1191,7 @@ teste('o e-mail fora da allowlist não muda a recusa da rota', () => {
   // ela olha o token — e é isso que impede a resposta de virar oráculo de "este
   // e-mail é admin?". Quem quiser saber precisa do token, e o token é o segredo.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   const deFora = painel(a, 'painelEstatisticas', sessao(a, 'estranho@exemplo.com'), {});
   igual(deFora.ok, true, 'a sessão vale enquanto o token vale — a allowlist é do login');
@@ -1246,16 +1201,19 @@ teste('função fora da lista branca é recusada, mesmo existindo no servidor', 
   const a = montar();
   const token = sessao(a);
 
-  // As quatro existem, são chamáveis, e nenhuma delas tem `exigirAdmin`.
-  // `gravarConfig` reescreveria a configuração inteira; `invalidarSessoes`
+  // As quatro existem, são chamáveis, e nenhuma delas tem `exigirAdmin_`.
+  // `gravarConfig_` reescreveria a configuração inteira; `invalidarSessoes`
   // derrubaria todo mundo; `criarSessao_` FABRICARIA uma sessão para qualquer
-  // e-mail. Um despacho por `this[nome]` entregaria as três.
-  ['setup', 'gravarConfig', 'invalidarSessoes', 'criarSessao_', 'reservarVaga']
-    .forEach((nome) => {
-      igual(typeof a.api[nome], 'function', nome + ' devia existir para o teste valer');
-      const r = painel(a, nome, token, {});
-      igual(r.ok, false, nome + ' foi despachada e não devia');
-      verdadeiro(r.erro.indexOf('Ação desconhecida') === 0, nome + ': ' + r.erro);
+  // e-mail. Um despacho por `this[nome]` entregaria as três. Cada uma vai pelo
+  // fio com o nome da função e com o nome sem o `_` do fim.
+  ['setup', 'gravarConfig_', 'invalidarSessoes', 'criarSessao_', 'reservarVaga_']
+    .forEach((funcao) => {
+      igual(typeof a.api[funcao], 'function', funcao + ' devia existir para o teste valer');
+      [funcao, funcao.replace(/_$/, '')].forEach((nome) => {
+        const r = painel(a, nome, token, {});
+        igual(r.ok, false, nome + ' foi despachada e não devia');
+        verdadeiro(r.erro.indexOf('Ação desconhecida') === 0, nome + ': ' + r.erro);
+      });
     });
 });
 
@@ -1285,7 +1243,7 @@ teste('nome desconhecido não devolve a resposta de sessão inválida', () => {
 
 teste('o token do envelope sobrescreve o que veio dentro do payload', () => {
   // Sem o carimbo, o cliente mandaria um token bom no envelope (que a rota
-  // confere) e um token qualquer em `dados` (que o `exigirAdmin` lá dentro
+  // confere) e um token qualquer em `dados` (que o `exigirAdmin_` lá dentro
   // confere), e a conferência que valeria seria a que o cliente escolheu.
   const a = montar();
   const r = painel(a, 'painelEstatisticas', sessao(a), { token: 'lixo' });
@@ -1313,8 +1271,8 @@ teste('a rota despacha de verdade, e a resposta é a da função', () => {
   // Uma que ESCREVE, para provar que o caminho não é só de leitura.
   const salvo = painel(a, 'salvarConfiguracao', token, { chave: 'vagas_padrao', valor: '25' });
   igual(salvo.ok, true, 'erro foi: ' + salvo.erro);
-  a.api.limparCacheConfig();
-  igual(a.api.config('vagas_padrao'), '25');
+  a.api.limparCacheConfig_();
+  igual(a.api.config_('vagas_padrao'), '25');
 });
 
 teste('a resposta da rota do painel é JSON, como a da inscrição', () => {
@@ -1390,7 +1348,7 @@ const PROJETO_NOVO = { projeto: { nome: 'CONECTANDO GERAÇÕES', vagas: 60, ativ
 teste('a mesma chave não grava duas vezes, e devolve a MESMA resposta', () => {
   const a = montar();
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'salvarProjeto');
+  const execucoes = contarExecucoes(a, 'salvarProjeto_');
 
   const primeira = painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kabc12345678');
   const segunda = painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kabc12345678');
@@ -1407,7 +1365,7 @@ teste('guarda SÓ o que deu certo: a recusa pode ser tentada de novo', () => {
   // conhecido: "muita gente se inscrevendo ao mesmo tempo", o lock ocupado.
   const a = montar();
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'salvarProjeto');
+  const execucoes = contarExecucoes(a, 'salvarProjeto_');
   const semNome = { projeto: { vagas: 60 } };
 
   const primeira = painelComChave(a, 'salvarProjeto', token, semNome, 'kfalha12345678');
@@ -1427,7 +1385,7 @@ teste('a chave vale para UMA ação só — a de outra não devolve esta respost
   const a = montar();
   criarProjeto(a.api, 'p1', {});
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'removerProjeto');
+  const execucoes = contarExecucoes(a, 'removerProjeto_');
 
   painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kmesma12345678');
   const removida = painelComChave(a, 'removerProjeto', token, { id: 'p1' }, 'kmesma12345678');
@@ -1440,7 +1398,7 @@ teste('a chave vale para UMA ação só — a de outra não devolve esta respost
 teste('chave nova é operação nova — e ela grava', () => {
   const a = montar();
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'salvarProjeto');
+  const execucoes = contarExecucoes(a, 'salvarProjeto_');
 
   painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kprimeira12345');
   painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'ksegunda123456');
@@ -1474,7 +1432,7 @@ teste('a janela é de dez minutos, e depois dela a chave não vale mais', () => 
   // reclicando em segundos.
   const a = montar();
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'salvarProjeto');
+  const execucoes = contarExecucoes(a, 'salvarProjeto_');
 
   painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'kjanela1234567');
   const put = a.cache.eventos.filter((e) => e.tipo === 'put')[0];
@@ -1486,7 +1444,7 @@ teste('a janela é de dez minutos, e depois dela a chave não vale mais', () => 
 });
 
 teste('resposta grande demais não é guardada — a repetição volta a executar', () => {
-  // `exportarCsv` devolve o CSV INTEIRO no corpo, e o item do CacheService tem
+  // `exportarCsv_` devolve o CSV INTEIRO no corpo, e o item do CacheService tem
   // teto de 100 KB. Guardar menos é a degradação certa: exportar duas vezes gera
   // dois arquivos iguais e duas linhas na trilha, e nada que se pareça com dado
   // duplicado.
@@ -1502,7 +1460,7 @@ teste('resposta grande demais não é guardada — a repetição volta a executa
 teste('cache é otimização, nunca dependência: sem ele a rota executa igual', () => {
   const a = montar({ semCache: true });
   const token = sessao(a);
-  const execucoes = contarExecucoes(a, 'salvarProjeto');
+  const execucoes = contarExecucoes(a, 'salvarProjeto_');
 
   const primeira = painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'ksemcache12345');
   const segunda = painelComChave(a, 'salvarProjeto', token, PROJETO_NOVO, 'ksemcache12345');
@@ -1578,7 +1536,7 @@ teste('modoDeAcesso responde pela rota, e diz como desenhar a tela', () => {
 
 // REMOVIDO em 11/08: 'autenticar por PIN funciona pela rota e devolve token
 // utilizável' e 'PIN errado pela rota devolve a mesma recusa, sem token'. O PIN
-// saiu do sistema, e não há o que reescrever: `autenticar` não recebe mais
+// saiu do sistema, e não há o que reescrever: `autenticar_` não recebe mais
 // argumento e não há segredo a errar. O que aqueles dois provavam e continua
 // valendo está nos dois testes abaixo — o token de UMA rota abrindo a OUTRA, e a
 // recusa de login sem token junto.
@@ -1589,7 +1547,7 @@ teste('o token que sai do login abre o painel — as duas rotas falam a mesma l�
   // Google depende do navegador), e o que interessa a 08_Api.gs é que o token que
   // sai de `acao: 'login'` seja aceito por `acao: 'painel'`.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   igual(login(a, 'pedirLinkDeAcesso', { email: 'coordenacao@exemplo.com' }).ok, true);
 
@@ -1605,9 +1563,9 @@ teste('login recusado pela rota não devolve token nenhum', () => {
   // As três portas recusam por motivos diferentes e nenhuma pode vazar um token
   // junto com o "não": um cliente que lesse `r.token` sem olhar `r.ok` entraria.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
-  // `autenticar` nesta implantação (`USER_DEPLOYING`, conta comum) nunca vê a
+  // `autenticar_` nesta implantação (`USER_DEPLOYING`, conta comum) nunca vê a
   // identidade, e é o estado real de produção hoje.
   const semIdentidade = login(a, 'autenticar');
   igual(semIdentidade.ok, false);
@@ -1641,7 +1599,7 @@ teste('fn desconhecida no login é recusada por nome', () => {
 
 /**
  * `allowlistParaLink_` guarda a lista no CacheService por LINK_CACHE_SEGUNDOS, e
- * é o que torna `pedirLinkDeAcesso` uma rota anônima sem preço.
+ * é o que torna `pedirLinkDeAcesso_` uma rota anônima sem preço.
  *
  * O que se prova aqui, e por que cada coisa importa:
  *   1. o cache PEGA: um segundo pedido não volta ao banco. Sem isso, esta rota —
@@ -1655,7 +1613,7 @@ teste('fn desconhecida no login é recusada por nome', () => {
  *      É decisão registrada no código, e não acidente; um teste é o que separa
  *      uma da outra no dia em que alguém "consertar" o ramo.
  *
- * Cada `pedirLinkDeAcesso` entra pela rota, e `post` limpa o CONFIG_CACHE antes —
+ * Cada `pedirLinkDeAcesso_` entra pela rota, e `post` limpa o CONFIG_CACHE antes —
  * então cada pedido aqui é uma execução nova do Apps Script, como em produção. É
  * o que faz a medição de leitura valer alguma coisa: dentro de UMA execução, o
  * cache de 03_Config.gs já engoliria a segunda leitura sozinho, e o teste passaria
@@ -1674,7 +1632,7 @@ function destinatarios(a) {
 
 teste('dois pedidos de link custam UMA leitura do banco, e não uma por pedido', () => {
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
   igual(leiturasCobradas(a), 1, 'o primeiro pedido é o que paga: ele monta o cache');
@@ -1688,7 +1646,7 @@ teste('uma enxurrada de endereços inventados não custa uma leitura por pedido'
   // O cenário que motivou o cache: um laço de `curl` com endereços que não estão
   // na lista. Cada um morre na conferência, e a conferência tem de ser de graça.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   let leituras = 0;
   for (let i = 0; i < 20; i++) {
@@ -1702,7 +1660,7 @@ teste('uma enxurrada de endereços inventados não custa uma leitura por pedido'
 
 teste('incluirAdmin derruba o cache: quem entrou na lista recebe link no ato', () => {
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   // Esquenta o cache com a lista de UMA pessoa.
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
@@ -1720,7 +1678,7 @@ teste('removerAdmin derruba o cache: quem SAIU para de receber link no ato', () 
   // continuaria recebendo link por até cinco minutos — e é o pedido de link, e
   // não o clique, que põe um token válido na caixa de quem acabou de sair.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com, saindo@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com, saindo@exemplo.com');
 
   // Esquenta o cache com a lista de DUAS pessoas, pedindo para a que fica.
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
@@ -1733,12 +1691,12 @@ teste('removerAdmin derruba o cache: quem SAIU para de receber link no ato', () 
 });
 
 teste('o campo de texto da allowlist (regravarAllowlist_) também derruba o cache', () => {
-  // Caminho diferente dos dois de cima: `salvarConfiguracao` com a chave
+  // Caminho diferente dos dois de cima: `salvarConfiguracao_` com a chave
   // `admin_emails` reescreve a lista inteira. Ele não chama
-  // `esquecerAllowlistDoLink_` — quem chama é `gravarConfig`, e é isso que
+  // `esquecerAllowlistDoLink_` — quem chama é `gravarConfig_`, e é isso que
   // impede o quinto caminho de nascer esquecido.
   const a = montar();
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
 
@@ -1753,11 +1711,11 @@ teste('o campo de texto da allowlist (regravarAllowlist_) também derruba o cach
 teste('liberarAcesso derruba o cache: o socorro do editor vale no mesmo minuto', () => {
   const a = montar();
   a.api.console = { log() {}, error() {} }; // ela imprime a URL no console
-  a.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
 
   igual(pedirLink(a, 'coordenacao@exemplo.com').ok, true);
 
-  a.api.liberarAcesso('socorro@exemplo.com');
+  a.api.liberarAcesso_('socorro@exemplo.com');
 
   igual(pedirLink(a, 'socorro@exemplo.com').ok, true);
   igual(destinatarios(a), ['coordenacao@exemplo.com', 'socorro@exemplo.com']);
@@ -1769,12 +1727,12 @@ teste('sem CacheService a porta FECHA: mesma frase de sempre, e e-mail nenhum', 
   // por requisição anônima, e uma enxurrada gastaria a cota do formulário do
   // aluno para salvar a porta dos fundos.
   const bom = montar();
-  bom.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  bom.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
   const frase = pedirLink(bom, 'coordenacao@exemplo.com');
   igual(destinatarios(bom), ['coordenacao@exemplo.com'], 'o caminho normal precisa enviar');
 
   const semCache = montar({ cache: { quebrarServico: true } });
-  semCache.api.gravarConfig('admin_emails', 'coordenacao@exemplo.com');
+  semCache.api.gravarConfig_('admin_emails', 'coordenacao@exemplo.com');
   const degradada = pedirLink(semCache, 'coordenacao@exemplo.com');
 
   igual(degradada, frase, 'a resposta mudou com o cache fora do ar — e ela é a porta');
@@ -1793,9 +1751,14 @@ teste('sem CacheService a porta FECHA: mesma frase de sempre, e e-mail nenhum', 
  *
  * Ela é segura por uma razão só, e a razão é o que estes testes guardam: só se
  * chega a ela pelo editor do projeto, e quem chega ao editor já poderia
- * reescrever `entrarComLink` inteiro. No dia em que ela virar despachável pela
+ * reescrever `entrarComLink_` inteiro. No dia em que ela virar despachável pela
  * API, ela deixa de ser saída de emergência e passa a ser porta dos fundos
- * anônima — daí o terceiro teste ser sobre 08_Api.gs, e não sobre 07b.
+ * anônima — daí o quarto teste ser sobre 08_Api.gs, e não sobre 07b.
+ *
+ * Os três primeiros chamam a IMPLEMENTAÇÃO (`liberarMeuAcesso_`), num web app
+ * anônimo com a conta efetiva preenchida, para provar que é a EFETIVA que ela
+ * libera. A casca pública, que só roda no editor, tem a guarda conferida em
+ * testes/portas.js — e é ela que recusa exatamente o ambiente destes testes.
  */
 grupo('liberarMeuAcesso — a saída que não passa pela internet');
 
@@ -1803,7 +1766,7 @@ teste('libera a conta que RODA o script, e a sessão abre o painel', () => {
   const a = montar({ usuarioEfetivo: 'dono@exemplo.com' });
   a.api.console = { log() {}, error() {} };
 
-  const url = a.api.liberarMeuAcesso();
+  const url = a.api.liberarMeuAcesso_();
   const token = /\?sessao=([0-9a-f]+)/.exec(url)[1];
 
   igual(painel(a, 'painelEstatisticas', token, {}).ok, true, 'a sessão não abriu o painel');
@@ -1818,11 +1781,11 @@ teste('repõe o e-mail na allowlist quando a lista está vazia', () => {
   a.api.console = { log() {}, error() {} };
   igual(login(a, 'modoDeAcesso').allowlistVazia, true, 'o teste começa do beco');
 
-  a.api.liberarMeuAcesso();
+  a.api.liberarMeuAcesso_();
 
   const tela = login(a, 'modoDeAcesso');
   igual(tela.allowlistVazia, false, 'o dia seguinte volta ao estado sem porta nenhuma');
-  igual(a.api.config('admin_emails'), 'dono@exemplo.com');
+  igual(a.api.config_('admin_emails'), 'dono@exemplo.com');
 
   // E a lista reposta serve à porta remota no ato — o cache não guardou a vazia.
   igual(pedirLink(a, 'dono@exemplo.com').ok, true);
@@ -1831,14 +1794,47 @@ teste('repõe o e-mail na allowlist quando a lista está vazia', () => {
 
 teste('sem e-mail efetivo ela ensina a saída, em vez de criar sessão anônima', () => {
   // `Session` sem permissão é o que acontece quando `userinfo.email` não foi
-  // concedido. Cair em `liberarAcesso('')` daria um `throw` genérico; pior, um
+  // concedido. Cair em `liberarAcesso_('')` daria um `throw` genérico; pior, um
   // dia daria uma sessão sem dono. A recusa aqui é explícita e diz o que fazer.
+  //
+  // E o que ela diz não pode ser "rode `liberarAcesso(...)`": a casca dela tem a
+  // mesma guarda (`exigirDono_`), que pararia no mesmo e-mail que faltou aqui. A
+  // saída para esse dia está escrita no comentário de `liberarAcesso`.
   const a = montar({ usuarioEfetivo: null });
-  const erro = lancou(() => a.api.liberarMeuAcesso());
+  const erro = lancou(() => a.api.liberarMeuAcesso_());
 
   verdadeiro(/userinfo\.email/.test(erro.message), erro.message);
-  verdadeiro(/liberarAcesso\("/.test(erro.message), 'sem o caminho alternativo: ' + erro.message);
-  igual(a.api.config('admin_emails'), '', 'nada foi gravado na lista');
+  verdadeiro(/comentário de liberarAcesso/.test(erro.message), 'sem o caminho alternativo: ' + erro.message);
+  verdadeiro(!/liberarAcesso\(\s*["']/.test(erro.message),
+    'a saída manda chamar a casca, que para na mesma guarda: ' + erro.message);
+  igual(a.api.config_('admin_emails'), '', 'nada foi gravado na lista');
+});
+
+teste('conta do editor sem a forma da lista: a frase diz qual é a conta e manda usar outro endereço', () => {
+  // A regex da lista de acesso fica como está: o apóstrofo, que o Workspace
+  // aceita, não entra. O que muda é a frase — a de `liberarAcesso_` ("Informe um
+  // e-mail") é de quem esqueceu o argumento, e aqui ninguém passou argumento
+  // nenhum. Desta vez a saída É a casca `liberarAcesso`: a guarda passa, porque
+  // a conta que pediu é a que roda, e quem não passa é só o endereço.
+  //
+  // Mutação que derruba: tirar a conferência da forma de `liberarMeuAcesso_`.
+  const conta = "nome.d'exemplo@exemplo.edu.br";
+  const a = montar({ usuarioEfetivo: conta });
+  a.api.console = { log() {}, error() {} };
+  igual(a.api.emailDeAcessoValido_(conta), false, 'o cenário precisa de uma conta fora da forma');
+
+  const erro = lancou(() => a.api.liberarMeuAcesso_());
+
+  verdadeiro(erro.message.indexOf('A conta ' + conta + ' não tem a forma que a lista de acesso aceita') === 0,
+    'a frase não diz qual conta nem por quê: ' + erro.message);
+  verdadeiro(/liberarAcesso\("/.test(erro.message), 'sem a saída: ' + erro.message);
+  igual(/Informe um e-mail/.test(erro.message), false, 'a frase ainda é a de quem esqueceu o argumento: ' + erro.message);
+  igual(a.api.config_('admin_emails'), '', 'nada foi gravado na lista');
+
+  // E a saída que ela manda tomar funciona, pela mesma conta, com outro endereço.
+  const url = a.api.liberarAcesso_('nome.sobrenome@exemplo.edu.br');
+  verdadeiro(/\?sessao=[0-9a-f]+/.test(url), url);
+  igual(a.api.config_('admin_emails'), 'nome.sobrenome@exemplo.edu.br');
 });
 
 teste('NÃO é despachada pela API — nem no login, nem no painel', () => {
@@ -1858,7 +1854,7 @@ teste('NÃO é despachada pela API — nem no login, nem no painel', () => {
     verdadeiro(doPainel.erro.indexOf('Ação desconhecida') === 0, nome + ': ' + doPainel.erro);
   });
 
-  igual(a.api.config('admin_emails'), '', 'a allowlist foi mexida pela rota');
+  igual(a.api.config_('admin_emails'), '', 'a allowlist foi mexida pela rota');
 });
 
 // --------------------------------------------- a lista branca como contrato
@@ -1875,35 +1871,43 @@ function textoDosGs() {
 }
 
 teste('toda função da lista branca existe e é função', () => {
+  // A chave é o nome do FIO; o valor é a função. É o valor que tem de existir —
+  // e ser a MESMA função global do servidor, e não uma cópia montada no mapa.
   const a = montar();
-  const nomes = Object.keys(a.api.funcoesDoPainel_());
+  const funcoes = a.api.funcoesDoPainel_();
+  const nomes = Object.keys(funcoes);
 
   verdadeiro(nomes.length >= 28, 'só ' + nomes.length + ' na lista: alguma sumiu?');
   nomes.forEach((n) => {
-    igual(typeof a.api[n], 'function', n + ' está na lista branca e não existe no servidor');
+    igual(typeof funcoes[n], 'function', n + ' está na lista branca e não existe no servidor');
+    verdadeiro(a.api[funcoes[n].name] === funcoes[n], n + ' aponta para uma função que não é a global ' +
+      funcoes[n].name);
   });
 });
 
 teste('toda função da lista branca começa por exigirAdmin', () => {
-  // A lista branca diz "o navegador pode chamar"; o `exigirAdmin` diz "só com
+  // A lista branca diz "o navegador pode chamar"; o `exigirAdmin_` diz "só com
   // token". Uma função despachável sem a guarda seria um endereço anônimo com
   // acesso ao cadastro — e o teste anterior, que só confere que a rota exige
   // token, continuaria verde, porque a rota exige.
   //
-  // `exigirCoordenador` conta como guarda, e não é afrouxamento: a primeira
-  // linha dela é `exigirAdmin` (conferida logo abaixo, neste mesmo teste, e por
+  // `exigirCoordenador_` conta como guarda, e não é afrouxamento: a primeira
+  // linha dela é `exigirAdmin_` (conferida logo abaixo, neste mesmo teste, e por
   // um teste de ataque em invasao.js que mede que a recusa de sessão não custa
   // leitura). Ela é a guarda das quatro que concedem ou revogam poder —
-  // `incluirAdmin`, `removerAdmin`, `definirNivel` e `salvarConfiguracao`.
+  // `incluirAdmin_`, `removerAdmin_`, `definirNivel_` e `salvarConfiguracao_`.
   const a = montar();
   const textos = textoDosGs();
   const semGuarda = [];
 
-  const guarda = /exigir(Admin|Coordenador)\s*\(/;
-  Object.keys(a.api.funcoesDoPainel_()).forEach((nome) => {
+  // O corpo procurado é o da FUNÇÃO (`listarAlunos_`), e não o do nome do fio
+  // (`listarAlunos`): é o nome declarado do valor que a lista guarda.
+  const funcoes = a.api.funcoesDoPainel_();
+  const guarda = /exigir(Admin|Coordenador)_\s*\(/;
+  Object.keys(funcoes).forEach((nome) => {
     let achou = false;
     Object.keys(textos).forEach((arquivo) => {
-      const corpo = corpoDaFuncao(textos[arquivo], nome);
+      const corpo = corpoDaFuncao(textos[arquivo], funcoes[nome].name);
       if (corpo === null) return;
       if (guarda.test(corpo)) achou = true;
     });
@@ -1913,10 +1917,10 @@ teste('toda função da lista branca começa por exigirAdmin', () => {
   igual(semGuarda, [], 'sem exigirAdmin: ' + semGuarda.join(', '));
 
   // E a guarda de nível não pode virar a porta que dispensa a de sessão.
-  const daCoroa = corpoDaFuncao(textos['07_Auth.gs'], 'exigirCoordenador');
-  verdadeiro(daCoroa !== null, 'exigirCoordenador sumiu de 07_Auth.gs');
-  verdadeiro(/exigirAdmin\s*\(/.test(daCoroa),
-    'exigirCoordenador deixou de exigir a sessão antes do nível');
+  const daCoroa = corpoDaFuncao(textos['07_Auth.gs'], 'exigirCoordenador_');
+  verdadeiro(daCoroa !== null, 'exigirCoordenador_ sumiu de 07_Auth.gs');
+  verdadeiro(/exigirAdmin_\s*\(/.test(daCoroa),
+    'exigirCoordenador_ deixou de exigir a sessão antes do nível');
 });
 
 /** O corpo textual de `function nome(...)`, ou null se ela não está no arquivo. */
@@ -1998,7 +2002,7 @@ grupo('quando alguma coisa quebra');
 teste('Firestore fora do ar responde JSON de erro, e não a página do Apps Script', () => {
   const a = montar();
   criarProjeto(a.api, 'p1');
-  a.api.limparCacheConfig();
+  a.api.limparCacheConfig_();
   zerar(a);
 
   a.falso.forcar(503, 'UNAVAILABLE', 'The service is currently unavailable.');
@@ -2012,7 +2016,7 @@ teste('Firestore fora do ar responde JSON de erro, e não a página do Apps Scri
 
 teste('a mensagem de erro não vaza o caminho nem o texto do Google', () => {
   const a = montar();
-  a.api.limparCacheConfig();
+  a.api.limparCacheConfig_();
   zerar(a);
   a.falso.forcar(403, 'PERMISSION_DENIED', 'Missing or insufficient permissions on projects/unicesusc-cesutech');
 
@@ -2024,12 +2028,15 @@ teste('a mensagem de erro não vaza o caminho nem o texto do Google', () => {
 
 teste('resposta com erro não é guardada no cache', () => {
   const a = montar();
-  a.api.limparCacheConfig();
+  a.api.limparCacheConfig_();
   zerar(a);
   a.falso.forcar(403, 'PERMISSION_DENIED', 'sem permissão');
   a.api.doGet({ parameter: { api: 'config' } });
 
-  igual(a.cache.dados.size, 0, 'uma falha ficaria grudada por 30 segundos');
+  // As duas chaves do freio da trilha (`registrarErroInterno_` → `registrarRecusa_`,
+  // 04_Log.gs) ficam, e são delas: o que não pode ficar é a RESPOSTA da rota.
+  igual(Array.from(a.cache.dados.keys()).filter((k) => k.indexOf('recusa_') !== 0), [],
+    'uma falha ficaria grudada por 30 segundos');
   igual(corpoDe(get(a, { api: 'config' })).ok, true, 'e a chamada seguinte já funciona');
 });
 
@@ -2059,6 +2066,252 @@ teste('cache que estoura na leitura não derruba a rota', () => {
   igual(corpoDe(get(a, { api: 'projetos' })).ok, true);
 });
 
+/** As linhas ERRO_INTERNO da trilha, da mais nova para a mais velha. */
+function errosInternos(a) {
+  return a.api.ultimosRegistros_(100).filter((l) => l.acao === 'ERRO_INTERNO');
+}
+
+/**
+ * O erro como o Repo o lança de verdade: `fsErro_` (02_Repo.gs) montando a
+ * resposta do Firestore para a leitura de uma matrícula. Ele leva o caminho
+ * RELATIVO do documento depois do método ('em GET /matriculados/9110001'), e o
+ * texto do Google aqui cita o nome inteiro dele ('projects/...'). Matrícula só na
+ * forma.
+ */
+function erroDoRepo(api) {
+  const corpo = {
+    error: {
+      code: 503,
+      status: 'UNAVAILABLE',
+      message: 'The service is currently unavailable for projects/projeto-de-teste/databases/(default)/' +
+        'documents/matriculados/9110001'
+    }
+  };
+  return api.fsErro_(503, JSON.stringify(corpo), 'get', '/matriculados/9110001');
+}
+
+/**
+ * A linha da trilha não diz de quem era o documento: nem a matrícula em campo
+ * nenhum, nem um caminho de documento — o relativo, que `fsErro_` escreve, ou o
+ * nome inteiro, que o texto do Google cita.
+ */
+function semDocumentoNaLinha(linha, contexto) {
+  const texto = JSON.stringify(linha);
+  igual(texto.indexOf('9110001'), -1, contexto + ': a matrícula foi para a trilha: ' + texto);
+  igual(linha.detalhe.indexOf('/matriculados/'), -1, contexto + ': o caminho relativo foi para a trilha: ' + linha.detalhe);
+  igual(linha.detalhe.indexOf('projects/'), -1, contexto + ': o nome do documento foi para a trilha: ' + linha.detalhe);
+}
+
+teste('o erro das rotas de leitura vai para a trilha — uma linha por janela, sem o caminho do documento', () => {
+  // As chamadas do site são anônimas. A tela Execuções do editor as lista, mas
+  // como concluídas (a rota tratou o erro), e a coordenação não abre o editor:
+  // sem a trilha, o aluno via "Não foi possível carregar..." e ninguém mais
+  // ficava sabendo.
+  //
+  // Mutação que derruba: tirar `registrarErroInterno_` do `catch` do doGet;
+  // gravar a mensagem sem `semIdDeDocumento_`; trocar `registrarRecusa_` por
+  // `registrar_` (uma escrita por falha, que uma enxurrada transformaria na cota
+  // de escrita do dia).
+  const a = montar();
+  a.api.dadosFormularioPublico_ = () => { throw erroDoRepo(a.api); };
+
+  for (let i = 0; i < 5; i++) {
+    igual(corpoDe(get(a, { api: 'config' })).ok, false);
+  }
+
+  const linhas = errosInternos(a);
+  igual(linhas.length, 1, 'cinco falhas na mesma janela: ' + JSON.stringify(linhas));
+  igual(linhas[0].entidade_id, 'leitura');
+  semDocumentoNaLinha(linhas[0], 'leitura');
+  verdadeiro(linhas[0].detalhe.indexOf('leitura: Firestore 503 UNAVAILABLE em GET /(documento): ') === 0, linhas[0].detalhe);
+
+  // A janela seguinte grava de novo, e diz quantas foram engolidas.
+  a.cache.expirar();
+  get(a, { api: 'config' });
+  const depois = errosInternos(a);
+  igual(depois.length, 2);
+});
+
+teste('o erro da inscrição, do login e do painel também — cada um com o seu nome fixo', () => {
+  // O nome é a chave do freio, e é escrito por quem chama: nada que venha do
+  // corpo da requisição entra nele (testes/portas.js confere a forma).
+  //
+  // Mutação que derruba: tirar `registrarErroInterno_` de um dos três `catch`,
+  // ou montar o nome com o que veio do cliente.
+  const a = montar();
+  a.api.verificarAntiAbuso_ = () => { throw erroDoRepo(a.api); };
+  a.api.modoDeAcesso_ = () => { throw erroDoRepo(a.api); };
+  a.api.listarLotes_ = () => { throw erroDoRepo(a.api); };
+  const token = a.api.criarSessao_('coord@exemplo.com');
+  a.api.gravarConfig_('admin_emails', 'coord@exemplo.com');
+
+  igual(corpoDe(post(a, { acao: 'inscricao', nome: 'Aluno de teste' })).erro,
+    'Erro ao registrar. Tente novamente em instantes.');
+  igual(corpoDe(post(a, { acao: 'login', fn: 'modoDeAcesso' })).ok, false);
+  igual(corpoDe(post(a, { acao: 'painel', fn: 'listarLotes', token: token })).ok, false);
+
+  igual(errosInternos(a).map((l) => l.entidade_id).sort(), ['inscricao', 'login', 'painel']);
+  errosInternos(a).forEach((l) => semDocumentoNaLinha(l, l.entidade_id));
+});
+
+teste('o erro que escapa até o catch do doPost também', () => {
+  // Mutação que derruba: tirar `registrarErroInterno_` do `catch` do doPost.
+  const a = montar();
+  a.api.submeterInscricao_ = () => { throw erroDoRepo(a.api); };
+
+  igual(corpoDe(post(a, { acao: 'inscricao' })).erro, 'Erro interno ao processar a inscrição.');
+  igual(errosInternos(a).map((l) => l.entidade_id), ['post']);
+  semDocumentoNaLinha(errosInternos(a)[0], 'post');
+});
+
+/**
+ * As três formas em que a leitura da lista oficial cai sem ninguém ter errado
+ * nada: o serviço fora do ar, a cota do dia e a permissão do projeto. As duas
+ * primeiras o Repo tenta de novo (FS_MAX_TENTATIVAS); a terceira, não.
+ */
+const QUEDAS_DA_LEITURA = [
+  [503, 'UNAVAILABLE', 'The service is currently unavailable.'],
+  [429, 'RESOURCE_EXHAUSTED', 'Quota exceeded.'],
+  [403, 'PERMISSION_DENIED', 'Missing or insufficient permissions.']
+];
+
+/**
+ * Derruba TODAS as tentativas das leituras de `matriculados` que vierem: o banco
+ * responde, e a resposta vira o erro do Firestore. Quem monta o Error é o
+ * `fsErro_` de verdade, com o caminho relativo do documento na mensagem.
+ */
+function derrubarLeituraDaLista(a, codigo, status, mensagem) {
+  for (let i = 0; i < a.api.FS_MAX_TENTATIVAS; i++) {
+    a.falso.derrubarDepoisDeAplicar('/matriculados/', codigo, status, mensagem);
+  }
+}
+
+teste('a conferência da matrícula que cai no banco vai para a trilha sem a matrícula — 503, 429 e 403', () => {
+  // O erro é o de verdade: `fsErro_` escreve 'em GET /matriculados/9110001', e
+  // `semCaminhoDeDocumento_` só tira o nome inteiro ('projects/...'). A linha
+  // fica um ano no banco, vai para o backup e aparece no Histórico; o que ela
+  // precisa dizer é o código, o status e o método.
+  //
+  // Mutação que derruba: `registrarErroInterno_` voltar a gravar só com
+  // `semCaminhoDeDocumento_`; ou a régua da trilha não trocar o caminho
+  // relativo.
+  QUEDAS_DA_LEITURA.forEach(([codigo, status, mensagem]) => {
+    const a = montar();
+    matricular(a.api, ['9110001']);
+    derrubarLeituraDaLista(a, codigo, status, mensagem);
+
+    const r = corpoDe(get(a, { api: 'matricula', m: '9110001' }));
+    igual(r, { ok: false, erro: 'Não foi possível carregar os dados agora. Tente em instantes.' }, status);
+    verdadeiro(a.falso.requisicoes.some(LEITURA_MATRICULA), status + ': a rota nem leu a lista oficial');
+
+    const linhas = errosInternos(a);
+    igual(linhas.map((l) => l.entidade_id), ['leitura'], status + ': ' + JSON.stringify(linhas));
+    semDocumentoNaLinha(linhas[0], status);
+    igual(linhas[0].detalhe.indexOf('leitura: Firestore ' + codigo + ' ' + status + ' em GET /(documento): '), 0,
+      status + ': a linha não diz o que falhou: ' + linhas[0].detalhe);
+  });
+});
+
+teste('a inscrição que cai na leitura da lista oficial vai para a trilha sem a matrícula — 503, 429 e 403', () => {
+  // O mesmo erro, pelo caminho do envio: `submeterInscricao_` lê a ficha oficial
+  // pela matrícula, e o `catch` dela anota a falha com o nome 'inscricao'.
+  //
+  // Mutação que derruba: a mesma do teste de cima.
+  QUEDAS_DA_LEITURA.forEach(([codigo, status, mensagem]) => {
+    const a = montar();
+    criarProjeto(a.api, 'p1');
+    matricular(a.api, ['9110001']);
+    derrubarLeituraDaLista(a, codigo, status, mensagem);
+
+    const r = corpoDe(post(a, Object.assign({ acao: 'inscricao', projeto_id: 'p1' }, INSCRICAO_VALIDA)));
+    igual(r, { ok: false, erro: 'Erro ao registrar. Tente novamente em instantes.' }, status);
+    verdadeiro(a.falso.requisicoes.some(LEITURA_MATRICULA), status + ': o envio nem leu a lista oficial');
+    igual(acoesDoLog(a.falso).filter((acao) => acao.indexOf('INSCRICAO') === 0), [], status + ': a inscrição entrou');
+
+    const linhas = errosInternos(a);
+    igual(linhas.map((l) => l.entidade_id), ['inscricao'], status + ': ' + JSON.stringify(linhas));
+    semDocumentoNaLinha(linhas[0], status);
+    igual(linhas[0].detalhe.indexOf('inscricao: Firestore ' + codigo + ' ' + status + ' em GET /(documento): '), 0,
+      status + ': a linha não diz o que falhou: ' + linhas[0].detalhe);
+  });
+});
+
+teste('no Histórico, o mesmo erro do banco em duas rotas sai em duas linhas que se distinguem', () => {
+  // A aba Histórico desenha Quando, Quem, Ação, Entidade e Detalhe — e não
+  // `entidade_id`. Com o nome da rota só lá, a leitura da matrícula e o envio da
+  // inscrição que caíssem no mesmo 503 sairiam iguais em toda coluna desenhada,
+  // menos a hora. O nome vai na frente do detalhe; a chave do freio continua a
+  // de cada nome.
+  //
+  // Mutação que derruba: `registrarErroInterno_` gravar o detalhe sem o nome.
+  const a = montar();
+  criarProjeto(a.api, 'p1');
+  matricular(a.api, ['9110001']);
+  derrubarLeituraDaLista(a, 503, 'UNAVAILABLE', 'The service is currently unavailable.');
+  get(a, { api: 'matricula', m: '9110001' });
+  derrubarLeituraDaLista(a, 503, 'UNAVAILABLE', 'The service is currently unavailable.');
+  post(a, Object.assign({ acao: 'inscricao', projeto_id: 'p1' }, INSCRICAO_VALIDA));
+
+  const linhas = errosInternos(a);
+  igual(linhas.map((l) => l.entidade_id).sort(), ['inscricao', 'leitura'], JSON.stringify(linhas));
+  const naTela = linhas.map((l) => [l.usuario, l.acao, l.entidade, l.detalhe].join(' | '));
+  igual(naTela[0] === naTela[1], false, 'as duas linhas saem iguais no Histórico: ' + naTela[0]);
+  linhas.forEach((l) => {
+    igual(l.detalhe.indexOf(l.entidade_id + ': Firestore 503 UNAVAILABLE em GET /(documento): '), 0, l.detalhe);
+    semDocumentoNaLinha(l, l.entidade_id);
+  });
+});
+
+teste('a régua da trilha tira todo id de documento, e deixa o código, o status, o método e a coleção sozinha', () => {
+  // Os pedaços além do segundo e a query também são do documento; o nome da
+  // coleção sem id ('em POST /inscricoes') não é documento de ninguém. O
+  // endereço do Google e uma data não são caminho.
+  //
+  // Mutação que derruba: a troca só do primeiro par de pedaços; sem a query; ou
+  // sem o caractere de antes (o endereço do Google viraria '/(documento)').
+  const a = montar();
+  [
+    ['Firestore 503 UNAVAILABLE em GET /matriculados/9110001: The service is currently unavailable.',
+      'Firestore 503 UNAVAILABLE em GET /(documento): The service is currently unavailable.'],
+    ['Firestore 503 UNAVAILABLE em PATCH /alunos/9110001/anexos/a1b2?updateMask.fieldPaths=nome: x',
+      'Firestore 503 UNAVAILABLE em PATCH /(documento): x'],
+    ['Firestore 409 ALREADY_EXISTS em POST /inscricoes?documentId=9110001_p1 Document already exists',
+      'Firestore 409 ALREADY_EXISTS em POST /(documento) Document already exists'],
+    ['Firestore 503 UNAVAILABLE em GET /inscricoes/9110001%40aluno: x',
+      'Firestore 503 UNAVAILABLE em GET /(documento): x'],
+    ['Não consegui ler: Firestore 503 UNAVAILABLE em GET /lotes/9110001: x',
+      'Não consegui ler: Firestore 503 UNAVAILABLE em GET /(documento): x'],
+    ['Document "/matriculados/9110001" not found', 'Document "/(documento)" not found'],
+    ['/matriculados/9110001 no começo', '/(documento) no começo'],
+    ['em GET /matriculados/9110001, depois em PATCH /alunos/9110001: x',
+      'em GET /(documento), depois em PATCH /(documento): x'],
+    ['Firestore 409 ALREADY_EXISTS em POST /inscricoes: Document already exists: ' +
+      'projects/projeto-de-teste/databases/(default)/documents/inscricoes/9110001_p1',
+    'Firestore 409 ALREADY_EXISTS em POST /inscricoes: Document already exists: (documento)'],
+    ['Firestore 404 NOT_FOUND em GET /projetos/9110001: Document not found: ' +
+      'https://firestore.googleapis.com/v1/projects/projeto-de-teste/databases/(default)/documents/projetos/9110001',
+    'Firestore 404 NOT_FOUND em GET /(documento): Document not found: https://firestore.googleapis.com/v1/(documento)'],
+    ['Firestore 503 UNAVAILABLE em POST :commit: x', 'Firestore 503 UNAVAILABLE em POST :commit: x'],
+    ['falhou em 16/11/2026 às 10:00', 'falhou em 16/11/2026 às 10:00']
+  ].forEach(([entrada, esperada]) => {
+    igual(a.api.semIdDeDocumento_(new Error(entrada)), esperada, entrada);
+    igual(a.api.semIdDeDocumento_(entrada), esperada, 'como texto: ' + entrada);
+  });
+});
+
+teste('anotar o erro nunca derruba a resposta — nem com o banco e o cache fora do ar', () => {
+  // A anotação é uma escrita no banco, e o erro que se anota costuma ser o banco
+  // fora do ar. A resposta tem de sair igual, só sem a linha.
+  //
+  // Mutação que derruba: `registrarErroInterno_` sem o `try` dela, com
+  // `registrarRecusa_` lançando.
+  const a = montar({ cache: { quebrarServico: true } });
+  a.api.dadosFormularioPublico_ = () => { throw erroDoRepo(a.api); };
+  a.api.registrarRecusa_ = () => { throw new Error('o banco também caiu'); };
+
+  igual(corpoDe(get(a, { api: 'config' })), { ok: false, erro: 'Não foi possível carregar os dados agora. Tente em instantes.' });
+});
+
 // ------------------------------------------------------------ contratos
 
 grupo('contratos que não podem divergir em silêncio');
@@ -2076,7 +2329,7 @@ teste('os padrões de config deste arquivo são os mesmos de CONFIG_PADRAO', () 
   a.api.CONFIG_PADRAO.forEach((item) => { padroes[item.chave] = String(item.valor); });
 
   const achados = [];
-  const regex = /\bconfig\(\s*'([a-z_]+)'\s*,\s*'([^']*)'\s*\)/g;
+  const regex = /\bconfig_\(\s*'([a-z_]+)'\s*,\s*'([^']*)'\s*\)/g;
   let m;
   while ((m = regex.exec(codigo)) !== null) achados.push({ chave: m[1], padrao: m[2] });
 
@@ -2208,7 +2461,7 @@ teste('o zero à esquerda da secretaria é aceito, e a chave sem ele acha o matr
   // passa: a régua mede a CHAVE, e '0001' normalizado é '1' — um dígito. Uma
   // matrícula "de quatro dígitos" começando com três zeros nunca existiu; era
   // o teste antigo, e não a secretaria, que a inventava.
-  a.api.gravarConfig('matricula_digitos', '4');
+  a.api.gravarConfig_('matricula_digitos', '4');
   matricular(a.api, ['1001']);
   const q = corpoDe(get(a, { api: 'matricula', m: '01001', p: 'p1' }));
   igual(q.valida, true, 'cinco com zero à esquerda, com a régua em 4, passam');
@@ -2229,7 +2482,7 @@ teste('o caminho inteiro de um aluno, com o cache frio, custa 33 leituras', () =
   const conta = [];
   function medir(rotulo, fn) {
     a.cache.expirar();
-    a.api.limparCacheConfig();
+    a.api.limparCacheConfig_();
     zerar(a);
     fn();
     const leituras = leiturasCobradas(a);
@@ -2266,7 +2519,7 @@ teste('com `aluno_projeto_unico=SIM`, o POST comum custa 7 e a troca inteira cus
   const a = montar();
   ['p1', 'p2', 'p3', 'p4', 'p5'].forEach((id) => criarProjeto(a.api, id, { vagas: '60' }));
   matricular(a.api, ['9110001']);
-  a.api.gravarConfig('aluno_projeto_unico', 'SIM');
+  a.api.gravarConfig_('aluno_projeto_unico', 'SIM');
 
   function postar(corpo) {
     return corpoDe(requisicao(a, () => a.api.doPost({
@@ -2299,7 +2552,7 @@ teste('com `aluno_projeto_unico=SIM`, o POST comum custa 7 e a troca inteira cus
   igual([rodada1, rodada2], [7, 8], 'as duas rodadas, medidas');
   igual(rodada1 + rodada2, 15, 'a troca inteira, como está no cabeçalho de 08_Api.gs');
 
-  // E UMA requisição de escrita na rodada 2 — a primitiva `escreverAtomico`, e
+  // E UMA requisição de escrita na rodada 2 — a primitiva `escreverAtomico_`, e
   // não três idas (copiar, apagar, gravar). Mutação que derruba: voltar a
   // escrever a cópia, o delete e a inserção em requisições separadas.
   igual(a.falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1).length, 1);
@@ -2418,7 +2671,6 @@ teste('responde que está de pé, sem token e sem parâmetro nenhum', () => {
 
   igual(saida.getMimeType(), 'application/json');
   igual(corpoDe(saida).ok, true);
-  igual(a.paginas.length, 0, 'nenhuma página foi montada');
 });
 
 teste('não faz NENHUMA leitura do Firestore, e o zero é medido', () => {
@@ -2448,14 +2700,13 @@ teste('não conta nada sobre o sistema — nem versão, nem nome, nem números',
   igual(get(a, { api: 'ping' }).getContent(), '{"ok":true}');
 });
 
-teste('não monta página, não mexe no cache e não passa pelas rotas caras', () => {
+teste('não mexe no cache e não passa pelas rotas caras', () => {
   const a = montar();
   const eventosAntes = a.cache.eventos.length;
 
   get(a, { api: 'ping' });
 
   igual(a.cache.eventos.length, eventosAntes, 'a rota de ping não fala com o cache');
-  igual(a.paginas.length, 0);
 });
 
 grupo('o gatilho de aquecimento — bater na porta sem comer a cota do dia');
@@ -2488,7 +2739,7 @@ teste('descobrir o endereço sozinho não custa leitura nenhuma', () => {
   const a = montar();
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
 
-  a.api.limparCacheConfig();
+  a.api.limparCacheConfig_();
   zerar(a);
   a.api.urlDeAquecimento_();
 
@@ -2505,8 +2756,8 @@ teste('endereço /dev não serve, e a chave url_exec assume', () => {
 
   igual(a.api.urlDeAquecimento_(), '', 'sem a chave, o gatilho prefere não bater a bater errado');
 
-  a.api.gravarConfig('url_exec', 'https://script.google.com/macros/s/BBB/exec');
-  a.api.limparCacheConfig();
+  a.api.gravarConfig_('url_exec', 'https://script.google.com/macros/s/BBB/exec');
+  a.api.limparCacheConfig_();
 
   igual(a.api.urlDeAquecimento_(), 'https://script.google.com/macros/s/BBB/exec?api=ping');
 });
@@ -2525,7 +2776,7 @@ teste('sem endereço nenhum, o gatilho não bate em ninguém e não estoura', ()
   scriptAppComGatilhos(a, null);
   const chamadas = interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.aquecerWebApp();
+  a.api.aquecerWebApp_();
 
   igual(chamadas.length, 0);
   verdadeiro(a.registros.erros.length > 0, 'o console diz o que houve');
@@ -2536,7 +2787,7 @@ teste('o ping que falha não estoura, não é retentado e não escreve na trilha
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   const chamadas = interceptarPing(a, () => { throw new Error('tempo esgotado'); });
 
-  a.api.aquecerWebApp();
+  a.api.aquecerWebApp_();
 
   // Uma tentativa. Retentar dentro da mesma execução dobraria as duas cotas para
   // cobrir, no pior caso, os cinco minutos até o próximo ping.
@@ -2561,7 +2812,7 @@ teste('implantação ainda não republicada aquece igual, e não vira alarme', (
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   interceptarPing(a, () => respostaDeMentira(200, '{"ok":false,"erro":"Rota desconhecida: ping"}'));
 
-  a.api.aquecerWebApp();
+  a.api.aquecerWebApp_();
 
   igual(a.registros.erros, [], 'quem respondeu foi o sistema, e é isso que o gatilho quer');
 });
@@ -2571,7 +2822,7 @@ teste('o instalador avisa da versão velha, porque ali tem alguém olhando', () 
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   interceptarPing(a, () => respostaDeMentira(200, '{"ok":false,"erro":"Rota desconhecida: ping"}'));
 
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
 
   verdadeiro(a.registros.logger.some((l) => l.indexOf('não conhece a rota de ping') !== -1),
     'o instalador é o único lugar em que essa diferença interessa a alguém');
@@ -2585,7 +2836,7 @@ teste('tela de login com código 200 conta como falha, e não como sucesso', () 
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   interceptarPing(a, () => respostaDeMentira(200, '<html><body>Faça login</body></html>'));
 
-  a.api.aquecerWebApp();
+  a.api.aquecerWebApp_();
 
   verdadeiro(a.registros.erros.length > 0, 'a página de login foi reconhecida como fracasso');
 });
@@ -2595,7 +2846,7 @@ teste('o ping que dá certo não escreve em lugar nenhum', () => {
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   const chamadas = interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.aquecerWebApp();
+  a.api.aquecerWebApp_();
 
   igual(chamadas.length, 1);
   igual(chamadas[0].url, 'https://script.google.com/macros/s/AAA/exec?api=ping');
@@ -2611,8 +2862,8 @@ teste('instalar duas vezes não deixa dois gatilhos', () => {
   const instalados = scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.instalarGatilhoAquecimento();
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
+  a.api.instalarGatilhoAquecimento_();
 
   igual(instalados.length, 1);
   igual(instalados[0].getHandlerFunction(), 'aquecerWebApp');
@@ -2626,7 +2877,7 @@ teste('reinstalar não leva junto o gatilho da reconciliação', () => {
   interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
   instalados.push({ minutos: 0, getHandlerFunction: () => 'reconciliarAutomatico' });
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
 
   igual(instalados.map((g) => g.getHandlerFunction()).sort(),
     ['aquecerWebApp', 'reconciliarAutomatico']);
@@ -2637,7 +2888,7 @@ teste('o intervalo é de cinco minutos, e a conta da cota fecha', () => {
   const instalados = scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
   igual(instalados[0].minutos, a.api.AQUECIMENTO_MINUTOS);
   igual(a.api.AQUECIMENTO_MINUTOS, 5);
 
@@ -2661,7 +2912,7 @@ teste('o instalador bate na porta uma vez, para alguém ver que funcionou', () =
   scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/exec');
   const chamadas = interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
 
   igual(chamadas.length, 1, 'é a única hora em que alguém está olhando o resultado');
   igual(chamadas[0].url, 'https://script.google.com/macros/s/AAA/exec?api=ping');
@@ -2674,7 +2925,7 @@ teste('sem endereço, o instalador instala assim mesmo e diz onde consertar', ()
   const instalados = scriptAppComGatilhos(a, 'https://script.google.com/macros/s/AAA/dev');
   const chamadas = interceptarPing(a, () => respostaDeMentira(200, '{"ok":true}'));
 
-  a.api.instalarGatilhoAquecimento();
+  a.api.instalarGatilhoAquecimento_();
 
   igual(instalados.length, 1);
   igual(chamadas.length, 0, 'não bate no /dev nem para testar');

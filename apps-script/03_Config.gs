@@ -1,18 +1,19 @@
 /**
  * 03_Config.gs — a configuração do sistema, sobre o Firestore.
  *
- * A API pública é a mesma que o projeto sobre Sheets
- * (o sistema anterior, sobre Google Sheets) expõe: `lerConfig`, `config`,
- * `gravarConfig` e `configLista`. 07_Auth.gs foi trazido de lá sem alteração e
- * chama `config()` em quatro pontos — assinatura idêntica é o que permite
- * continuar trazendo as regras de negócio com desvio de chamada, e não com
- * reescrita.
+ * A API é a mesma que o projeto sobre Sheets (o sistema anterior, sobre Google
+ * Sheets) expõe: `lerConfig`, `config`, `gravarConfig` e `configLista`, aqui com
+ * o `_` no fim desde 16/11/2026 — é como o Apps Script marca função PRIVADA, e a
+ * configuração não pode ser alcançável de fora do projeto (ver testes/portas.js).
+ * 07_Auth.gs foi trazido de lá e chama `config_()` em quatro pontos — assinatura
+ * idêntica é o que permite continuar trazendo as regras de negócio com desvio de
+ * chamada, e não com reescrita.
  *
  * DESENHO: a configuração é UM documento, com um campo por chave. Não é uma
  * coleção com um documento por chave.
  *
- * O motivo é custo de leitura. `config()` está no caminho quente: `autenticar()`
- * a chama duas vezes por login, `modoDeAcesso()` outras duas, e o formulário
+ * O motivo é custo de leitura. `config_()` está no caminho quente: `autenticar_()`
+ * a chama duas vezes por login, `modoDeAcesso_()` outras duas, e o formulário
  * público (`dadosFormularioPublico_`, quando for trazido) vai consultar a cada
  * carregamento da página. No Firestore cobra-se por DOCUMENTO lido, contra um
  * teto de 50 mil leituras por dia no plano Spark. As 16 chaves de CONFIG_PADRAO
@@ -36,7 +37,7 @@ var CONFIG_DOCUMENTO = 'geral';
  *
  * O escopo global do Apps Script nasce zerado a cada execução, então este cache
  * vive exatamente uma requisição — é o mesmo tempo de vida do cache por aba do
- * Repo sobre Sheets, e pela mesma razão: dentro de um login, `config()` é
+ * Repo sobre Sheets, e pela mesma razão: dentro de um login, `config_()` é
  * chamada várias vezes e o valor não pode mudar no meio.
  */
 var CONFIG_CACHE = null;
@@ -54,7 +55,7 @@ var CONFIG_CACHE = null;
  *
  * O PIN saiu do sistema (ver 07b_LinkPorEmail.gs) e levou junto o único segredo
  * que havia. Manter o mapa vazio, em vez de arrancar o mecanismo, custa três
- * linhas e preserva a guarda em `lerConfiguracoes` e `salvarConfiguracao`: sem
+ * linhas e preserva a guarda em `lerConfiguracoes_` e `salvarConfiguracao_`: sem
  * ela, o primeiro segredo que alguém acrescentasse viajaria para o navegador no
  * mesmo deploy que o criasse.
  */
@@ -69,12 +70,12 @@ function configSegredo_(chave) {
  * Todas as chaves de configuração do banco, como mapa chave -> texto.
  *
  * Não inclui os segredos: eles não estão no documento, e quem quer um deles pede
- * por `config('<chave>')`, que sabe onde procurar. Ver CONFIG_SEGREDOS.
+ * por `config_('<chave>')`, que sabe onde procurar. Ver CONFIG_SEGREDOS.
  */
-function lerConfig() {
+function lerConfig_() {
   if (CONFIG_CACHE) return CONFIG_CACHE;
 
-  var documento = ler(CONFIG_COLECAO, CONFIG_DOCUMENTO) || {};
+  var documento = ler_(CONFIG_COLECAO, CONFIG_DOCUMENTO) || {};
   var cfg = {};
 
   Object.keys(documento).forEach(function (chave) {
@@ -94,11 +95,11 @@ function lerConfig() {
  * padrão. É o que permite tratar chave escrita em branco pela tela do mesmo
  * jeito que chave nunca criada — as duas significam "não configurado".
  */
-function config(chave, padrao) {
+function config_(chave, padrao) {
   var propriedade = configSegredo_(chave);
   var valor = propriedade
     ? PropertiesService.getScriptProperties().getProperty(propriedade)
-    : lerConfig()[chave];
+    : lerConfig_()[chave];
 
   if (valor === undefined || valor === null || valor === '') {
     return padrao === undefined ? '' : padrao;
@@ -113,7 +114,7 @@ function config(chave, padrao) {
  * campo enviado — não existe "criar a configuração" separado, e gravar uma chave
  * nunca apaga as outras.
  */
-function gravarConfig(chave, valor) {
+function gravarConfig_(chave, valor) {
   var propriedade = configSegredo_(chave);
   if (propriedade) {
     PropertiesService.getScriptProperties().setProperty(propriedade, String(valor));
@@ -122,12 +123,12 @@ function gravarConfig(chave, valor) {
 
   var campo = {};
   campo[chave] = String(valor);
-  atualizar(CONFIG_COLECAO, CONFIG_DOCUMENTO, campo);
+  atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, campo);
 
   // A allowlist tem uma cópia em cache no caminho do link por e-mail
   // (07b_LinkPorEmail.gs). Ela é esquecida AQUI, e não em cada um dos quatro
   // lugares que mexem na lista, porque este é o funil por onde todos passam —
-  // `incluirAdmin`, `removerAdmin`, `regravarAllowlist_` e `liberarAcesso`.
+  // `incluirAdmin_`, `removerAdmin_`, `regravarAllowlist_` e `liberarAcesso`.
   // Espalhar a chamada seria garantir que o quinto caminho, o que ainda não
   // existe, esqueceria de fazê-la: e o sintoma seria alguém removido do acesso
   // continuar recebendo link por cinco minutos.
@@ -142,19 +143,19 @@ function gravarConfig(chave, valor) {
  * Grava AS DUAS chaves do acesso — quem entra e quem é coordenador geral — numa
  * escrita só.
  *
- * Irmã burra de `gravarConfig`: ela não decide nada, e não pode. Quem decide é
+ * Irmã burra de `gravarConfig_`: ela não decide nada, e não pode. Quem decide é
  * `aplicarAcessos_` (07_Auth.gs), a ÚNICA chamadora, e é lá dentro que mora a
  * invariante de o painel nunca ficar sem nenhum coordenador geral.
  *
  * POR QUE UMA ESCRITA, E NÃO DUAS. As duas chaves são campos do MESMO documento
  * (ver o cabeçalho deste arquivo), e mudar o nível de alguém é uma mudança só.
- * Com dois `gravarConfig` em sequência existiria um instante que ninguém
+ * Com dois `gravarConfig_` em sequência existiria um instante que ninguém
  * desenhou — a lista de acesso nova com os coordenadores velhos —, e uma
  * execução que morresse no meio o deixaria gravado. `semearConfigPadrao_` já
  * escreve o lote inteiro assim, pela mesma razão.
  *
  * O `esquecerAllowlistDoLink_` e a correção do cache são os mesmos de
- * `gravarConfig`, e não são zelo: ESTE é o quinto caminho que o comentário de lá
+ * `gravarConfig_`, e não são zelo: ESTE é o quinto caminho que o comentário de lá
  * previu, e o sintoma de esquecê-lo seria alguém removido do acesso continuar
  * recebendo link por cinco minutos.
  *
@@ -168,7 +169,7 @@ function gravarAcessos_(emails, gerais) {
     coordenadores_gerais: (gerais || []).join(', ')
   };
 
-  atualizar(CONFIG_COLECAO, CONFIG_DOCUMENTO, campos);
+  atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, campos);
   esquecerAllowlistDoLink_();
 
   if (CONFIG_CACHE) {
@@ -181,16 +182,16 @@ function gravarAcessos_(emails, gerais) {
  * Descarta o cache da execução.
  *
  * Existe para `provaConfigELog()` (20_Prova.gs) poder provar que o valor foi ao
- * banco e voltou: sem descartar, `config()` responderia da memória e a prova não
+ * banco e voltou: sem descartar, `config_()` responderia da memória e a prova não
  * provaria nada.
  */
-function limparCacheConfig() {
+function limparCacheConfig_() {
   CONFIG_CACHE = null;
 }
 
 /** Config em lista, separada por '|' (cursos e fases, turnos). */
-function configLista(chave) {
-  return config(chave, '').split('|')
+function configLista_(chave) {
+  return config_(chave, '').split('|')
     .map(function (s) { return s.trim(); })
     .filter(Boolean);
 }
@@ -212,7 +213,7 @@ function configLista(chave) {
  * Devolve a lista de chaves criadas — vazia quando não havia nada a fazer.
  */
 function semearConfigPadrao_() {
-  var atual = lerConfig();
+  var atual = lerConfig_();
   var novas = {};
   var criadas = [];
 
@@ -225,7 +226,7 @@ function semearConfigPadrao_() {
 
   // Uma única escrita para o lote inteiro: o documento é um só.
   if (criadas.length) {
-    atualizar(CONFIG_COLECAO, CONFIG_DOCUMENTO, novas);
+    atualizar_(CONFIG_COLECAO, CONFIG_DOCUMENTO, novas);
     criadas.forEach(function (chave) { CONFIG_CACHE[chave] = novas[chave]; });
   }
 
@@ -248,11 +249,25 @@ function semearConfigPadrao_() {
  * GOOGLE_CLIENT_ID (o botão) e a allowlist (quem o botão aceita, e para quem o
  * link por e-mail pode ser enviado). Faltando as duas, a saída é rodar
  * `liberarAcesso("seu-email")` aqui mesmo no editor.
+ *
+ * A allowlist do relatório é a que VALE — a mesma que o botão e o link conferem
+ * (`adminEmails_`, 07_Auth.gs) —, e não o texto cru da chave: com só itens sem
+ * forma de e-mail, o texto não está vazio e ninguém entra, e o relatório diria
+ * que há gente com acesso justamente no dia em que a saída é `liberarAcesso`. Os
+ * itens sem forma saem citados à parte, porque o campo `admin_emails` da aba
+ * Configurações ainda os mostra.
  */
 function setup() {
+  exigirDono_();
+  return setup_();
+}
+
+/** O trabalho de `setup`, depois da guarda. É esta que o código chama por dentro. */
+function setup_() {
   var criadas = semearConfigPadrao_();
   var clienteId = PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID');
-  var lista = String(config('admin_emails', '')).trim();
+  var lista = adminEmails_();
+  var semForma = descartadosDaAllowlist_();
 
   Logger.log('=== setup ===');
   Logger.log('projeto Firestore: %s / banco: %s', fsProjeto_(), fsBanco_());
@@ -263,14 +278,17 @@ function setup() {
     ? 'GOOGLE_CLIENT_ID: definido'
     : 'GOOGLE_CLIENT_ID: FALTANDO. Configurações do projeto > Propriedades do script > ' +
       'Adicionar propriedade. Sem ele o botão "Entrar com o Google" não é desenhado.');
-  Logger.log(lista
-    ? 'quem tem acesso: ' + lista
+  Logger.log(lista.length
+    ? 'quem tem acesso: ' + lista.join(', ')
     : 'quem tem acesso: VAZIO. Ninguém entra no painel enquanto estiver assim — nem ' +
       'pelo Google, nem por link. Rode liberarAcesso("seu-email@dominio") para se incluir.');
+  if (semForma.length) {
+    Logger.log('na lista de acesso, sem forma de e-mail (não entram): ' + semForma.join(', '));
+  }
 
   return {
     configuracoesCriadas: criadas,
     clienteIdDefinido: Boolean(clienteId),
-    allowlistVazia: !lista
+    allowlistVazia: !lista.length
   };
 }

@@ -28,50 +28,56 @@
 'use strict';
 
 const { teste, grupo, igual, verdadeiro, lancou, resultado, criarAmbiente } = require('./apoio');
-const { abrirPainel, GS, semResposta, respostaHttp } = require('./dom-painel');
+const { abrirPainel, GS, semResposta, respostaHttp, desescapar } = require('./dom-painel');
 
 // ------------------------------------------------------------ Apoio local
 
 /** O cenário do sistema: dois projetos, dois matriculados, três inscrições. */
 function cadastroBase(api) {
   api.semearConfigPadrao_();
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Origem', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM',
     ordem: '1', validar_matricula: 'SIM'
   }, 'p1');
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Lotado', vagas: '2', ativo: 'SIM', inscricoes_abertas: 'SIM',
     ordem: '2', validar_matricula: 'SIM'
   }, 'p2');
 
-  api.escreverEmLote('matriculados', [
+  api.escreverEmLote_('matriculados', [
     { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
     { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
   ]);
 
   // A Ana se inscreveu com a matrícula do Bruno. É o caso que a janela de edição
   // existe para consertar.
-  api.gravarInscricao({
+  api.gravarInscricao_({
     matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE', curso_fase: 'ADS - 1'
   });
-  api.gravarInscricao({
+  api.gravarInscricao_({
     matricula: '9900009', nome: 'X Um', email: 'x1@exemplo.com',
     projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
   });
-  api.gravarInscricao({
+  api.gravarInscricao_({
     matricula: '9901009', nome: 'X Dois', email: 'x2@exemplo.com',
     projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
   });
-  api.reconciliar();
+  api.reconciliar_();
 }
 
-/** Os ids que a tabela de alunos pôs nos botões — é por eles que se clica. */
+/**
+ * Os ids que a tabela de alunos pôs nos botões — é por eles que se clica.
+ *
+ * O id vai no `onclick` como string de JavaScript (`argumentoJs`, no painel),
+ * e é lido como o navegador o lê: o atributo decodificado, e a string
+ * interpretada pelo `JSON.parse`.
+ */
 function idsDaTabela(cena, funcao) {
   const ids = [];
-  cena.html('conteudo-alunos').replace(
-    new RegExp(funcao + "\\('([^']+)'\\)", 'g'),
-    (m, id) => { ids.push(id); return m; }
+  desescapar(cena.html('conteudo-alunos')).replace(
+    new RegExp(funcao + '\\(("(?:[^"\\\\]|\\\\.)*")\\)', 'g'),
+    (m, literal) => { ids.push(JSON.parse(literal)); return m; }
   );
   return ids;
 }
@@ -118,7 +124,7 @@ teste('a sessão guardada entra direto, sem passar pelo login', () => {
 });
 
 teste('nenhuma aba estoura, e nenhuma fica em "Carregando..."', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   const alvos = {
     painel: 'conteudo-painel', projetos: 'conteudo-projetos',
     disciplinas: 'conteudo-disciplinas', alunos: 'conteudo-alunos',
@@ -255,7 +261,7 @@ teste('com a contagem desligada, a aba Projetos não mostra número nenhum inven
   const cena = abrirPainel({
     semear: (api) => {
       cadastroBase(api);
-      api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
+      api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
     }
   });
   cena.js.trocarAba('projetos');
@@ -277,7 +283,7 @@ teste('e a aba avisa que a inscrição CONTINUA recusando projeto cheio', () => 
   const cena = abrirPainel({
     semear: (api) => {
       cadastroBase(api);
-      api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
+      api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
     }
   });
   cena.js.trocarAba('projetos');
@@ -294,7 +300,7 @@ teste('o select da migração diz o total e assume não saber a ocupação', () 
   const cena = abrirPainel({
     semear: (api) => {
       cadastroBase(api);
-      api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
+      api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
     }
   });
   cena.js.trocarAba('alunos');
@@ -322,11 +328,11 @@ teste('o aviso da vizinhança da matrícula CHEGA À TELA, em amarelo', () => {
     semear: (api) => {
       cadastroBase(api);
       // A mesma pessoa, o mesmo erro de matrícula, num segundo projeto.
-      api.gravarInscricao({
+      api.gravarInscricao_({
         matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
       });
-      api.reconciliar();
+      api.reconciliar_();
     }
   });
   cena.js.trocarAba('alunos');
@@ -361,7 +367,7 @@ teste('o botão Atualizar diz quando NÃO cruzou, em vez de recarregar calado', 
 grupo('a aba Disciplinas, clicada');
 
 teste('"Adicionar linha" preserva o que já foi digitado', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   cena.js.abrirFormDisciplinas();
 
@@ -376,7 +382,7 @@ teste('"Adicionar linha" preserva o que já foi digitado', () => {
 });
 
 teste('o "×" remove a linha certa e mantém as outras', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   cena.js.abrirFormDisciplinas();
 
@@ -394,7 +400,7 @@ teste('o "×" remove a linha certa e mantém as outras', () => {
 });
 
 teste('duas disciplinas entram num clique só, e a tabela as mostra', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   cena.js.abrirFormDisciplinas();
 
@@ -418,7 +424,7 @@ teste('duas disciplinas entram num clique só, e a tabela as mostra', () => {
 });
 
 teste('linha incompleta não grava NADA, não fecha a janela e cola o erro na linha', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   const antes = Object.keys(cena.documentos('disciplinas')).length;
 
@@ -443,7 +449,7 @@ teste('linha incompleta não grava NADA, não fecha a janela e cola o erro na li
 });
 
 teste('os filtros peneiram no navegador, sem uma ida a mais ao servidor', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
 
   const antes = cena.chamadas.length;
@@ -463,7 +469,7 @@ teste('excluir disciplina com inscrito é recusado em AMARELO, não em vermelho'
   const cena = abrirPainel({
     semear: (api) => {
       cadastroBase(api);
-      api.migrarDisciplinas();
+      api.migrarDisciplinas_();
       // Uma inscrição escolhendo exatamente o rótulo de uma disciplina migrada.
       //
       // O texto tem a TURMA NA FRENTE porque é assim que `rotuloDisciplina_`
@@ -471,7 +477,7 @@ teste('excluir disciplina com inscrito é recusado em AMARELO, não em vermelho'
       // Escrito com o formato antigo, a guarda de `removerDisciplina` não acharia
       // inscrição nenhuma e a disciplina seria apagada — que é exatamente o
       // estrago que trocar o formato causaria se houvesse inscrição gravada.
-      api.gravarInscricao({
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE',
         curso_fase: 'ADM21 - WORK EXPERIENCE'
@@ -493,6 +499,55 @@ teste('excluir disciplina com inscrito é recusado em AMARELO, não em vermelho'
     'a regra funcionando apareceu como erro: ' + cena.html('mensagem-global'));
 });
 
+teste('cada botão da linha da disciplina entrega o id como veio — e o id não vira código', () => {
+  // O id vai dentro do `onclick` da marcação, e o navegador DECODIFICA o
+  // atributo antes de compilar o JavaScript — é o que este navegador falso faz
+  // também. Hoje o id é um hash que o servidor gera; aqui ele é o pior texto
+  // possível, e cada botão que o leva tem de entregá-lo inteiro, sem rodar mais
+  // nada. São clicados TODOS os botões da tabela que carregam o id, e não uma
+  // lista deles: o botão que nascer amanhã entra na conta sozinho.
+  //
+  // Mutação que derruba: um dos botões voltar às aspas escritas à mão em volta de
+  // `escapar(id)`, ou ao id cru; um botão novo que interpole o id de um desses
+  // jeitos.
+  // Os dois piores: um que fecharia a string e chamaria outra função, e um com
+  // aspa dupla, `&`, barra e `<` — que estragaria o atributo ou o texto. A marca
+  // `MARCA` sobrevive a qualquer escape, e é por ela que os botões são achados.
+  const HOSTIS = ["x');sinalDeInjecao();('MARCA1", 'MARCA2"b&c\\d<e>'];
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      HOSTIS.forEach((id, i) => api.inserir_('disciplinas', {
+        curso: 'DISCIPLINA DE TESTE ' + (i + 1), turma: 'ADS1' + (i + 1), semestre: '1', ano: '2026',
+        ativo: 'SIM', coringa: 'NAO'
+      }, id));
+    }
+  });
+
+  let injetou = false;
+  cena.js.sinalDeInjecao = () => { injetou = true; };
+  const recebidos = [];
+  cena.js.abrirEdicaoDisciplina = (id) => recebidos.push(['abrirEdicaoDisciplina', id]);
+  cena.js.verInscritosDisciplina = (id) => recebidos.push(['verInscritosDisciplina', id]);
+  cena.js.aoGravar = (botao, funcao, id) => recebidos.push([funcao && funcao.name, id]);
+  cena.js.trocarAba('disciplinas');
+
+  const botoes = cena.documento.querySelectorAll('[onclick]')
+    .filter((el) => String(el.getAttribute('onclick') || '').indexOf('MARCA') !== -1);
+  verdadeiro(botoes.length >= 8, 'só ' + botoes.length + ' botões levam os dois ids — eram quatro por linha');
+  botoes.forEach((botao) => botao.click());
+
+  igual(injetou, false, 'o id virou código ao clicar');
+  HOSTIS.forEach((id) => {
+    ['abrirEdicaoDisciplina', 'alternarDisciplinaUI', 'verInscritosDisciplina', 'removerDisciplinaUI']
+      .forEach((funcao) => {
+        verdadeiro(recebidos.some((r) => r[0] === funcao && r[1] === id),
+          funcao + ' não recebeu o id inteiro ' + JSON.stringify(id) + ': ' + JSON.stringify(recebidos));
+      });
+  });
+  igual(recebidos.filter((r) => HOSTIS.indexOf(r[1]) === -1), [], 'algum botão entregou o id estragado');
+});
+
 // ============================================= As janelas de "Inscritos"
 
 /**
@@ -511,7 +566,7 @@ teste('o botão Inscritos da aba Projetos abre a janela com quem está no projet
   cena.js.trocarAba('projetos');
 
   // O botão existe na linha, e é por ele que se clica.
-  verdadeiro(/verInscritosProjeto\('p2'\)/.test(cena.html('conteudo-projetos')),
+  verdadeiro(/verInscritosProjeto\("p2"\)/.test(desescapar(cena.html('conteudo-projetos'))),
     'a linha do projeto não tem botão Inscritos');
 
   cena.js.verInscritosProjeto('p2');
@@ -558,7 +613,7 @@ teste('projeto sem ninguém diz que está vazio — e não parece defeito', () =
 function comDisciplinaDaAna(api) {
   cadastroBase(api);
   const token = api.criarSessao_('coord@exemplo.com');
-  api.incluirDisciplinas({
+  api.incluirDisciplinas_({
     token: token,
     linhas: [{ curso: 'PRATICA EXTENSIONISTA', turma: 'ADS11', semestre: '1', ano: '2026' }]
   });
@@ -609,7 +664,7 @@ teste('a inscrição da Ana aparece na turma do Bruno — ninguém some do cruza
     semear: (api) => {
       comDisciplinaDaAna(api);
       const token = api.criarSessao_('coord@exemplo.com');
-      api.incluirDisciplinas({
+      api.incluirDisciplinas_({
         token: token,
         linhas: [{ curso: 'PRATICA EXTENSIONISTA', turma: 'DIR21', semestre: '1', ano: '2026' }]
       });
@@ -693,12 +748,13 @@ function imprimirPdf(cena, qual) {
 
 /** O botão da barra de exportação, achado pelo que a marcação diz que ele faz. */
 function clicarExportar(cena, qual, formato) {
-  // O Excel chama `exportar('projeto', 'excel')` e o PDF chama
-  // `aoGravar(this, exportar, 'projeto', 'pdf')` — o PDF passa pelo botão que
+  // O Excel chama `exportar("projeto", 'excel')` e o PDF chama
+  // `aoGravar(this, exportar, "projeto", 'pdf')` — o PDF passa pelo botão que
   // trava porque ele pode ficar esperando o banner (ver `botoesDeExportacao`).
-  // O `[(,]` aceita as duas formas sem deixar de exigir o par certo de
+  // O nome da lista vai por `argumentoJs`, por isso entre aspas duplas. O
+  // `[(,]` aceita as duas formas sem deixar de exigir o par certo de
   // argumentos.
-  cena.botaoQueChama(new RegExp("exportar[(,] ?'" + qual + "', '" + formato + "'")).click();
+  cena.botaoQueChama(new RegExp('exportar[(,] ?"' + qual + '", \'' + formato + "'")).click();
 }
 
 /**
@@ -712,7 +768,7 @@ function clicarExportar(cena, qual, formato) {
  */
 function projetoParaRelatorio(api) {
   api.semearConfigPadrao_();
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'ARTE DIGITAL FLORIPA', vagas: '60', ativo: 'SIM', inscricoes_abertas: 'SIM',
     ordem: '1', validar_matricula: 'NAO', professor: 'Prof. Mario',
     banner: 'arte-digital.jpg'
@@ -723,7 +779,7 @@ function projetoParaRelatorio(api) {
     { matricula: '2510866', nome: 'Bruno <Avila> & Cia', curso: 'ADS11 - PRATICA EXTENSIONISTA' },
     { matricula: '2510867', nome: 'Carla Dias', curso: 'DIR21 - WORK EXPERIENCE' }
   ].forEach((i) => {
-    api.gravarInscricao({
+    api.gravarInscricao_({
       matricula: i.matricula, nome: i.nome, email: i.matricula + '@exemplo.com',
       whatsapp: '48999990000', projeto_id: 'pe', projeto_nome: 'ARTE DIGITAL FLORIPA',
       origem: 'SITE', curso_fase: i.curso
@@ -734,7 +790,7 @@ function projetoParaRelatorio(api) {
 /** O mesmo cenário, sem banner — é o projeto recém-cadastrado. */
 function projetoSemBanner(api) {
   projetoParaRelatorio(api);
-  api.atualizar('projetos', 'pe', { banner: '' });
+  api.atualizar_('projetos', 'pe', { banner: '' });
 }
 
 // ------------------------------------------------------------ A largura
@@ -888,7 +944,7 @@ teste('o nome do arquivo é previsível e seguro — sem acento, sem espaço, se
   const cena = abrirPainel({
     semear: (api) => {
       projetoParaRelatorio(api);
-      api.atualizar('projetos', 'pe', { nome: 'Ação/Extensão — Ñoño 2026' });
+      api.atualizar_('projetos', 'pe', { nome: 'Ação/Extensão — Ñoño 2026' });
     }
   });
   const planilha = espionarPlanilha(cena);
@@ -1190,7 +1246,7 @@ teste('o botão do PDF diz que está preparando, e volta quando a caixa fecha', 
   cena.js.trocarAba('projetos');
   cena.js.verInscritosProjeto('pe');
 
-  const botao = cena.botaoQueChama(/exportar, 'projeto', 'pdf'/);
+  const botao = cena.botaoQueChama(/exportar, "projeto", 'pdf'/);
   igual(botao.textContent, 'Exportar PDF');
 
   botao.click();
@@ -1217,7 +1273,7 @@ teste('a limpeza acontece mesmo quando a CAIXA DE IMPRESSÃO estoura', () => {
   cena.js.trocarAba('projetos');
   cena.js.verInscritosProjeto('pe');
 
-  const botao = cena.botaoQueChama(/exportar, 'projeto', 'pdf'/);
+  const botao = cena.botaoQueChama(/exportar, "projeto", 'pdf'/);
   botao.click();
   cena.janela.print = () => { throw new Error('a caixa de impressão falhou'); };
 
@@ -1241,7 +1297,7 @@ teste('a limpeza acontece mesmo quando a ESPERA estoura antes de imprimir', () =
     throw new Error('a espera pelas imagens estourou');
   };
 
-  const botao = cena.botaoQueChama(/exportar, 'projeto', 'pdf'/);
+  const botao = cena.botaoQueChama(/exportar, "projeto", 'pdf'/);
   lancou(() => botao.click(), 'a espera pelas imagens estourou');
 
   igual(cena.impressoes.length, 0, 'imprimiu depois de a espera estourar');
@@ -1256,10 +1312,11 @@ teste('as TRÊS tabelas de gente têm os dois botões', () => {
   const cena = abrirPainel({ semear: projetoParaRelatorio });
   cena.js.trocarAba('projetos');
   cena.js.verInscritosProjeto('pe');
-  verdadeiro(/exportar\('projeto', 'excel'\)/.test(cena.html('modal-corpo')), 'faltou o Excel na janela de projeto');
+  const janela = desescapar(cena.html('modal-corpo'));
+  verdadeiro(/exportar\("projeto", 'excel'\)/.test(janela), 'faltou o Excel na janela de projeto');
   // O PDF vai pelo `aoGravar` porque ele espera o banner — e é o `data-gravando`
   // que diz na tela o que está acontecendo enquanto a espera dura.
-  verdadeiro(/aoGravar\(this, exportar, 'projeto', 'pdf'\)/.test(cena.html('modal-corpo')),
+  verdadeiro(/aoGravar\(this, exportar, "projeto", 'pdf'\)/.test(janela),
     'faltou o PDF na janela de projeto');
   verdadeiro(/data-gravando="Preparando a impressão\.\.\."/.test(cena.html('modal-corpo')),
     'o botão do PDF não diz o que está fazendo enquanto espera o banner');
@@ -1269,20 +1326,20 @@ teste('as TRÊS tabelas de gente têm os dois botões', () => {
   const id = disciplinaDeTurma(outra, 'ADS11');
 
   outra.js.verInscritosDisciplina(id);
-  const turma = outra.html('disc-vista');
-  verdadeiro(/exportar\('turma', 'excel'\)/.test(turma), 'faltou o Excel na vista de turma');
-  verdadeiro(/aoGravar\(this, exportar, 'turma', 'pdf'\)/.test(turma), 'faltou o PDF na vista de turma');
+  const turma = desescapar(outra.html('disc-vista'));
+  verdadeiro(/exportar\("turma", 'excel'\)/.test(turma), 'faltou o Excel na vista de turma');
+  verdadeiro(/aoGravar\(this, exportar, "turma", 'pdf'\)/.test(turma), 'faltou o PDF na vista de turma');
 
   outra.js.trocarVistaDisciplina(id, 'texto');
-  const texto = outra.html('disc-vista');
-  verdadeiro(/exportar\('escolheram', 'excel'\)/.test(texto), 'faltou o Excel na vista "escolheram"');
-  verdadeiro(/aoGravar\(this, exportar, 'escolheram', 'pdf'\)/.test(texto), 'faltou o PDF na vista "escolheram"');
+  const texto = desescapar(outra.html('disc-vista'));
+  verdadeiro(/exportar\("escolheram", 'excel'\)/.test(texto), 'faltou o Excel na vista "escolheram"');
+  verdadeiro(/aoGravar\(this, exportar, "escolheram", 'pdf'\)/.test(texto), 'faltou o PDF na vista "escolheram"');
 });
 
 /** A disciplina da Ana, agora COM alguém que escolheu o rótulo dela. */
 function comEscolhaDaDisciplina(api) {
   comDisciplinaDaAna(api);
-  api.gravarInscricao({
+  api.gravarInscricao_({
     matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
     projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE',
     curso_fase: 'ADS11 - PRATICA EXTENSIONISTA (2026/1)'
@@ -1448,7 +1505,7 @@ teste('quem confirma o descarte fecha — a pergunta é uma saída, não uma pri
 teste('janela que só mostra informação continua fechando na hora, sem perguntar', () => {
   // A de "Inscritos em..." não tem campo nenhum: o rodapé dela é um botão
   // "Fechar" e mais nada. Perguntar ali seria atrito à toa.
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   cena.js.verInscritosDisciplina(Object.keys(cena.documentos('disciplinas'))[0]);
   verdadeiro(janelaAberta(cena), 'a janela de inscritos não abriu');
@@ -1477,7 +1534,7 @@ teste('o que foi digitado ANTES de a tabela ser redesenhada continua segurando a
   // reescreve a tabela inteira, e o que foi digitado vira `value=` da marcação
   // NOVA. Depois disso, "está diferente do que a janela desenhou?" responderia
   // "não" sobre uma linha preenchida — e o clique no fundo a levaria embora.
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   cena.js.abrirFormDisciplinas();
 
@@ -1760,7 +1817,7 @@ teste('gravação que nem chega a sair não deixa o botão travado', () => {
 });
 
 teste('as seis janelas que gravam desenham o MESMO botão, e ele passa pelo envelope', () => {
-  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas(); } });
+  const cena = abrirPainel({ semear: (api) => { cadastroBase(api); api.migrarDisciplinas_(); } });
   cena.js.trocarAba('disciplinas');
   const idDisciplina = Object.keys(cena.documentos('disciplinas'))[0];
   cena.js.trocarAba('alunos');
@@ -1964,7 +2021,7 @@ function importacaoMapeada(cena, mapeamento) {
 
 function semearComLote(api) {
   cadastroBase(api);
-  api.inserir('lotes', {
+  api.inserir_('lotes', {
     lote_id: 'L1', arquivo: 'lista.xlsx', tipo: 'xlsx', linhas: '2',
     importado_em: '01/08/2026', importado_por: 'coord@exemplo.com', status: 'OK'
   }, 'L1');
@@ -1972,13 +2029,13 @@ function semearComLote(api) {
 
 function semearComDisciplinas(api) {
   cadastroBase(api);
-  api.migrarDisciplinas();
+  api.migrarDisciplinas_();
 }
 
 /** Duas pessoas na allowlist: dá para remover a OUTRA, sem cair no autologout. */
 function semearComDoisAdmins(api) {
   cadastroBase(api);
-  api.gravarConfig('admin_emails', 'coord@exemplo.com,outro@exemplo.com');
+  api.gravarConfig_('admin_emails', 'coord@exemplo.com,outro@exemplo.com');
 }
 
 /**
@@ -2017,7 +2074,7 @@ const BOTOES_QUE_GRAVAM = [
     nome: 'Remover acesso', servidor: 'removerAdmin', semear: semearComDoisAdmins,
     montar: (cena) => {
       cena.js.trocarAba('config');
-      return cena.botaoQueChama(/removerAcesso, 'outro@exemplo\.com'/);
+      return cena.botaoQueChama(/removerAcesso, "outro@exemplo\.com"/);
     }
   },
   {
@@ -2716,19 +2773,19 @@ teste('a aba Importações mostra a turma, e rotula a que foi informada ou deduz
     semear: (api) => {
       cadastroBase(api);
       const base = { tipo: 'PDF', linhas: '2', importado_em: '01/08/2026', importado_por: 'coord@exemplo.com', status: 'ATUALIZOU' };
-      api.inserir('lotes', Object.assign({}, base, {
+      api.inserir_('lotes', Object.assign({}, base, {
         lote_id: 'L1', arquivo: 'cabecalho.pdf', criado_em: '20260801T090000000Z',
         turma_cabecalho: 'ADS41', turma_origem: 'CABECALHO', semestre_cabecalho: '2026/2', linhas_da_turma: '2'
       }), 'L1');
-      api.inserir('lotes', Object.assign({}, base, {
+      api.inserir_('lotes', Object.assign({}, base, {
         lote_id: 'L2', arquivo: 'informada.pdf', criado_em: '20260802T090000000Z',
         turma_cabecalho: 'ADS42', turma_origem: 'INFORMADA', semestre_cabecalho: '', linhas_da_turma: '0'
       }), 'L2');
-      api.inserir('lotes', Object.assign({}, base, {
+      api.inserir_('lotes', Object.assign({}, base, {
         lote_id: 'L3', arquivo: 'maioria.csv', criado_em: '20260803T090000000Z',
         turma_cabecalho: 'ADS43', turma_origem: 'MAIORIA', semestre_cabecalho: '', linhas_da_turma: '5'
       }), 'L3');
-      api.inserir('lotes', Object.assign({}, base, {
+      api.inserir_('lotes', Object.assign({}, base, {
         lote_id: 'L0', arquivo: 'antigo.csv', criado_em: '20260701T090000000Z'
       }), 'L0');
     }
@@ -2858,7 +2915,7 @@ teste('o passo 3 pede a conferência numa chamada separada, com contarApenas, e 
   verdadeiro(tela.indexOf('5 aluno(s) que estavam no banco como ADS41 não vieram neste arquivo') !== -1, tela);
   verdadeiro(tela.indexOf('2 vieram em outra lista de 2026/2') !== -1 && tela.indexOf('1 já cancelado') !== -1, tela);
   verdadeiro(cena.elemento('botao-revisar-pos'), 'sem o botão, o número é só um número');
-  verdadeiro(/abrirRevisaoDeLote\('L1'\)/.test(cena.html('pos-conferencia')), 'o botão abre a revisão do lote errado');
+  verdadeiro(/abrirRevisaoDeLote\("L1"\)/.test(desescapar(cena.html('pos-conferencia'))), 'o botão abre a revisão do lote errado');
   verdadeiro(cena.elemento('botao-reconciliar-pos'), 'o passo seguinte continua onde estava');
 });
 
@@ -2916,29 +2973,29 @@ teste('a aba Importações: Revisar em lote normal, "Revisar de novo" no revisad
       cadastroBase(api);
       const base = { tipo: 'PDF', linhas: '2', importado_em: '01/08/2026', importado_por: 'coord@exemplo.com',
         turma_cabecalho: 'ADS41', turma_origem: 'CABECALHO', semestre_cabecalho: '2026/2', linhas_da_turma: '2' };
-      api.inserir('lotes', Object.assign({}, base, { arquivo: 'normal.pdf', criado_em: '20260804T090000000Z', status: 'ATUALIZOU' }), 'L4');
-      api.inserir('lotes', Object.assign({}, base, { arquivo: 'revisado.pdf', criado_em: '20260803T090000000Z', status: 'ATUALIZOU',
+      api.inserir_('lotes', Object.assign({}, base, { arquivo: 'normal.pdf', criado_em: '20260804T090000000Z', status: 'ATUALIZOU' }), 'L4');
+      api.inserir_('lotes', Object.assign({}, base, { arquivo: 'revisado.pdf', criado_em: '20260803T090000000Z', status: 'ATUALIZOU',
         revisado_em: '2026-09-21 10:00:00', revisado_por: 'coord@exemplo.com',
         revisao_resumo: '{"cancelados":3,"excluidos":1,"anuladas":2,"pulados":0,"ja_cancelados":0}' }), 'L3');
-      api.inserir('lotes', Object.assign({}, base, { arquivo: 'parcial.pdf', criado_em: '20260802T090000000Z', status: 'PARCIAL' }), 'L2');
-      api.inserir('lotes', Object.assign({}, base, { arquivo: 'apagado.pdf', criado_em: '20260801T090000000Z', status: 'EXPURGADO' }), 'L1');
+      api.inserir_('lotes', Object.assign({}, base, { arquivo: 'parcial.pdf', criado_em: '20260802T090000000Z', status: 'PARCIAL' }), 'L2');
+      api.inserir_('lotes', Object.assign({}, base, { arquivo: 'apagado.pdf', criado_em: '20260801T090000000Z', status: 'EXPURGADO' }), 'L1');
       // O Aplicar interrompido depois de já ter escrito: o lote leva a marca
       // com `situacao: 'PARCIAL'` no resumo (o status do lote NÃO muda).
-      api.inserir('lotes', Object.assign({}, base, { arquivo: 'interrompido.pdf', criado_em: '20260731T090000000Z', status: 'ATUALIZOU',
+      api.inserir_('lotes', Object.assign({}, base, { arquivo: 'interrompido.pdf', criado_em: '20260731T090000000Z', status: 'ATUALIZOU',
         revisado_em: '2026-09-21 11:00:00', revisado_por: 'coord@exemplo.com',
         revisao_resumo: '{"cancelados":0,"excluidos":1,"anuladas":2,"pulados":0,"ja_cancelados":0,"situacao":"PARCIAL"}' }), 'L0');
     }
   });
   cena.js.trocarAba('lotes');
-  const html = cena.html('conteudo-lotes');
+  const html = desescapar(cena.html('conteudo-lotes'));
   const linhaDe = (arquivo) => { const i = html.indexOf(arquivo); return html.slice(i, html.indexOf('</tr>', i)); };
 
   verdadeiro(html.indexOf('<th>Revisão</th>') !== -1, 'a coluna não existe');
-  verdadeiro(/abrirRevisaoDeLote\('L4'\)/.test(linhaDe('normal.pdf')) && />Revisar</.test(linhaDe('normal.pdf')), linhaDe('normal.pdf'));
-  verdadeiro(/expurgarLoteUI, 'L4'/.test(linhaDe('normal.pdf')), 'o lote normal perdeu o Apagar');
+  verdadeiro(/abrirRevisaoDeLote\("L4"\)/.test(linhaDe('normal.pdf')) && />Revisar</.test(linhaDe('normal.pdf')), linhaDe('normal.pdf'));
+  verdadeiro(/expurgarLoteUI, "L4"/.test(linhaDe('normal.pdf')), 'o lote normal perdeu o Apagar');
   verdadeiro(/revisado em 21\/09\/2026/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
   verdadeiro(/3 cancelado\(s\), 1 excluído\(s\), 2 inscrição\(ões\) anulada\(s\)/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
-  verdadeiro(/Revisar de novo/.test(linhaDe('revisado.pdf')) && /expurgarLoteUI, 'L3'/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
+  verdadeiro(/Revisar de novo/.test(linhaDe('revisado.pdf')) && /expurgarLoteUI, "L3"/.test(linhaDe('revisado.pdf')), linhaDe('revisado.pdf'));
   igual(linhaDe('parcial.pdf').indexOf('abrirRevisaoDeLote'), -1, 'PARCIAL não se revisa');
   verdadeiro(/confirme de novo/.test(linhaDe('parcial.pdf')), linhaDe('parcial.pdf'));
   igual(linhaDe('apagado.pdf').indexOf('abrirRevisaoDeLote'), -1, 'EXPURGADO não tem o que comparar');
@@ -3255,7 +3312,7 @@ grupo('o cancelado da lista oficial — aba Alunos, ficha, Painel, Disciplinas e
  * cruzamento de verdade — é o mesmo caminho da produção.
  */
 function cancelarNaLista(api, matricula) {
-  api.atualizarEmLote('matriculados', [{
+  api.atualizarEmLote_('matriculados', [{
     _id: matricula, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'coord@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
   }]);
@@ -3265,14 +3322,14 @@ function cancelarNaLista(api, matricula) {
 function cadastroComCancelada(api) {
   cadastroBase(api);
   cancelarNaLista(api, '9110001');
-  api.reconciliar();
+  api.reconciliar_();
 }
 
 /** O Bruno (9220002) cancelado — e a inscrição da Ana usa a matrícula DELE: ocupa vaga. */
 function cadastroComCanceladoInscrito(api) {
   cadastroBase(api);
   cancelarNaLista(api, '9220002');
-  api.reconciliar();
+  api.reconciliar_();
 }
 
 teste('"Todos" esconde a cancelada e a legenda diz quantas; o filtro Cancelados a mostra com a data', () => {
@@ -3443,8 +3500,8 @@ grupo('a aba Auditório — o ciclo de anular, liberar e promover');
  */
 function auditorioBase(api) {
   api.semearConfigPadrao_();
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-  api.inserir('projetos', {
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+  api.inserir_('projetos', {
     nome: 'Robótica', vagas: '2', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
   }, 'p1');
 
@@ -3470,15 +3527,15 @@ function inscrever(api, id, nome, matricula, quando, emEspera) {
     matricula_conferida: 'NAO', declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
   };
   if (emEspera) { campos.em_espera = 'SIM'; campos.espera_de = 'p1'; }
-  api.inserir('inscricoes', campos, id);
+  api.inserir_('inscricoes', campos, id);
 }
 
 /** Os ids que uma das duas listas do Auditório pôs nos botões, de cima para baixo. */
 function idsDaLista(cena, lista) {
   const ids = [];
-  cena.html('auditorio-' + lista).replace(
-    new RegExp("tocarLinha\\('" + lista + "', '([^']+)'\\)", 'g'),
-    (m, id) => { ids.push(id); return m; }
+  desescapar(cena.html('auditorio-' + lista)).replace(
+    new RegExp('tocarLinha\\("' + lista + '", ("(?:[^"\\\\]|\\\\.)*")\\)', 'g'),
+    (m, literal) => { ids.push(JSON.parse(literal)); return m; }
   );
   return ids;
 }
@@ -3487,7 +3544,7 @@ function idsDaLista(cena, lista) {
 function tocar(cena, lista, n) {
   const id = idsDaLista(cena, lista)[n - 1];
   if (!id) throw new Error('a lista ' + lista + ' não tem a linha ' + n);
-  cena.botaoQueChama(new RegExp("tocarLinha\\('" + lista + "', '" + id + "'\\)")).click();
+  cena.botaoQueChama(new RegExp('tocarLinha\\("' + lista + '", "' + id + '"\\)')).click();
   return id;
 }
 
@@ -3801,7 +3858,7 @@ teste('sem fila nenhuma, o cabeçalho mostra a LOTAÇÃO em vez de ficar vazio',
   // `filaDeEspera` em 13_Auditorio.gs.
   const cena = abrirAuditorio((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', {
+    api.inserir_('projetos', {
       nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
     }, 'p1');
     inscrever(api, 'i1', 'Ana Silva', '9110001', '2026-08-14 21:00:01', false);
@@ -3830,13 +3887,13 @@ teste('a linha do Geral diz DE ONDE veio a inscrição: "incluída pela coordena
   // não diz nada sobre a troca, que nasce pelo SITE.
   const cena = abrirAuditorio((api) => {
     auditorioBase(api);
-    api.inserir('inscricoes', {
+    api.inserir_('inscricoes', {
       criado_em: '2026-08-14 21:00:06', origem: 'COORDENACAO', projeto_id: 'p1',
       projeto_nome: 'Robótica', matricula: '110005', nome: 'Elisa Prado',
       email: 'elisa@exemplo.com', matricula_conferida: 'SIM',
       incluido_por: 'coordenacao@exemplo.com'
     }, 'i6');
-    api.inserir('inscricoes', {
+    api.inserir_('inscricoes', {
       criado_em: '2026-08-14 21:00:07', origem: 'SITE', projeto_id: 'p1',
       projeto_nome: 'Robótica', matricula: '110006', nome: 'Felipe Nunes',
       email: 'felipe@exemplo.com', matricula_conferida: 'SIM',
@@ -3868,9 +3925,8 @@ teste('a linha do Geral diz DE ONDE veio a inscrição: "incluída pela coordena
   igual(cena.html('auditorio-recentes').indexOf('coordenacao@exemplo.com'), -1,
     'o e-mail de quem incluiu vazou para a lista');
 
-  // Os selos reusam classe que já existe: `docs/painel/estilos.css` é gêmeo byte
-  // a byte do `<style>` de apps-script/Estilos.html, e classe nova aqui
-  // obrigaria a regenerar o gêmeo — que é o teste ao lado, em painel-site.js.
+  // Os selos reusam classe que já existe em `docs/painel/estilos.css`: classe
+  // nova aqui seria CSS novo, e este teste confere que nenhuma foi inventada.
   const css = require('fs').readFileSync(
     require('path').join(__dirname, '..', 'docs', 'painel', 'estilos.css'), 'utf8');
   (cena.html('auditorio-recentes').match(/selo selo--[A-Z_]+/g) || []).forEach((uso) => {
@@ -3926,13 +3982,13 @@ grupo('o Auditório com filtro — mostrar todas sem passar a anular às cegas')
  */
 function auditorioComRepetidas(api) {
   api.semearConfigPadrao_();
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
   }, 'p1');
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Xadrez', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2'
   }, 'p2');
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Fotografia', vagas: '10', ativo: 'NAO', inscricoes_abertas: 'NAO', ordem: '3'
   }, 'p9');
 
@@ -3951,7 +4007,7 @@ function auditorioComRepetidas(api) {
  * Aqui é o contrário: o que importa é a mesma matrícula em projetos diferentes.
  */
 function inscreverEm(api, id, nome, matricula, quando, projetoId, projetoNome) {
-  api.inserir('inscricoes', {
+  api.inserir_('inscricoes', {
     criado_em: quando, origem: 'SITE', projeto_id: projetoId, projeto_nome: projetoNome,
     matricula: matricula, nome: nome, email: id + '@exemplo.com',
     matricula_conferida: 'NAO', declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
@@ -4761,22 +4817,22 @@ grupo('a matrícula é a chave da PESSOA, e o 409 só cobre o mesmo projeto');
 teste('a inscrição que fica para trás é dita, com o projeto no nome', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.inserir('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.inserir_('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
       { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
+  const r = amb.chamar('editarAluno_', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, 'a correção foi recusada: ' + r.erro);
 
   const aviso = (r.avisos || []).join(' ');
@@ -4804,22 +4860,22 @@ teste('a inscrição que fica para trás é dita, com o projeto no nome', () => 
 teste('a fusão de duas fichas é dita ANTES de a coordenação ir embora', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.inserir('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.inserir_('projetos', { nome: 'Projeto B', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2' }, 'p2');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Carlos Reis', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
       { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.gravarInscricao({ matricula: '9110001', nome: 'Carlos Reis', email: 'carlos@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.gravarInscricao_({ matricula: '9110001', nome: 'Carlos Reis', email: 'carlos@exemplo.com', projeto_id: 'p2', projeto_nome: 'Projeto B', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const daAna = Object.keys(alunos).find((k) => alunos[k].projeto && alunos[k].projeto.stringValue === 'Projeto A');
 
-  const r = amb.chamar('editarAluno', { id: daAna, matricula: '9110001' });
+  const r = amb.chamar('editarAluno_', { id: daAna, matricula: '9110001' });
   verdadeiro(r.ok, 'a correção foi recusada: ' + r.erro);
 
   const aviso = (r.avisos || []).join(' ');
@@ -4836,20 +4892,20 @@ teste('a fusão de duas fichas é dita ANTES de a coordenação ir embora', () =
 teste('a correção limpa não inventa aviso nenhum', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' },
       { _id: '9220002', matricula: '9220002', nome: 'Bruno Souza', turma: 'DIR21', curso: 'DIREITO', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
+  const r = amb.chamar('editarAluno_', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, r.erro);
   igual(r.avisos.filter((a) => a.indexOf('ATENÇÃO') === 0), [],
     'inventou aviso onde não havia vizinhança nenhuma');
@@ -4858,19 +4914,19 @@ teste('a correção limpa não inventa aviso nenhum', () => {
 teste('a inscrição recém-gravada não conta como vizinha de si mesma', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
   amb.falso.documentos.forEach((v, k) => { if (k.indexOf('alunos/') === 0) alunos[k.slice(7)] = v; });
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
+  const r = amb.chamar('editarAluno_', { id: alvo, matricula: '9110001' });
   verdadeiro((r.avisos || []).join(' ').indexOf('já estava em') === -1,
     'a própria inscrição virou vizinha: ' + (r.avisos || []).join(' '));
 });
@@ -4878,12 +4934,12 @@ teste('a inscrição recém-gravada não conta como vizinha de si mesma', () => 
 teste('a conferência da vizinhança NÃO acontece antes da escrita', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
@@ -4891,7 +4947,7 @@ teste('a conferência da vizinhança NÃO acontece antes da escrita', () => {
   const alvo = Object.keys(alunos).find((k) => alunos[k].inscricao_id && alunos[k].inscricao_id.stringValue);
 
   amb.falso.requisicoes.length = 0;
-  amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
+  amb.chamar('editarAluno_', { id: alvo, matricula: '9110001' });
 
   // A primeira ida a `inscricoes` tem de ser a ESCRITA. Quem garante a unicidade
   // continua sendo o 409 do banco, e não uma consulta nossa.
@@ -4904,12 +4960,12 @@ teste('a conferência da vizinhança NÃO acontece antes da escrita', () => {
 teste('vizinhança que falha vira aviso, e não derruba a correção', () => {
   const amb = servidor((api) => {
     api.semearConfigPadrao_();
-    api.inserir('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
-    api.escreverEmLote('matriculados', [
+    api.inserir_('projetos', { nome: 'Projeto A', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1' }, 'p1');
+    api.escreverEmLote_('matriculados', [
       { _id: '9110001', matricula: '9110001', nome: 'Ana Silva', turma: 'ADS11', curso: 'ADS', lote_id: 'L1' }
     ]);
-    api.gravarInscricao({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
-    api.reconciliar();
+    api.gravarInscricao_({ matricula: '9220002', nome: 'Ana Silva', email: 'ana@exemplo.com', projeto_id: 'p1', projeto_nome: 'Projeto A', origem: 'SITE' });
+    api.reconciliar_();
   });
 
   const alunos = {};
@@ -4927,7 +4983,7 @@ teste('vizinhança que falha vira aviso, e não derruba a correção', () => {
     return saida;
   };
 
-  const r = amb.chamar('editarAluno', { id: alvo, matricula: '9110001' });
+  const r = amb.chamar('editarAluno_', { id: alvo, matricula: '9110001' });
   verdadeiro(r.ok, 'a falha da conferência derrubou a correção: ' + r.erro);
   verdadeiro((r.avisos || []).join(' ').indexOf('Não consegui conferir') !== -1,
     'a falha da conferência passou calada: ' + JSON.stringify(r.avisos));
@@ -4978,10 +5034,10 @@ grupo('o Auditório com período e ordenação');
  */
 function auditorioEmDias(api) {
   api.semearConfigPadrao_();
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Robótica', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '1'
   }, 'p1');
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'Xadrez', vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '2'
   }, 'p2');
 
@@ -5005,7 +5061,7 @@ const RELOGIO_DESC = ['i5', 'i6', 'i7', 'i4', 'i3', 'i2', 'i1'];
  * cabeçalho ligado à chave errada passaria.
  */
 function ordenar(cena, funcao, chave) {
-  cena.botaoQueChama(new RegExp(funcao + "\\('" + chave + "'\\)")).click();
+  cena.botaoQueChama(new RegExp(funcao + '\\("' + chave + '"\\)')).click();
 }
 
 /** O texto do cabeçalho que está ATIVO (com a seta) numa área da tela. */
@@ -5202,7 +5258,7 @@ teste('ordenar NÃO mexe na seleção, a faixa segue a ordem da TELA, e a ação
   // A FAIXA percorre o que está na tela, na ordem da tela. Por nome, a lista é
   // i5, i1, i2, i3, i4, i6, i7. Limpar e tocar da 1ª à 3ª marca i5, i1 e i2 —
   // e NÃO as seis que o relógio põe entre i5 e i2.
-  cena.botaoQueChama(/limparMarcas\('recentes'\)/).click();
+  cena.botaoQueChama(/limparMarcas\("recentes"\)/).click();
   tocar(cena, 'recentes', 1);
   tocar(cena, 'recentes', 3);
   igual(marcadas(cena, 'recentes'), 3, 'a faixa percorreu a ordem do servidor, e não a da tela');
@@ -5273,7 +5329,7 @@ grupo('a janela Projetos → Inscritos com período e ordenação');
  */
 function projetoEmDias(api) {
   api.semearConfigPadrao_();
-  api.inserir('projetos', {
+  api.inserir_('projetos', {
     nome: 'ARTE DIGITAL FLORIPA', vagas: '60', ativo: 'SIM', inscricoes_abertas: 'SIM',
     ordem: '1', validar_matricula: 'NAO', professor: 'Prof. Mario', banner: ''
   }, 'pe');
@@ -5285,7 +5341,7 @@ function projetoEmDias(api) {
     ['a4', 'Duda Reis', '2510868', 'DIR21 - WORK EXPERIENCE', '2026-09-15 10:30:00'],
     ['a5', 'Éder Lima', '2510869', 'ADS11 - PRATICA EXTENSIONISTA', '2026-09-15 09:00:00']
   ].forEach(([id, nome, matricula, curso, quando]) => {
-    api.inserir('inscricoes', {
+    api.inserir_('inscricoes', {
       criado_em: quando, origem: 'SITE', projeto_id: 'pe', projeto_nome: 'ARTE DIGITAL FLORIPA',
       matricula: matricula, nome: nome, email: id + '@exemplo.com', whatsapp: '48999990000',
       curso_fase: curso, matricula_conferida: 'NAO', declara_ciencia: 'SIM', consentimento_lgpd: 'SIM'
@@ -5357,7 +5413,7 @@ teste('inscrição SEM carimbo aparece sem período — e não entra em período
   // data que o banco não tem.
   const cena = abrirJanelaDoProjeto((api) => {
     projetoEmDias(api);
-    api.inserir('inscricoes', {
+    api.inserir_('inscricoes', {
       criado_em: '', origem: 'SITE', projeto_id: 'pe', projeto_nome: 'ARTE DIGITAL FLORIPA',
       matricula: '2510870', nome: 'Zeca Sem Carimbo', email: 'a6@exemplo.com',
       curso_fase: 'ADS11 - PRATICA EXTENSIONISTA', matricula_conferida: 'NAO',
@@ -5542,8 +5598,8 @@ grupo('a janela "Incluir aluno", clicada');
 /** O cadastro de sempre, com disciplinas migradas e a Ana com e-mail na lista oficial. */
 function cadastroParaIncluir(api) {
   cadastroBase(api);
-  api.migrarDisciplinas();
-  api.atualizar('matriculados', '9110001', { email: 'ana@exemplo.com', telefone: '48999990000' });
+  api.migrarDisciplinas_();
+  api.atualizar_('matriculados', '9110001', { email: 'ana@exemplo.com', telefone: '48999990000' });
 }
 
 /** Abre a lista do projeto e clica em "Incluir aluno" — pelo botão, não por dentro. */
@@ -5577,7 +5633,7 @@ teste('o botão está na barra da janela de inscritos, e o clique troca a lista 
   cena.js.verInscritosProjeto('p2');
 
   const html = cena.html('modal-corpo');
-  verdadeiro(/abrirInclusaoDeAluno\('p2'\)/.test(html), 'o botão não chama abrirInclusaoDeAluno com o projeto');
+  verdadeiro(/abrirInclusaoDeAluno\("p2"\)/.test(desescapar(html)), 'o botão não chama abrirInclusaoDeAluno com o projeto');
   verdadeiro(html.indexOf('id="insc-proj-incluir"') > html.indexOf('Exportar PDF'),
     'o botão não está ao lado dos de exportação');
 
@@ -5612,8 +5668,8 @@ teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais 
       cadastroParaIncluir(api);
       // Pelo mesmo `disciplinaDe_` do servidor: o rótulo não é campo gravado,
       // é derivado de turma e curso, e é o rótulo que o select oferece.
-      const escolhida = api.listar('disciplinas', {}).itens.map(api.disciplinaDe_).filter((d) => d.ativo && !d.coringa)[0];
-      api.atualizar('disciplinas', escolhida.id, { ativo: 'NAO' });
+      const escolhida = api.listar_('disciplinas', {}).itens.map(api.disciplinaDe_).filter((d) => d.ativo && !d.coringa)[0];
+      api.atualizar_('disciplinas', escolhida.id, { ativo: 'NAO' });
       encerrada = escolhida.rotulo;
     }
   });
@@ -5629,7 +5685,7 @@ teste('o select de curso e fase tem a MESMA lista do formulário do aluno, mais 
   igual(rotulos, doSite, 'o select não é a lista que o site mostra ao aluno');
   verdadeiro(rotulos.length >= 10, 'a migração devia ter produzido a lista inteira');
   igual(rotulos.indexOf(encerrada), -1, 'a disciplina inativa está no select: ' + encerrada);
-  verdadeiro(cena.api.listar('disciplinas', {}).itens.map(cena.api.disciplinaDe_).some((d) => d.rotulo === encerrada && !d.ativo),
+  verdadeiro(cena.api.listar_('disciplinas', {}).itens.map(cena.api.disciplinaDe_).some((d) => d.rotulo === encerrada && !d.ativo),
     'a inativa continua no banco — o select é que a peneira');
 });
 
@@ -5695,8 +5751,8 @@ teste('matrícula já inscrita: o aviso amarelo nomeia o projeto e ensina a move
       // Um projeto homônimo do "Lotado", e o "Lotado" renomeado depois de as
       // inscrições dele existirem: o nome gravado na inscrição já não é o do
       // projeto, e o homônimo tem o nome que a inscrição guarda.
-      api.inserir('projetos', { nome: 'Lotado', vagas: '5', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '3', validar_matricula: 'SIM' }, 'p3');
-      api.atualizar('projetos', 'p2', { nome: 'Lotado (turma B)' });
+      api.inserir_('projetos', { nome: 'Lotado', vagas: '5', ativo: 'SIM', inscricoes_abertas: 'SIM', ordem: '3', validar_matricula: 'SIM' }, 'p3');
+      api.atualizar_('projetos', 'p2', { nome: 'Lotado (turma B)' });
     }
   });
   abrirInclusao(cena, 'p2');
@@ -5736,8 +5792,8 @@ teste('matrícula na FILA DE ESPERA deste projeto: o aviso diz "(em espera)" e q
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-      api.gravarInscricao({
+      api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
       });
@@ -5940,9 +5996,9 @@ teste('as DUAS perguntas em sequência — o teto e o outro projeto — terminam
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('aluno_projeto_unico', 'SIM');
+      api.gravarConfig_('aluno_projeto_unico', 'SIM');
       // A Ana já está em Origem, com a matrícula dela.
-      api.gravarInscricao({
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE'
       });
@@ -5981,8 +6037,8 @@ teste('a coordenação diz NÃO à segunda pergunta: nada é gravado, e o formul
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('aluno_projeto_unico', 'SIM');
-      api.gravarInscricao({
+      api.gravarConfig_('aluno_projeto_unico', 'SIM');
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p1', projeto_nome: 'Origem', origem: 'SITE'
       });
@@ -6122,7 +6178,7 @@ teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a 
       incluirInscricao: (corpo, c) => {
         delete c.respostas.incluirInscricao;
         c.js.voltarParaInscritos();                                                              // ela já voltou...
-        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
+        return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
       }
     }
   });
@@ -6150,7 +6206,7 @@ teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a 
   cena.respostas.incluirInscricao = (corpo, c) => {
     delete c.respostas.incluirInscricao;
     c.js.fecharModal();                                                                        // ela fechou no ×...
-    return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
+    return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));      // ... e aí a escrita cai
   };
   abrirInclusao(cena, 'p1');
   preencherInclusao(cena, { matricula: '9110003', nome: 'Carla Terceira', email: 'carla@exemplo.com' });
@@ -6188,7 +6244,7 @@ teste('a resposta do Incluir chega DEPOIS do Voltar: a inclusão aconteceu, e a 
   let enviosDaEncenacao = 0;
   cena.respostas.incluirInscricao = (corpo, c) => {
     enviosDaEncenacao++;
-    if (enviosDaEncenacao > 1) return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+    if (enviosDaEncenacao > 1) return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));
     c.js.voltarParaInscritos();
     c.js.fecharModal();
     abrirInclusao(c, 'p1');
@@ -6650,7 +6706,7 @@ teste('a resposta do Incluir chega DEPOIS do ×: a janela FICA fechada, a faixa 
       incluirInscricao: (corpo, c) => {
         delete c.respostas.incluirInscricao;
         c.js.fecharModal();                                                                   // ela fechou no ×...
-        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));   // ... e aí a escrita cai
+        return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));   // ... e aí a escrita cai
       }
     }
   });
@@ -6710,13 +6766,13 @@ teste('trocar o projeto no select enquanto a pergunta do teto viaja: o "sim" NÃ
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.atualizar('projetos', 'p1', { vagas: '1' });   // Origem 1/1: cheia também
+      api.atualizar_('projetos', 'p1', { vagas: '1' });   // Origem 1/1: cheia também
     },
     respostas: {
       incluirInscricao: (corpo, c) => {
         delete c.respostas.incluirInscricao;
         escolherProjeto(c, 'p1');                          // a troca, com o pedido em voo
-        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+        return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));
       }
     }
   });
@@ -6767,8 +6823,8 @@ teste('a guarda do projeto vale para a pergunta da DUPLICIDADE também: o "sim" 
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('aluno_projeto_unico', 'SIM');
-      api.gravarInscricao({
+      api.gravarConfig_('aluno_projeto_unico', 'SIM');
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE'
       });
@@ -6777,7 +6833,7 @@ teste('a guarda do projeto vale para a pergunta da DUPLICIDADE também: o "sim" 
       incluirInscricao: (corpo, c) => {
         delete c.respostas.incluirInscricao;
         escolherProjeto(c, 'p2');                          // a troca, com o pedido em voo
-        return c.api.incluirInscricao(Object.assign({ token: corpo.token }, corpo.dados));
+        return c.api.incluirInscricao_(Object.assign({ token: corpo.token }, corpo.dados));
       }
     }
   });
@@ -6809,8 +6865,8 @@ teste('a marca "(este projeto)" segue o projeto escolhido: trocar o select redes
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-      api.gravarInscricao({
+      api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
       });
@@ -6858,8 +6914,8 @@ teste('o aviso de já-inscrito morre com a janela e com a matrícula apagada: `j
   const cena = abrirPainel({
     semear: (api) => {
       cadastroParaIncluir(api);
-      api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-      api.gravarInscricao({
+      api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+      api.gravarInscricao_({
         matricula: '9110001', nome: 'Ana Silva', email: 'ana@exemplo.com',
         projeto_id: 'p2', projeto_nome: 'Lotado', origem: 'SITE', em_espera: 'SIM'
       });
@@ -6909,7 +6965,7 @@ teste('Editar de quem veio só da lista oficial: o aviso ganha "Incluir num proj
   const botao = cena.documento.getElementById('ed-incluir');
   verdadeiro(botao, 'o aviso de "só da lista oficial" não tem o botão');
   igual(botao.textContent, 'Incluir num projeto');
-  igual(botao.getAttribute('onclick'), "abrirInclusaoDeAluno('', '9110001')");
+  igual(botao.getAttribute('onclick'), 'abrirInclusaoDeAluno(\'\', "9110001")');
   const consultas = chamadasDe(cena, 'buscarMatriculado').length;
 
   botao.click();
@@ -6999,8 +7055,8 @@ const COORDENACAO = 'coord@exemplo.com';
 /** O sistema com os dois níveis JÁ separados: a coordenação manda, ela lê. */
 function semearNiveis(api) {
   cadastroBase(api);
-  api.gravarConfig('admin_emails', COORDENACAO + ', ' + PROFESSORA);
-  api.gravarConfig('coordenadores_gerais', COORDENACAO);
+  api.gravarConfig_('admin_emails', COORDENACAO + ', ' + PROFESSORA);
+  api.gravarConfig_('coordenadores_gerais', COORDENACAO);
 }
 
 function comoProfessora(extra) {
@@ -7195,7 +7251,7 @@ teste('os quatro que ABREM JANELA estão travados — e o Salvar de dentro tamb�
     });
 
   cena.js.trocarAba('projetos');
-  verdadeiro(cena.botaoQueChama(/abrirFormProjeto\('p1'\)/).disabled, 'o Editar do projeto');
+  verdadeiro(cena.botaoQueChama(/abrirFormProjeto\("p1"\)/).disabled, 'o Editar do projeto');
   cena.js.trocarAba('alunos');
   verdadeiro(cena.botaoQueChama(/abrirEdicaoAluno/).disabled, 'o Editar da ficha do aluno');
 
@@ -7374,8 +7430,8 @@ teste('Excel e PDF da janela não falam com o servidor, e o professor os tem', (
   cena.js.trocarAba('projetos');
   cena.js.verInscritosProjeto('p1');
 
-  const excel = cena.botaoQueChama(/exportar\('projeto', 'excel'\)/);
-  const pdf = cena.botaoQueChama(/exportar, 'projeto', 'pdf'/);
+  const excel = cena.botaoQueChama(/exportar\("projeto", 'excel'\)/);
+  const pdf = cena.botaoQueChama(/exportar, "projeto", 'pdf'/);
   verdadeiro(!excel.disabled, 'o Excel da janela foi travado');
   verdadeiro(!pdf.disabled, 'o PDF da janela foi travado');
 
@@ -7565,16 +7621,16 @@ teste('promover encerra a sessão da pessoa, e a tabela já mostra o novo nível
   // não teria como explicar; ou redesenhar a tabela com a resposta velha.
   const cena = comoCoordenacao();
   const dela = cena.api.criarSessao_(PROFESSORA);
-  igual(cena.api.sessaoAtiva(dela).ok, true);
+  igual(cena.api.sessaoAtiva_(dela).ok, true);
 
   cena.js.trocarAba('config');
-  cena.botaoQueChama(new RegExp("definirNivelUI, '" + PROFESSORA + "', 'coordenador'")).click();
+  cena.botaoQueChama(new RegExp('definirNivelUI, "' + PROFESSORA + '", "coordenador"')).click();
 
   verdadeiro(cena.confirmacoes[0].indexOf('tudo o que você pode') !== -1, cena.confirmacoes[0]);
-  igual(cena.api.sessaoAtiva(dela).ok, false, 'a sessão dela não caiu');
+  igual(cena.api.sessaoAtiva_(dela).ok, false, 'a sessão dela não caiu');
   verdadeiro(linhaDoAcesso(cena, PROFESSORA).indexOf('Coordenador geral') !== -1,
     linhaDoAcesso(cena, PROFESSORA));
-  igual(cena.api.config('coordenadores_gerais'), COORDENACAO + ', ' + PROFESSORA);
+  igual(cena.api.config_('coordenadores_gerais'), COORDENACAO + ', ' + PROFESSORA);
 });
 
 teste('quem entra nasce Professor, e a tela diz onde fica o segundo gesto', () => {
@@ -7592,7 +7648,7 @@ teste('quem entra nasce Professor, e a tela diz onde fica o segundo gesto', () =
     cena.texto('mensagem-global'));
   verdadeiro(cena.texto('mensagem-global').indexOf('Tornar coordenador geral') !== -1,
     cena.texto('mensagem-global'));
-  igual(cena.api.config('coordenadores_gerais'), COORDENACAO,
+  igual(cena.api.config_('coordenadores_gerais'), COORDENACAO,
     'incluir mexeu na lista de coordenadores');
 });
 
@@ -7607,7 +7663,7 @@ teste('o único coordenador geral não vira Professor: o botão nasce travado e 
   const cena = comoCoordenacao();
   cena.js.trocarAba('config');
 
-  const botao = cena.botaoQueChama(new RegExp("definirNivelUI, '" + COORDENACAO + "', 'professor'"));
+  const botao = cena.botaoQueChama(new RegExp('definirNivelUI, "' + COORDENACAO + '", "professor"'));
   verdadeiro(botao.disabled, 'o último coordenador geral podia se rebaixar pela tela');
   verdadeiro(String(botao.getAttribute('title')).indexOf('último coordenador geral') !== -1,
     botao.getAttribute('title'));
@@ -7615,7 +7671,7 @@ teste('o único coordenador geral não vira Professor: o botão nasce travado e 
   const antes = cena.requisicoesHttp.length;
   botao.click();
   igual(cena.requisicoesHttp.length, antes, 'o clique saiu para a rede');
-  igual(cena.api.config('coordenadores_gerais'), COORDENACAO, 'a chave mudou assim mesmo');
+  igual(cena.api.config_('coordenadores_gerais'), COORDENACAO, 'a chave mudou assim mesmo');
 });
 
 teste('rebaixar a si mesmo devolve ao login, com a frase própria', () => {
@@ -7624,11 +7680,11 @@ teste('rebaixar a si mesmo devolve ao login, com a frase própria', () => {
   // ("Sessão expirada"), e aí a pessoa que acabou de se rebaixar não tem como
   // saber se o painel quebrou ou se ela mesma fez aquilo.
   const cena = comoCoordenacao((api) => {
-    api.gravarConfig('coordenadores_gerais', COORDENACAO + ', ' + PROFESSORA);
+    api.gravarConfig_('coordenadores_gerais', COORDENACAO + ', ' + PROFESSORA);
   });
   cena.js.trocarAba('config');
 
-  cena.botaoQueChama(new RegExp("definirNivelUI, '" + COORDENACAO + "', 'professor'")).click();
+  cena.botaoQueChama(new RegExp('definirNivelUI, "' + COORDENACAO + '", "professor"')).click();
 
   verdadeiro(cena.confirmacoes[0].indexOf('Virar Professor você mesmo?') !== -1, cena.confirmacoes[0]);
   verdadeiro(!cena.elemento('tela-login').classList.contains('oculto'),
@@ -7636,7 +7692,292 @@ teste('rebaixar a si mesmo devolve ao login, com a frase própria', () => {
   igual(cena.js.lerToken(), null, 'guardou um token que o servidor já encerrou');
   verdadeiro(cena.texto('aviso-login').indexOf('entra como Professor') !== -1,
     cena.texto('aviso-login'));
-  igual(cena.api.config('coordenadores_gerais'), PROFESSORA);
+  igual(cena.api.config_('coordenadores_gerais'), PROFESSORA);
+});
+
+// ============================== O texto que vem do banco, dentro de um onclick
+
+grupo('o texto que vem do banco, dentro de um onclick — em todas as abas, clicado');
+
+/**
+ * Os piores textos para o meio de um `onclick="f(...)"`, os mesmos do teste da
+ * tabela de disciplinas: o primeiro fecharia uma string escrita à mão e chamaria
+ * outra função; o segundo leva aspa dupla, `&`, barra invertida e `<`, que
+ * estragariam o atributo ou o texto. A `MARCA` sobrevive a qualquer escape, e é
+ * por ela que os botões são achados.
+ *
+ * Nenhum deles nasce pelas telas do painel: os ids são gerados pelo servidor, e
+ * a lista de acesso e as chaves passam pelas guardas de escrita. Mas o painel
+ * desenha o que está no BANCO, e o banco pode ter sido escrito por outro
+ * caminho — o console do Firestore, uma versão antiga do servidor, um backup
+ * restaurado. O botão não pode depender de quem escreveu.
+ */
+const TEXTOS_HOSTIS = ["x');sinalDeInjecao();('MARCA1", 'MARCA2"b&c\\d<e>'];
+
+/**
+ * Clica em TODO botão da tela cujo `onclick` leva a marca, e devolve o que cada
+ * um entregou.
+ *
+ * Os botões são achados pela marcação, e não por uma lista: o botão que nascer
+ * amanhã entra na conta sozinho. A função que cada um chama é trocada, só
+ * durante o clique, por uma que anota os argumentos — a de verdade não roda, e
+ * o clique não sai para o servidor. `aoGravar` anota o nome da função que ela
+ * receberia, seguido dos argumentos dela. `sinalDeInjecao` só roda se um texto
+ * tiver virado código.
+ */
+function clicarOsQueLevam(cena, marca) {
+  let injetou = false;
+  cena.js.sinalDeInjecao = () => { injetou = true; };
+  const recebidos = [];
+  const botoes = cena.documento.querySelectorAll('[onclick]')
+    .filter((el) => String(el.getAttribute('onclick') || '').indexOf(marca) !== -1);
+
+  botoes.forEach((botao) => {
+    const nome = (/^\s*([\w$]+)\s*\(/.exec(String(botao.getAttribute('onclick'))) || [])[1];
+    const original = cena.js[nome];
+    cena.js[nome] = nome === 'aoGravar'
+      ? function (este, funcao) { recebidos.push([funcao && funcao.name].concat([].slice.call(arguments, 2))); }
+      : function () { recebidos.push([nome].concat([].slice.call(arguments))); };
+    try {
+      botao.click();
+    } finally {
+      cena.js[nome] = original;
+    }
+  });
+
+  return { botoes: botoes.length, desabilitados: botoes.filter((b) => b.disabled).length, recebidos, injetou };
+}
+
+/**
+ * O que um clique em massa tem de mostrar: nenhum texto virou código, nenhum
+ * botão ficou de fora por estar desabilitado, cada função esperada recebeu cada
+ * texto INTEIRO, e nenhum argumento com a marca chegou estragado.
+ *
+ * `esperadas` é uma lista de [função, ...argumentos] — os argumentos exatos,
+ * na ordem.
+ */
+function conferirEntregas(resultado, esperadas, onde) {
+  igual(resultado.injetou, false, onde + ': um texto virou código ao clicar');
+  igual(resultado.desabilitados, 0, onde + ': há botão desabilitado — o clique não provou nada nele');
+  verdadeiro(resultado.botoes >= esperadas.length,
+    onde + ': só ' + resultado.botoes + ' botão(ões) levam a marca, e eram ' + esperadas.length);
+
+  esperadas.forEach((esperada) => {
+    verdadeiro(resultado.recebidos.some((r) => JSON.stringify(r) === JSON.stringify(esperada)),
+      onde + ': ' + esperada[0] + ' não recebeu ' + JSON.stringify(esperada.slice(1)) +
+      ' — chegou ' + JSON.stringify(resultado.recebidos));
+  });
+
+  const estragados = [];
+  resultado.recebidos.forEach((r) => r.slice(1).forEach((a) => {
+    if (typeof a === 'string' && a.indexOf('MARCA') !== -1 && TEXTOS_HOSTIS.indexOf(a) === -1) estragados.push(a);
+  }));
+  igual(estragados, [], onde + ': texto que chegou estragado ao clique');
+}
+
+teste('nenhum texto entra num onclick entre aspas escritas à mão — no painel inteiro', () => {
+  // Dentro de um `onclick`, o navegador DECODIFICA o atributo antes de compilar o
+  // JavaScript: `\'' + escapar(x) + '\'` deixa o `'` voltar inteiro e fechar a
+  // string, e o resto do texto vira código. A forma que protege é
+  // `argumentoJs(x)`, sem aspas em volta (ver o comentário dele no painel). A
+  // regra vale para o painel inteiro, inclusive para as constantes do código:
+  // é ela, e não a memória de quem escreve, que impede o próximo botão de nascer
+  // com a forma antiga.
+  //
+  // Mutação que derruba: qualquer botão voltar às aspas escritas à mão em volta
+  // de uma interpolação — `\'`, `&#39;` ou `&quot;` —, com ou sem `escapar`.
+  const fs = require('fs');
+  const path = require('path');
+  const pagina = fs.readFileSync(path.join(__dirname, '..', 'docs', 'painel', 'index.html'), 'utf8');
+  const inicio = pagina.indexOf('<script>');
+  verdadeiro(inicio !== -1, 'o <script> do painel sumiu');
+
+  const ruins = [];
+  pagina.slice(inicio).split('\n').forEach((linha, i) => {
+    if (/(\\'|&#39;|&quot;)'\s*\+|\+\s*'(\\'|&#39;|&quot;)/.test(linha)) ruins.push(linha.trim());
+  });
+  igual(ruins, [], 'interpolação entre aspas escritas à mão');
+  verdadeiro((pagina.match(/argumentoJs\(/g) || []).length >= 30,
+    'os botões que levam texto deixaram de passar por argumentoJs');
+});
+
+teste('Projetos: a linha, o Salvar da janela e o Incluir aluno entregam o id como veio', () => {
+  // Mutação que derruba: um dos botões da linha de projeto, o Salvar da janela de
+  // edição ou o "Incluir aluno" da janela de inscritos voltar às aspas escritas
+  // à mão (com ou sem `escapar`).
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      TEXTOS_HOSTIS.forEach((id, i) => api.inserir_('projetos', {
+        nome: 'Projeto de teste ' + (i + 1), vagas: '10', ativo: 'SIM', inscricoes_abertas: 'SIM',
+        ordem: String(10 + i), validar_matricula: 'SIM'
+      }, id));
+    }
+  });
+  cena.js.trocarAba('projetos');
+
+  const esperadas = [];
+  TEXTOS_HOSTIS.forEach((id) => {
+    esperadas.push(['verInscritosProjeto', id], ['abrirFormProjeto', id],
+      ['alternarProjetoUI', id], ['removerProjetoUI', id]);
+  });
+  conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), esperadas, 'linha do projeto');
+
+  TEXTOS_HOSTIS.forEach((id) => {
+    cena.js.abrirFormProjeto(id);
+    conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [['salvarProjetoUI', id]], 'Salvar do projeto');
+    cena.js.fecharModal();
+
+    cena.js.verInscritosProjeto(id);
+    conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [['abrirInclusaoDeAluno', id]], 'Incluir aluno');
+    cena.js.fecharModal();
+  });
+});
+
+teste('Disciplinas: o Salvar da edição e as vistas da janela de inscritos entregam o id como veio', () => {
+  // A tabela já tem o teste dela (mais acima, no grupo das disciplinas); este
+  // cobre as duas janelas que a linha abre.
+  //
+  // Mutação que derruba: o Salvar da edição, as abas da janela de inscritos ou o
+  // Consultar da vista de turma voltarem às aspas escritas à mão.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      TEXTOS_HOSTIS.forEach((id, i) => api.inserir_('disciplinas', {
+        curso: 'DISCIPLINA DE TESTE ' + (i + 1), turma: 'ADS1' + (i + 1), semestre: '1', ano: '2026',
+        ativo: 'SIM', coringa: 'NAO'
+      }, id));
+    }
+  });
+  cena.js.trocarAba('disciplinas');
+
+  TEXTOS_HOSTIS.forEach((id) => {
+    cena.js.abrirEdicaoDisciplina(id);
+    conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [['salvarEdicaoDisciplinaUI', id]], 'Salvar da disciplina');
+    cena.js.fecharModal();
+
+    cena.js.verInscritosDisciplina(id);
+    conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [
+      ['trocarVistaDisciplina', id, 'turma'], ['trocarVistaDisciplina', id, 'texto'],
+      ['consultarTurmaDisciplina', id]
+    ], 'janela de inscritos da disciplina');
+    cena.js.fecharModal();
+  });
+});
+
+teste('Alunos: Ver, Editar e o "Incluir num projeto" da ficha entregam o texto como veio', () => {
+  // As respostas são encenadas porque o que se prova aqui é a TELA: o id da
+  // ficha e a matrícula da lista oficial chegam ao botão como o servidor os
+  // mandou, sejam eles o que forem.
+  //
+  // Mutação que derruba: Ver ou Editar da tabela, ou o "Incluir num projeto" da
+  // ficha que só existe na lista oficial, voltarem às aspas escritas à mão.
+  const cena = abrirPainel({
+    semear: cadastroBase,
+    respostas: {
+      listarAlunos: {
+        ok: true, total: 2, pagina: 1, tamanho: 50, paginas: 1, cursos: [],
+        itens: TEXTOS_HOSTIS.map((id, i) => ({
+          id: id, nome: 'Aluno de teste ' + (i + 1), matricula: '91100' + (i + 1) + '0', email: 'aluno@exemplo.com',
+          curso: 'ADS', turma: 'ADS11', status: 'SO_MATRICULADO', metodo_match: ''
+        }))
+      }
+    }
+  });
+  cena.js.trocarAba('alunos');
+
+  const esperadas = [];
+  TEXTOS_HOSTIS.forEach((id) => esperadas.push(['abrirDetalhe', id], ['abrirEdicaoAluno', id]));
+  conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), esperadas, 'linha do aluno');
+
+  TEXTOS_HOSTIS.forEach((matricula) => {
+    cena.respostas.detalheAluno = {
+      ok: true, aluno: { id: 'a1', nome: 'Aluno de teste' }, inscricao: null, projetos: [],
+      matriculado: { matricula: matricula, nome: 'Aluno de teste', turma: 'ADS11' }
+    };
+    cena.js.abrirEdicaoAluno('a1');
+    conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [['abrirInclusaoDeAluno', '', matricula]],
+      'Incluir num projeto');
+    cena.js.fecharModal();
+  });
+});
+
+teste('Auditório: tocar na linha entrega o id da inscrição como veio, nas duas listas', () => {
+  // Mutação que derruba: `linhaTocavel` voltar às aspas escritas à mão no id ou
+  // no nome da lista.
+  const cena = abrirPainel({
+    semear: (api) => {
+      auditorioBase(api);
+      inscrever(api, TEXTOS_HOSTIS[0], 'Aluna de teste', '9110091', '2026-08-14 21:00:06', false);
+      inscrever(api, TEXTOS_HOSTIS[1], 'Aluno de teste', '9110092', '2026-08-14 21:00:07', true);
+    }
+  });
+  cena.js.trocarAba('auditorio');
+
+  conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [
+    ['tocarLinha', 'recentes', TEXTOS_HOSTIS[0]], ['tocarLinha', 'recentes', TEXTOS_HOSTIS[1]],
+    ['tocarLinha', 'fila', TEXTOS_HOSTIS[1]]
+  ], 'linhas do Auditório');
+});
+
+teste('Importações: Revisar e Apagar matriculados entregam o id do lote como veio', () => {
+  // Mutação que derruba: um dos dois botões da linha do lote voltar às aspas
+  // escritas à mão.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      TEXTOS_HOSTIS.forEach((id, i) => api.inserir_('lotes', {
+        lote_id: id, arquivo: 'lista-' + (i + 1) + '.xlsx', tipo: 'xlsx', linhas: '2',
+        importado_em: '01/08/2026', importado_por: 'coord@exemplo.com', status: 'OK'
+      }, 'L' + (i + 1)));
+    }
+  });
+  cena.js.trocarAba('lotes');
+
+  const esperadas = [];
+  TEXTOS_HOSTIS.forEach((id) => esperadas.push(['abrirRevisaoDeLote', id], ['expurgarLoteUI', id]));
+  conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), esperadas, 'linha do lote');
+});
+
+teste('Configurações: o Salvar de uma chave estranha e os botões do acesso entregam o texto como veio', () => {
+  // A chave entra pelo banco: `lerConfiguracoes` mostra também as chaves que
+  // CONFIG_PADRAO não conhece, para nenhuma virar configuração invisível. A
+  // lista de acesso é encenada, porque o servidor já não devolve o que não tem
+  // forma de e-mail (ver `adminEmails_`, 07_Auth.gs) — e a tela não pode
+  // depender disso. Três pessoas, duas coordenando: nenhum botão nasce
+  // desabilitado pela regra do último coordenador.
+  //
+  // Mutação que derruba: o Salvar dos parâmetros, o "Tornar ..." ou o Remover
+  // da tabela de acesso voltarem às aspas escritas à mão.
+  const cena = abrirPainel({
+    semear: (api) => {
+      cadastroBase(api);
+      const campos = {};
+      TEXTOS_HOSTIS.forEach((chave) => { campos[chave] = 'qualquer'; });
+      api.atualizar_('config', 'geral', campos);
+      // A escrita foi direto ao banco, por fora de `gravarConfig_`: o cache da
+      // execução não a viu, e a execução seguinte (a da tela) lê de novo.
+      api.limparCacheConfig_();
+    },
+    respostas: {
+      listarAdmins: {
+        ok: true, voce: 'coord@exemplo.com', seuNivel: 'coordenador',
+        emails: ['coord@exemplo.com'].concat(TEXTOS_HOSTIS),
+        pessoas: [
+          { email: 'coord@exemplo.com', nivel: 'coordenador' },
+          { email: TEXTOS_HOSTIS[0], nivel: 'coordenador' },
+          { email: TEXTOS_HOSTIS[1], nivel: 'professor' }
+        ]
+      }
+    }
+  });
+  cena.js.trocarAba('config');
+
+  conferirEntregas(clicarOsQueLevam(cena, 'MARCA'), [
+    ['salvarCfg', TEXTOS_HOSTIS[0]], ['salvarCfg', TEXTOS_HOSTIS[1]],
+    ['definirNivelUI', TEXTOS_HOSTIS[0], 'professor'], ['definirNivelUI', TEXTOS_HOSTIS[1], 'coordenador'],
+    ['removerAcesso', TEXTOS_HOSTIS[0]], ['removerAcesso', TEXTOS_HOSTIS[1]]
+  ], 'Configurações');
 });
 
 process.exit(resultado());

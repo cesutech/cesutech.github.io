@@ -380,8 +380,8 @@ function ambiente(opcoes) {
 
 /** Semeia as duas chaves do painel. Sem elas, `backup_dias` está VAZIA. */
 function configurar(amb, dias, ligado) {
-  if (dias !== undefined) amb.api.gravarConfig('backup_dias', String(dias));
-  if (ligado !== undefined) amb.api.gravarConfig('backup_ligado', String(ligado));
+  if (dias !== undefined) amb.api.gravarConfig_('backup_dias', String(dias));
+  if (ligado !== undefined) amb.api.gravarConfig_('backup_ligado', String(ligado));
 }
 
 /** Um documento em cada uma das onze coleções, com um campo reconhecível. */
@@ -389,7 +389,7 @@ function semearBanco(amb, quantos) {
   const n = quantos || 2;
   ONZE_COLECOES.forEach((colecao) => {
     for (let i = 1; i <= n; i++) {
-      amb.api.inserir(colecao, {
+      amb.api.inserir_(colecao, {
         criado_em: '2026080' + i + 'T100000000Z',
         marca: colecao + '-' + i
       }, colecao + '_doc' + i);
@@ -434,7 +434,7 @@ teste('grava as onze coleções, com o id de cada documento', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
 
   const arquivo = arquivoDeHoje(amb);
@@ -464,9 +464,9 @@ teste('a contagem do cabeçalho bate com o que foi lido, coleção por coleção
   semearBanco(amb, 3);
   // Uma coleção com tamanho diferente das outras: contagem que "bate" porque
   // todas têm o mesmo número não prova nada.
-  amb.api.inserir('inscricoes', { criado_em: '20260809T100000000Z', marca: 'extra' }, 'i_extra');
+  amb.api.inserir_('inscricoes', { criado_em: '20260809T100000000Z', marca: 'extra' }, 'i_extra');
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
 
   const arquivo = arquivoDeHoje(amb);
@@ -487,7 +487,7 @@ teste('o cabeçalho diz quando, quem, o tamanho e que há dado pessoal', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   const arquivo = arquivoDeHoje(amb);
 
   igual(arquivo.gerado_por, 'coordenacao@exemplo.com');
@@ -502,7 +502,7 @@ teste('o cabeçalho diz quando, quem, o tamanho e que há dado pessoal', () => {
 teste('o arquivo é JSON puro e o Drive é avisado disso', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   const f = amb.drive.porNome(nomeDe(HOJE));
   igual(f.mimeType, 'application/json');
@@ -514,21 +514,21 @@ teste('o arquivo é JSON puro e o Drive é avisado disso', () => {
 teste('grava a trilha de auditoria do backup, uma linha só', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  const antes = amb.api.contar('log');
+  const antes = amb.api.contar_('log');
 
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
-  const registros = amb.api.listar('log', { ordenarPor: 'criado_em', direcao: 'DESC', limite: 5 }).itens;
+  const registros = amb.api.listar_('log', { ordenarPor: 'criado_em', direcao: 'DESC', limite: 5 }).itens;
   const backup = registros.filter((l) => l.acao === 'BACKUP');
   igual(backup.length, 1, 'uma linha de BACKUP');
-  igual(amb.api.contar('log'), antes + 1, 'e nenhuma outra');
+  igual(amb.api.contar_('log'), antes + 1, 'e nenhuma outra');
   verdadeiro(/"total":/.test(backup[0].detalhe), backup[0].detalhe);
 });
 
 teste('o arquivo NÃO é tornado público — nem por engano, nem por herança', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   igual(amb.drive.chamadas.filter((c) => c.metodo === 'permissao').length, 0,
     'alguma permissão foi concedida a um arquivo com CPF de aluno dentro');
@@ -547,7 +547,7 @@ grupo('a conferência — backup que nunca foi lido de volta é esperança');
 teste('relê do Drive depois de gravar, e é releitura de verdade (HTTP)', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   const leituras = amb.drive.chamadas.filter((c) => c.metodo === 'http');
   igual(leituras.length, 1, 'o arquivo foi lido de volta exatamente uma vez');
@@ -564,7 +564,7 @@ teste('gravação truncada é PEGA, o arquivo vai para a lixeira e o dia falha',
   // a conferência existe para pegar, e o único jeito de ele aparecer aqui.
   amb.drive.corromperProximaLeitura('{"completo":true,"documentos"');
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(/passou na conferência/.test(r.erro), r.erro);
 
@@ -682,7 +682,7 @@ teste('coleção que falha no meio: nada é gravado e NADA é apagado', () => {
   // lidas quando ela explode. É exatamente o "no meio" que interessa.
   amb.colecaoQuebrada = 'matriculados';
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(/matriculados/.test(r.erro), r.erro);
   verdadeiro(r.total > 0, 'o teste não provou nada: nenhuma coleção chegou a ser lida');
@@ -699,7 +699,7 @@ teste('o backup que falhou também não deixa arquivo PARCIAL com cara de comple
   semearBanco(amb, 2);
   amb.colecaoQuebrada = 'inscricoes';
 
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   // Nenhum arquivo, de nome nenhum: nem `...-parcial.json`, nem rascunho.
   igual(amb.drive.nomesVivos(amb.pasta), []);
@@ -712,13 +712,43 @@ teste('a falha vai para a trilha e para o console — backup calado não existe'
   semearBanco(amb, 1);
   amb.colecaoQuebrada = 'alunos';
 
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
-  const erros = amb.api.listar('log', { ordenarPor: 'criado_em', direcao: 'DESC', limite: 5 })
+  const erros = amb.api.listar_('log', { ordenarPor: 'criado_em', direcao: 'DESC', limite: 5 })
     .itens.filter((l) => l.acao === 'ERRO');
   igual(erros.length, 1);
   verdadeiro(/backup do dia falhou/.test(erros[0].detalhe), erros[0].detalhe);
   verdadeiro(amb.registros.erros.some((m) => /fazerBackup/.test(m)), 'nada no console');
+});
+
+teste('a linha de ERRO do backup não leva id de documento — com o erro do Repo de verdade', () => {
+  // O erro como `fsErro_` (02_Repo.gs) o monta, no meio da leitura de uma
+  // coleção: o caminho relativo do documento depois do método, e o texto do
+  // Google com o nome inteiro dele. A linha fica um ano no banco; a régua é a da
+  // trilha (`semIdDeDocumento_`, 04_Log.gs). Matrícula só na forma.
+  //
+  // Mutação que derruba: a linha voltar a gravar `e.message`.
+  const amb = ambiente();
+  semearBanco(amb, 1);
+  const corpo = { error: { code: 503, status: 'UNAVAILABLE',
+    message: 'The service is currently unavailable for projects/projeto-de-teste/databases/(default)/' +
+      'documents/alunos/9110001' } };
+  const lerColecao = amb.api.colecaoCompleta_;
+  amb.api.colecaoCompleta_ = (colecao) => {
+    if (colecao === 'alunos') throw amb.api.fsErro_(503, JSON.stringify(corpo), 'get', '/alunos/9110001');
+    return lerColecao(colecao);
+  };
+
+  igual(amb.api.fazerBackup_().ok, false);
+
+  const erros = amb.api.listar_('log', { ordenarPor: 'criado_em', direcao: 'DESC', limite: 5 })
+    .itens.filter((l) => l.acao === 'ERRO');
+  igual(erros.length, 1);
+  igual(erros[0].detalhe.indexOf('backup do dia falhou: a coleção "alunos" não pôde ser lida inteira: ' +
+    'Firestore 503 UNAVAILABLE em GET /(documento): '), 0, erros[0].detalhe);
+  verdadeiro(/ \| documentos lidos até parar: \d+$/.test(erros[0].detalhe), erros[0].detalhe);
+  igual(JSON.stringify(erros[0]).indexOf('9110001'), -1, 'a matrícula foi para a trilha: ' + erros[0].detalhe);
+  igual(erros[0].detalhe.indexOf('projects/'), -1, 'o nome do documento foi para a trilha: ' + erros[0].detalhe);
 });
 
 teste('o gatilho não recebe exceção: fazerBackup engole e relata', () => {
@@ -726,7 +756,7 @@ teste('o gatilho não recebe exceção: fazerBackup engole e relata', () => {
   amb.colecaoQuebrada = 'config';
 
   // Gatilho que lança manda e-mail de falha para o dono do script todo dia.
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(typeof r.erro === 'string' && r.erro.length > 0);
 });
@@ -759,7 +789,7 @@ teste('apaga o que passou de backup_dias e mantém a janela inteira', () => {
   semearBanco(amb, 1);
   semearBackupsAntigos(amb, [1, 5, 14, 15, 20, 60]);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
   igual(r.reciclagem.rodou, true, r.reciclagem.motivo);
 
@@ -776,7 +806,7 @@ teste('backup_dias muda a janela, e o número é obedecido', () => {
   semearBanco(amb, 1);
   semearBackupsAntigos(amb, [1, 2, 3, 4]);
 
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   igual(amb.drive.nomesVivos(amb.pasta),
     [nomeDe(diasAtras(2)), nomeDe(diasAtras(1)), nomeDe(HOJE)].sort());
@@ -841,7 +871,7 @@ grupo('backup_dias torto — parâmetro digitado errado não vira exclusão');
     semearBanco(amb, 1);
     semearBackupsAntigos(amb, [30, 200, 400]);
 
-    const r = amb.api.fazerBackup();
+    const r = amb.api.fazerBackup_();
     igual(r.ok, true, 'o backup em si tem de continuar acontecendo');
     igual(r.reciclagem.rodou, false);
     verdadeiro(/backup_dias/.test(r.reciclagem.motivo), r.reciclagem.motivo);
@@ -858,7 +888,7 @@ teste('a chave AUSENTE também não apaga — vazio não é interpretado como o 
   semearBanco(amb, 1);
   semearBackupsAntigos(amb, [90]);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true);
   igual(r.reciclagem.rodou, false);
   verdadeiro(/vazio/.test(r.reciclagem.motivo), r.reciclagem.motivo);
@@ -929,7 +959,7 @@ teste('em NAO, não grava e não apaga', () => {
   semearBackupsAntigos(amb, [30, 90, 365]);
   const requisicoesAntes = amb.falso.requisicoes.length;
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   igual(r.ligado, false);
 
@@ -947,7 +977,7 @@ teste('qualquer coisa que não seja NAO mantém o backup ligado', () => {
     const amb = ambiente();
     configurar(amb, undefined, valor);
     semearBanco(amb, 1);
-    igual(amb.api.fazerBackup().ok, true, 'com backup_ligado=' + JSON.stringify(valor));
+    igual(amb.api.fazerBackup_().ok, true, 'com backup_ligado=' + JSON.stringify(valor));
   });
 });
 
@@ -955,7 +985,7 @@ teste('nao minúsculo também desliga', () => {
   const amb = ambiente();
   configurar(amb, undefined, 'nao');
   semearBanco(amb, 1);
-  igual(amb.api.fazerBackup().ligado, false);
+  igual(amb.api.fazerBackup_().ligado, false);
 });
 
 // ============================================================ A descoberta
@@ -971,7 +1001,7 @@ teste('constante *_COLECAO nova entra no backup sem ninguém editar segunda list
   // ("estava vazia"), e o silêncio seria "esqueci dela".
   amb.api.PARECERES_COLECAO = 'pareceres';
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
 
   const arquivo = arquivoDeHoje(amb);
@@ -985,9 +1015,9 @@ teste('coleção com dados no banco e sem constante nenhuma também entra', () =
   semearBanco(amb, 1);
   // Criada à mão no console, ou sobrada de uma versão antiga do código. Tem
   // gente dentro, e é o que importa.
-  amb.api.inserir('recibos_antigos', { nome: 'Ana', cpf: '00011122233' }, 'r1');
+  amb.api.inserir_('recibos_antigos', { nome: 'Ana', cpf: '00011122233' }, 'r1');
 
-  const arquivo = (amb.api.fazerBackup(), arquivoDeHoje(amb));
+  const arquivo = (amb.api.fazerBackup_(), arquivoDeHoje(amb));
   verdadeiro(arquivo.colecoes.indexOf('recibos_antigos') !== -1);
   igual(arquivo.documentos.recibos_antigos.length, 1);
   igual(arquivo.documentos.recibos_antigos[0].campos.nome, 'Ana');
@@ -1017,13 +1047,13 @@ teste('se o banco não souber dizer quais coleções existem, o backup falha (e 
   // A configuração é lida ANTES da descoberta das coleções; sem aquecer o cache
   // dela aqui, o erro forçado cairia na leitura errada e o teste provaria outra
   // coisa.
-  amb.api.lerConfig();
+  amb.api.lerConfig_();
 
   // Copiar sem saber o que havia para copiar não é backup. Falhar aqui é seguro:
   // a reciclagem não roda e amanhã tenta de novo.
   amb.falso.forcar(500, 'INTERNAL', 'listCollectionIds indisponível');
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(/coleções do banco/.test(r.erro), r.erro);
   igual(amb.drive.descartes(), 0);
@@ -1039,13 +1069,13 @@ teste('entram os mais RECENTES até o teto, e o arquivo diz que foi limitado', (
   amb.api.BACKUP_LOG_MAX = 3;
 
   for (let i = 1; i <= 9; i++) {
-    amb.api.inserir('log', {
+    amb.api.inserir_('log', {
       criado_em: '2026081' + i + 'T100000000Z',
       acao: 'EVENTO_' + i
     }, 'log_' + i);
   }
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
 
   const arquivo = arquivoDeHoje(amb);
@@ -1067,7 +1097,7 @@ teste('o corte do log NÃO torna o backup incompleto — é política, não falh
   semearBanco(amb, 3);
   semearBackupsAntigos(amb, [90]);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, true, r.erro);
   igual(arquivoDeHoje(amb).completo, true);
   // E a reciclagem roda: um log cortado por decisão continua sendo o backup do
@@ -1081,7 +1111,7 @@ teste('log dentro do teto não gera aviso nenhum', () => {
   amb.api.BACKUP_LOG_MAX = 50;
   semearBanco(amb, 2);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.log_limitado, false);
   igual(arquivoDeHoje(amb).avisos, []);
 });
@@ -1090,11 +1120,11 @@ teste('não paga leitura por documento de log que não entra no arquivo', () => 
   const amb = ambiente();
   amb.api.BACKUP_LOG_MAX = 2;
   for (let i = 1; i <= 20; i++) {
-    amb.api.inserir('log', { criado_em: '20260818T1000000' + (10 + i) + 'Z' }, 'log_' + i);
+    amb.api.inserir_('log', { criado_em: '20260818T1000000' + (10 + i) + 'Z' }, 'log_' + i);
   }
 
   amb.falso.requisicoes.length = 0;
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   const consultasDeLog = amb.falso.requisicoes.filter((r) =>
     r.corpo && r.corpo.structuredQuery &&
@@ -1118,7 +1148,7 @@ teste('prazo estourado: nada é gravado, e a mensagem diz onde parou', () => {
   // coleções dentro dos 4 minutos de prazo.
   amb.msPorRequisicao = 40000;
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(/tempo acabou/.test(r.erro), r.erro);
   igual(amb.drive.chamadas.filter((c) => c.metodo === 'create').length, 0);
@@ -1132,7 +1162,7 @@ teste('teto de documentos estourado: nada é gravado e nada é apagado', () => {
   semearBanco(amb, 2);
   semearBackupsAntigos(amb, [90]);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   verdadeiro(/passou de 5 documentos/.test(r.erro), r.erro);
   igual(amb.drive.nomesVivos(amb.pasta).length, 1);
@@ -1145,7 +1175,7 @@ teste('coleção grande demais para uma rodada derruba o backup nomeando a cole�
   amb.api.RECONCILIACAO_BLOCO = 1;
   semearBanco(amb, 5);
 
-  const r = amb.api.fazerBackup();
+  const r = amb.api.fazerBackup_();
   igual(r.ok, false);
   // A mensagem de colecaoCompleta_ fala em reconciliação; o embrulho daqui diz
   // QUAL coleção parou o backup, que é a informação que faltava.
@@ -1162,12 +1192,12 @@ teste('não deixa dois arquivos do dia, e o do dia não é apagado', () => {
   configurar(amb, 15);
   semearBanco(amb, 1);
 
-  const primeiro = amb.api.fazerBackup();
+  const primeiro = amb.api.fazerBackup_();
   igual(primeiro.ok, true, primeiro.erro);
 
   // Entre as duas rodadas o banco mudou: a segunda tem de ser a que fica.
-  amb.api.inserir('inscricoes', { criado_em: '20260818T120000000Z', marca: 'nova' }, 'i_nova');
-  const segundo = amb.api.fazerBackup();
+  amb.api.inserir_('inscricoes', { criado_em: '20260818T120000000Z', marca: 'nova' }, 'i_nova');
+  const segundo = amb.api.fazerBackup_();
 
   igual(segundo.ok, true, segundo.erro);
   igual(segundo.substituidos, 1, 'o arquivo anterior do dia não foi recolhido');
@@ -1179,20 +1209,20 @@ teste('não deixa dois arquivos do dia, e o do dia não é apagado', () => {
 
   const arquivo = JSON.parse(doDia[0].conteudo);
   igual(arquivo.contagem.inscricoes, 2, 'o arquivo que sobrou é o desatualizado');
-  igual(amb.api.contar('log') > 0, true);
+  igual(amb.api.contar_('log') > 0, true);
 });
 
 teste('a substituição só acontece DEPOIS de o novo passar na conferência', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  const primeiro = amb.api.fazerBackup();
+  const primeiro = amb.api.fazerBackup_();
   igual(primeiro.ok, true);
 
   // A segunda rodada grava e reprova. O arquivo bom da manhã não pode ser a
   // vítima — é a mesma disciplina da quarentena do auditório: copia, confere,
   // só então apaga.
   amb.drive.corromperProximaLeitura('lixo');
-  const segundo = amb.api.fazerBackup();
+  const segundo = amb.api.fazerBackup_();
 
   igual(segundo.ok, false);
   const vivos = amb.drive.vivos(amb.pasta);
@@ -1207,19 +1237,19 @@ grupo('o gatilho diário');
 teste('instala um, e rodar de novo continua sendo um', () => {
   const amb = ambiente();
 
-  amb.api.instalarGatilhoBackup();
+  amb.api.instalarGatilhoBackup_();
   igual(amb.gatilhos.length, 1);
   igual(amb.gatilhos[0].getHandlerFunction(), 'fazerBackup');
   igual(amb.gatilhos[0].dias, 1);
 
-  amb.api.instalarGatilhoBackup();
-  amb.api.instalarGatilhoBackup();
+  amb.api.instalarGatilhoBackup_();
+  amb.api.instalarGatilhoBackup_();
   igual(amb.gatilhos.length, 1, 'gatilho duplicado é invisível até alguém procurar');
 });
 
 teste('não colide com a reconciliação das 5h nem com a virada da cota', () => {
   const amb = ambiente();
-  amb.api.instalarGatilhoBackup();
+  amb.api.instalarGatilhoBackup_();
 
   // A cota do Spark vira à meia-noite do Pacífico (4h ou 5h aqui) e a
   // reconciliação roda entre 5h e 6h. O backup vem depois das duas coisas.
@@ -1229,11 +1259,11 @@ teste('não colide com a reconciliação das 5h nem com a virada da cota', () =>
 
 teste('não mexe nos gatilhos dos outros', () => {
   const amb = ambiente();
-  amb.api.instalarGatilhoAquecimento = undefined;
+  amb.api.instalarGatilhoAquecimento_ = undefined;
   amb.gatilhos.push({ getHandlerFunction: () => 'reconciliarAutomatico' });
   amb.gatilhos.push({ getHandlerFunction: () => 'aquecerWebApp' });
 
-  amb.api.instalarGatilhoBackup();
+  amb.api.instalarGatilhoBackup_();
 
   igual(amb.gatilhos.map((g) => g.getHandlerFunction()).sort(),
     ['aquecerWebApp', 'fazerBackup', 'reconciliarAutomatico']);
@@ -1246,11 +1276,11 @@ grupo('conferirBackup — relata, e não restaura');
 teste('roda sem argumento nenhum (o botão Executar não passa argumentos)', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
-  igual(amb.api.conferirBackup.length, 0, 'a função declara parâmetro');
+  igual(amb.api.conferirBackup_.length, 0, 'a função declara parâmetro');
 
-  const r = amb.api.conferirBackup();
+  const r = amb.api.conferirBackup_();
   igual(r.ok, true);
   igual(r.arquivo, nomeDe(HOJE));
   igual(r.completo, true);
@@ -1259,14 +1289,14 @@ teste('roda sem argumento nenhum (o botão Executar não passa argumentos)', () 
 teste('compara o arquivo com o banco de hoje, coleção por coleção', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   // O mundo andou depois do backup: mais três inscrições.
   for (let i = 1; i <= 3; i++) {
-    amb.api.inserir('inscricoes', { criado_em: '20260818T13000000' + i + 'Z' }, 'nova_' + i);
+    amb.api.inserir_('inscricoes', { criado_em: '20260818T13000000' + i + 'Z' }, 'nova_' + i);
   }
 
-  const r = amb.api.conferirBackup();
+  const r = amb.api.conferirBackup_();
   const porColecao = {};
   r.linhas.forEach((l) => { porColecao[l.colecao] = l; });
 
@@ -1279,12 +1309,12 @@ teste('compara o arquivo com o banco de hoje, coleção por coleção', () => {
 teste('coleção que existe hoje e não está no backup aparece marcada', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   // Nasceu depois do backup — e é justamente o caso que interessa descobrir.
-  amb.api.inserir('convenios', { nome: 'Prefeitura' }, 'c1');
+  amb.api.inserir_('convenios', { nome: 'Prefeitura' }, 'c1');
 
-  const r = amb.api.conferirBackup();
+  const r = amb.api.conferirBackup_();
   const convenios = r.linhas.filter((l) => l.colecao === 'convenios')[0];
   verdadeiro(convenios, 'a coleção nova não apareceu no relatório');
   igual(convenios.ausente, true);
@@ -1295,13 +1325,13 @@ teste('coleção que existe hoje e não está no backup aparece marcada', () => 
 teste('NÃO escreve nada: nem no banco, nem no Drive', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   const documentosAntes = JSON.stringify(Array.from(amb.falso.documentos.keys()).sort());
   amb.falso.requisicoes.length = 0;
   amb.drive.chamadas.length = 0;
 
-  amb.api.conferirBackup();
+  amb.api.conferirBackup_();
 
   igual(JSON.stringify(Array.from(amb.falso.documentos.keys()).sort()), documentosAntes,
     'o banco mudou durante uma CONFERÊNCIA');
@@ -1316,10 +1346,10 @@ teste('NÃO escreve nada: nem no banco, nem no Drive', () => {
 teste('conta o banco em UMA ida, com agregação — conferir é barato', () => {
   const amb = ambiente();
   semearBanco(amb, 2);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   amb.falso.idas.length = 0;
-  amb.api.conferirBackup();
+  amb.api.conferirBackup_();
 
   const agregacoes = amb.falso.requisicoes.filter((r) => /:runAggregationQuery/.test(r.url));
   igual(agregacoes.length, 11, 'uma agregação por coleção');
@@ -1329,7 +1359,7 @@ teste('conta o banco em UMA ida, com agregação — conferir é barato', () => 
 
 teste('pasta vazia: diz o que fazer em vez de estourar', () => {
   const amb = ambiente();
-  const r = amb.api.conferirBackup();
+  const r = amb.api.conferirBackup_();
   igual(r.ok, false);
   verdadeiro(/nenhum backup/.test(r.motivo), r.motivo);
 });
@@ -1337,10 +1367,10 @@ teste('pasta vazia: diz o que fazer em vez de estourar', () => {
 teste('arquivo ilegível é o pior resultado, e ele é DITO', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
   amb.drive.corromperProximaLeitura('isto não é json');
 
-  const r = amb.api.conferirBackup();
+  const r = amb.api.conferirBackup_();
   igual(r.ok, false);
   verdadeiro(/não é legível/.test(r.motivo), r.motivo);
 });
@@ -1348,7 +1378,7 @@ teste('arquivo ilegível é o pior resultado, e ele é DITO', () => {
 teste('confere o MAIS RECENTE, e a idade vem do nome e não do Drive', () => {
   const amb = ambiente();
   semearBanco(amb, 1);
-  amb.api.fazerBackup();
+  amb.api.fazerBackup_();
 
   // Um arquivo com nome antigo criado AGORA — uma cópia restaurada da lixeira,
   // por exemplo. Quem manda é o conteúdo do nome, não o carimbo do Drive.
@@ -1356,7 +1386,7 @@ teste('confere o MAIS RECENTE, e a idade vem do nome e não do Drive', () => {
     JSON.stringify({ completo: true, data: '2020-01-01', colecoes: [], documentos: {} }),
     new Date(amb.relogio.agora() + 1000).toISOString());
 
-  igual(amb.api.conferirBackup().arquivo, nomeDe(HOJE));
+  igual(amb.api.conferirBackup_().arquivo, nomeDe(HOJE));
 });
 
 process.exit(resultado());

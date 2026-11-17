@@ -31,14 +31,14 @@
  *
  * Sobre Firestore, (2) deixa de existir. Cada inscrição é um documento com
  * endereço próprio, e a chave de deduplicação vira o id do documento: o banco
- * recusa o segundo com ALREADY_EXISTS (ver `inserir` em 02_Repo.gs). Não há
+ * recusa o segundo com ALREADY_EXISTS (ver `inserir_` em 02_Repo.gs). Não há
  * última linha para duas execuções lerem igual. As 182 inscrições perdidas
  * daquele teste não têm como se repetir aqui.
  *
  * (1) sobrevive inteiro. É corrida de LÓGICA, não de armazenamento: duas
  * execuções contam 59, as duas passam pela conferência, as duas gravam, e o
  * projeto fecha com 61. Nenhuma delas errou — cada uma leu um número verdadeiro
- * no instante em que leu. `contar()` sozinho não fecha essa janela, por mais
+ * no instante em que leu. `contar_()` sozinho não fecha essa janela, por mais
  * barato que seja.
  *
  * ------------------------------------------------ A escolha desta versão: (a)
@@ -56,7 +56,7 @@
  * que muda é o tamanho do trecho serializado. Sobre Sheets era ler a coluna
  * inteira de projeto_id, ler a coluna de hash, ler a última linha e escrever —
  * quatro idas à planilha, crescendo com o total de inscritos. Aqui são duas
- * chamadas de tamanho fixo: uma agregação (`contar`) e uma escrita (`inserir`).
+ * chamadas de tamanho fixo: uma agregação (`contar_`) e uma escrita (`inserir_`).
  * A leitura do projeto ficou FORA do lock de propósito — ela não participa do
  * invariante.
  *
@@ -72,7 +72,7 @@
  * ATENÇÃO ao contrato com quem passa `gravar`: a região protegida é do tamanho
  * do que a função de gravação fizer. O teto é NO MÁXIMO UMA CONSULTA LIMITADA
  * POR IGUALDADE E UMA ESCRITA — e a escrita pode ser um `:commit` de poucos
- * documentos, que é UMA requisição como o `inserir`. Se ela voltar a varrer a
+ * documentos, que é UMA requisição como o `inserir_`. Se ela voltar a varrer a
  * coleção de inscrições para procurar duplicata, como o sistema sobre Sheets
  * fazia, o ganho todo desaparece dentro do lock.
  *
@@ -96,7 +96,7 @@
  * A ALAVANCA, conhecida e não percorrida: a consulta da regra e a agregação das
  * vagas são independentes uma da outra e poderiam sair no MESMO `fetchAll`, o
  * que devolveria a região a 2 idas. O preço é `fsFetchAll_` aceitar uma URL por
- * pedido (hoje ele monta uma URL só para o lote) e `reservarVaga` passar a
+ * pedido (hoje ele monta uma URL só para o lote) e `reservarVaga_` passar a
  * conhecer a consulta de quem grava — isto é, o corpo desta função mudar para
  * acomodar o item 4. Fica escrito e condicionado à medição.
  *
@@ -141,14 +141,14 @@
  *
  * -------------------------------- A chave de diagnóstico (`contar_ocupacao_na_lista`)
  *
- * `contar_ocupacao_na_lista` em NAO faz `listarProjetos` NÃO agregar: a rota
+ * `contar_ocupacao_na_lista` em NAO faz `listarProjetos_` NÃO agregar: a rota
  * responde com a lista sem a ocupação, e a diferença de tempo entre os dois
  * estados é a resposta à pergunta "quanto do carregamento é a contagem?". Ela
  * existe para ser medida no ambiente de quem reclama da lentidão — não é
  * funcionalidade, e o padrão é SIM.
  *
  * O QUE ELA NÃO DESLIGA, e é o que a torna segura de virar com o site no ar:
- * `reservarVaga` não passa por aqui. Ela conta com `contarInscritos_` DENTRO do
+ * `reservarVaga_` não passa por aqui. Ela conta com `contarInscritos_` DENTRO do
  * lock, no instante do envio, e continua recusando quem chega em projeto cheio,
  * com a mesma mensagem. As 60 vagas fecham em 60 nos dois estados da chave, e há
  * teste de concorrência para cada um. O que se desliga é o número MOSTRADO na
@@ -204,8 +204,8 @@ var SITUACAO = {
  * volta como `inscritos: null` mais `ocupacao_contada: false` — ver o cabeçalho
  * do arquivo. Ninguém que leia esta função pode devolver zero no lugar do null.
  */
-function listarProjetos(apenasPublicos) {
-  var brutos = listar(PROJETOS_COLECAO).itens.map(projetoDe_);
+function listarProjetos_(apenasPublicos) {
+  var brutos = listar_(PROJETOS_COLECAO).itens.map(projetoDe_);
 
   // O filtro do site vem ANTES da contagem, e essa ordem não é estética: cada
   // projeto custa uma agregação, e contar inscritos de projeto inativo para
@@ -276,7 +276,7 @@ function listarProjetos(apenasPublicos) {
       // Como `situacaoDe_` devolve INATIVO antes de olhar `inscricoes_abertas`,
       // todo projeto desativado aparecia com a caixa marcada — e salvar gravava
       // `inscricoes_abertas: SIM` num projeto que estava com NAO. Atingia em
-      // cheio o projeto que `removerProjeto` desativa por ter inscritos, que é
+      // cheio o projeto que `removerProjeto_` desativa por ter inscritos, que é
       // justamente o que se desativa com as inscrições fechadas de propósito.
       // Os dois estados são independentes, e agora viajam separados.
       //
@@ -298,7 +298,7 @@ function listarProjetos(apenasPublicos) {
   // ordenar aqui não tem custo que se meça.
   lista.sort(function (a, b) {
     if (a.ordem !== b.ordem) return a.ordem - b.ordem;
-    return chaveNome(a.nome).localeCompare(chaveNome(b.nome));
+    return chaveNome_(a.nome).localeCompare(chaveNome_(b.nome));
   });
 
   return lista;
@@ -325,7 +325,7 @@ function situacaoDe_(p, inscritos) {
   var vagas = Number(p.vagas || 0);
   // `inscritos` null é "não contado" (`contar_ocupacao_na_lista` em NAO), e sem
   // contagem NÃO SE SABE se lotou: o projeto cheio sai daqui como ABERTO, e quem
-  // recusa é `reservarVaga`, que conta dentro do lock no instante do envio. A
+  // recusa é `reservarVaga_`, que conta dentro do lock no instante do envio. A
   // conferência do null é explícita porque `null >= vagas` já seria falso por
   // coerção — acertar por acidente é o tipo de coisa que a próxima edição perde.
   if (vagas > 0 && inscritos !== null && inscritos >= vagas) return SITUACAO.ESGOTADO;
@@ -336,7 +336,7 @@ function situacaoDe_(p, inscritos) {
 /**
  * Quantos inscritos OCUPAM VAGA neste projeto, agora.
  *
- * Agregação no servidor, não `listar` com filtro: o Firestore cobra por
+ * Agregação no servidor, não `listar_` com filtro: o Firestore cobra por
  * DOCUMENTO lido contra um teto de 50 mil leituras por dia no plano Spark, e
  * trazer as inscrições para contá-las em JavaScript custaria 500 leituras por
  * projeto lotado — a cada carregamento do site. A agregação devolve um número e
@@ -369,7 +369,7 @@ function situacaoDe_(p, inscritos) {
 function contarInscritos_(projetoId) {
   if (!projetoId) return 0;
 
-  var total = contar(INSCRICOES_COLECAO, { campo: 'projeto_id', valor: String(projetoId) });
+  var total = contar_(INSCRICOES_COLECAO, { campo: 'projeto_id', valor: String(projetoId) });
   if (!esperaLigada_()) return total;
 
   return vagasOcupadas_(total, contarEmEspera_(projetoId));
@@ -393,7 +393,7 @@ function vagasOcupadas_(total, emEspera) {
  *
  * Serve à LISTAGEM — a tela —, e é aí que ela pode existir: quem lê para mostrar
  * pode ler tudo de uma vez, porque não há nada para proteger entre uma contagem
- * e outra. Quem decide vaga continua sendo `reservarVaga`, que conta UM projeto
+ * e outra. Quem decide vaga continua sendo `reservarVaga_`, que conta UM projeto
  * dentro do lock, pelo caminho de sempre, e não passa por aqui. Se um dia passar,
  * o invariante das vagas terá sido trocado por tempo de tela — que é exatamente
  * o negócio que este arquivo se recusa a fazer.
@@ -406,7 +406,7 @@ function contarInscritosDe_(projetoIds) {
   if (!projetoIds || !projetoIds.length) return [];
 
   // Perguntada UMA vez para o lote inteiro. Dentro de `contarInscritos_` a
-  // pergunta é a mesma e o cache de execução de `config()` a responde de graça,
+  // pergunta é a mesma e o cache de execução de `config_()` a responde de graça,
   // mas ali ela é feita por projeto — aqui ela decide o TAMANHO do lote, e tem
   // de vir antes dele.
   var espera = esperaLigada_();
@@ -420,7 +420,7 @@ function contarInscritosDe_(projetoIds) {
     });
   }
 
-  var contagens = contarVarios(pedidos);
+  var contagens = contarVarios_(pedidos);
 
   return projetoIds.map(function (id, indice) {
     // O mesmo "sem id, sem contagem" de `contarInscritos_`: um filtro por id
@@ -435,7 +435,7 @@ function contarInscritosDe_(projetoIds) {
 /**
  * Quantos estão na FILA DE ESPERA deste projeto.
  *
- * `espera_de` existe só no documento de quem está na fila (ver `gravarInscricao`
+ * `espera_de` existe só no documento de quem está na fila (ver `gravarInscricao_`
  * em 04_Inscricoes.gs), e guarda o id do projeto. É um campo só justamente para
  * caber num filtro de igualdade simples: inscrição gravada antes de a fila
  * existir não tem o campo, não casa com filtro nenhum, e continua contando como
@@ -443,22 +443,22 @@ function contarInscritosDe_(projetoIds) {
  */
 function contarEmEspera_(projetoId) {
   if (!projetoId) return 0;
-  return contar(INSCRICOES_COLECAO, { campo: 'espera_de', valor: String(projetoId) });
+  return contar_(INSCRICOES_COLECAO, { campo: 'espera_de', valor: String(projetoId) });
 }
 
 /**
  * A fila de espera está ligada?
  *
  * Padrão NAO: o sistema recusa quem passa das vagas, exatamente como sempre fez.
- * Com SIM, `reservarVaga` aceita o excedente e o marca — ver lá.
+ * Com SIM, `reservarVaga_` aceita o excedente e o marca — ver lá.
  *
- * `config()` já está em cache da execução quando isto é chamado no caminho do
- * aluno (quem chega em `reservarVaga` já consultou `cadastro_aberto`), então a
+ * `config_()` já está em cache da execução quando isto é chamado no caminho do
+ * aluno (quem chega em `reservarVaga_` já consultou `cadastro_aberto`), então a
  * pergunta não custa ida ao banco dentro do lock. É o mesmo argumento de
  * `texto_esgotado`.
  */
 function esperaLigada_() {
-  return String(config('vagas_excedentes_em_espera', 'NAO')).toUpperCase() === 'SIM';
+  return String(config_('vagas_excedentes_em_espera', 'NAO')).toUpperCase() === 'SIM';
 }
 
 /**
@@ -468,10 +468,10 @@ function esperaLigada_() {
  * diagnóstico descrita no cabeçalho — a lista sai sem agregação nenhuma, para
  * medir quanto do tempo de carregamento é a contagem.
  *
- * Ela decide o que a TELA mostra e mais nada. `reservarVaga` não a consulta:
+ * Ela decide o que a TELA mostra e mais nada. `reservarVaga_` não a consulta:
  * quem decide vaga conta dentro do lock, nos dois estados da chave, e o aluno
  * continua sendo recusado quando o projeto está cheio. Se um dia esta pergunta
- * aparecer no caminho de `reservarVaga`, o invariante das vagas terá sido
+ * aparecer no caminho de `reservarVaga_`, o invariante das vagas terá sido
  * trocado por tempo de tela.
  *
  * `!== 'NAO'` e não `=== 'SIM'`: qualquer coisa que não seja um NAO explícito
@@ -479,12 +479,12 @@ function esperaLigada_() {
  * site sem ninguém ter pedido.
  */
 function contarOcupacaoNaLista_() {
-  return String(config('contar_ocupacao_na_lista', 'SIM')).toUpperCase() !== 'NAO';
+  return String(config_('contar_ocupacao_na_lista', 'SIM')).toUpperCase() !== 'NAO';
 }
 
-function projetoPorId(id) {
+function projetoPorId_(id) {
   if (!id) return null;
-  return projetoDe_(ler(PROJETOS_COLECAO, String(id)));
+  return projetoDe_(ler_(PROJETOS_COLECAO, String(id)));
 }
 
 // ------------------------------------------------------------ Vagas
@@ -509,7 +509,7 @@ function projetoPorId(id) {
  * `contarEmEspera_` conta (`espera_de`). Uma gravação que o ignore põe a pessoa
  * na coleção como se ocupasse vaga, e aí o projeto fecha com mais gente do que
  * tem lugar — que é exatamente o que este arquivo existe para impedir. São dois
- * chamadores hoje, `submeterInscricao` (04_Inscricoes.gs) e `restaurarInscricoes`
+ * chamadores hoje, `submeterInscricao_` (04_Inscricoes.gs) e `restaurarInscricoes_`
  * (13_Auditorio.gs), e existe teste para cada um.
  *
  * E O SEGUNDO ARGUMENTO PODE SER RECUSADO: o gravador da TROCA de projeto
@@ -529,7 +529,7 @@ function projetoPorId(id) {
  * A conta vale para o CAMINHO DO ALUNO, e é medida por teste (`soltou - pegou`
  * em testes/inscricoes.js). É também por ela que o gravador da troca devolve
  * CONJUNTOS de inscrição em vez de resposta pronta: nome e código de projeto
- * custam uma leitura cada, e `submeterInscricao` os monta depois do
+ * custam uma leitura cada, e `submeterInscricao_` os monta depois do
  * `releaseLock`.
  *
  * E HÁ UMA EXCEÇÃO, com nome: o gravador da RESTAURAÇÃO (`restaurarUma_`,
@@ -549,12 +549,12 @@ function projetoPorId(id) {
  * exigiria rodar a consulta duas vezes — uma ida a mais para todo mundo, para
  * tirar até vinte de uma ação rara.
  */
-function reservarVaga(projetoId, gravar) {
+function reservarVaga_(projetoId, gravar) {
   // Fora do lock: ler o projeto não participa do invariante. `vagas`, `ativo` e
   // `inscricoes_abertas` são campos que a coordenação muda umas poucas vezes por
   // semestre, e ler um deles obsoleto por milissegundos não vende vaga nenhuma —
   // o que não pode envelhecer é a CONTAGEM.
-  var projeto = projetoPorId(projetoId);
+  var projeto = projetoPorId_(projetoId);
   if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
 
   // INATIVO e FECHADO não dependem da contagem: recusar aqui evita pôr na fila
@@ -563,7 +563,7 @@ function reservarVaga(projetoId, gravar) {
   var situacao = situacaoDe_(projeto, 0);
   if (situacao !== SITUACAO.ABERTO) return recusaPorSituacao_(situacao);
 
-  // Lida AQUI, fora do lock, e por um motivo que não é estético: `config()` custa
+  // Lida AQUI, fora do lock, e por um motivo que não é estético: `config_()` custa
   // uma leitura quando o cache da execução está frio, e leitura fria dentro da
   // região protegida é fila para todo mundo atrás. Como toda chave de
   // configuração, esta não participa do invariante — ela muda umas poucas vezes
@@ -624,7 +624,7 @@ function reservarVaga(projetoId, gravar) {
     // que entrasse na espera — uma vez por aluno, até o fim do evento.
     var vagas = Number(projeto.vagas || 0);
     if (resultado.ok && !resultado.duplicada && !emEspera && vagas > 0 && inscritos + 1 >= vagas) {
-      registrar('PROJETO_ESGOTADO', 'projeto', projetoId, projeto.nome + ' atingiu ' + vagas + ' inscritos');
+      registrar_('PROJETO_ESGOTADO', 'projeto', projetoId, projeto.nome + ' atingiu ' + vagas + ' inscritos');
     }
 
     return resultado;
@@ -638,9 +638,9 @@ function reservarVaga(projetoId, gravar) {
 /**
  * As três recusas por situação, com o texto que o aluno lê.
  *
- * `texto_esgotado` é editável pela coordenação. Nesta altura `config()` já está
+ * `texto_esgotado` é editável pela coordenação. Nesta altura `config_()` já está
  * em cache da execução (ver CONFIG_CACHE em 03_Config.gs), porque quem chama
- * `reservarVaga` já consultou `cadastro_aberto` antes — a mensagem não custa uma
+ * `reservarVaga_` já consultou `cadastro_aberto` antes — a mensagem não custa uma
  * ida ao banco dentro do lock.
  */
 function recusaPorSituacao_(situacao) {
@@ -652,23 +652,23 @@ function recusaPorSituacao_(situacao) {
   }
   return {
     ok: false,
-    erro: config('texto_esgotado', 'Inscrições esgotadas. Escolha outro projeto de extensão disponível.'),
+    erro: config_('texto_esgotado', 'Inscrições esgotadas. Escolha outro projeto de extensão disponível.'),
     situacao: situacao
   };
 }
 
 // ------------------------------------------------------------ CRUD (painel)
 
-function salvarProjeto(payload) {
+function salvarProjeto_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
     var dados = payload.projeto || {};
     var erros = validarProjeto_(dados);
     if (erros.length) return { ok: false, erro: erros.join(' ') };
 
     var codigo = gerarCodigo_(dados.codigo || dados.nome, dados.id);
-    var agoraStr = agora();
+    var agoraStr = agora_();
 
     var comum = {
       codigo: codigo,
@@ -676,7 +676,7 @@ function salvarProjeto(payload) {
       descricao: String(dados.descricao || '').trim(),
       descricao_formulario: String(dados.descricao_formulario || '').trim(),
       professor: String(dados.professor || '').trim(),
-      email_professor: normalizarEmail(dados.email_professor),
+      email_professor: normalizarEmail_(dados.email_professor),
       banner: String(dados.banner || '').trim(),
       vagas: Math.max(0, Number(dados.vagas || 0)),
       local: String(dados.local || '').trim(),
@@ -691,33 +691,33 @@ function salvarProjeto(payload) {
 
     if (dados.id) {
       // A conferência de existência não é folclore herdado do Sheets: aqui ela
-      // vale MAIS. `atualizar` é um PATCH, e PATCH no Firestore CRIA o documento
+      // vale MAIS. `atualizar_` é um PATCH, e PATCH no Firestore CRIA o documento
       // que não existe. Sem esta linha, um painel aberto desde antes de o projeto
       // ser excluído o ressuscitaria pela metade — com `atualizado_em`, sem
       // `criado_em`, sem `criado_por`, e sem ninguém saber de onde veio.
-      var existente = projetoPorId(dados.id);
+      var existente = projetoPorId_(dados.id);
       if (!existente) return { ok: false, erro: 'Projeto não encontrado. Recarregue a lista.' };
 
-      atualizar(PROJETOS_COLECAO, dados.id, comum);
-      registrar('PROJETO_EDITADO', 'projeto', dados.id, comum.nome);
+      atualizar_(PROJETOS_COLECAO, dados.id, comum);
+      registrar_('PROJETO_EDITADO', 'projeto', dados.id, comum.nome);
       return { ok: true, id: dados.id };
     }
 
-    var novoId = uid('proj');
+    var novoId = uid_('proj');
     var novo = Object.assign({
       criado_em: agoraStr,
-      criado_por: usuarioAtual()
+      criado_por: usuarioAtual_()
     }, comum);
 
-    // Id sorteado de um UUID: colisão é teórica. Mas `inserir` não sobrescreve,
+    // Id sorteado de um UUID: colisão é teórica. Mas `inserir_` não sobrescreve,
     // então um `jaExistia` aqui significaria projeto engolido em silêncio — e
     // silêncio é o modo de falha que este sistema não aceita mais.
-    var gravacao = inserir(PROJETOS_COLECAO, novo, novoId);
+    var gravacao = inserir_(PROJETOS_COLECAO, novo, novoId);
     if (gravacao.jaExistia) {
       return { ok: false, erro: 'Não consegui criar o projeto (id em uso). Tente de novo.' };
     }
 
-    registrar('PROJETO_CRIADO', 'projeto', novoId, novo.nome + ' · ' + novo.vagas + ' vagas');
+    registrar_('PROJETO_CRIADO', 'projeto', novoId, novo.nome + ' · ' + novo.vagas + ' vagas');
     return { ok: true, id: novoId };
   } catch (err) {
     console.error('salvarProjeto: ' + err.message);
@@ -735,20 +735,20 @@ function salvarProjeto(payload) {
  * a fila inteira do auditório. O estrago possível é um registro rastreável pelo
  * log; o remédio, se acontecer, é recriar o projeto com o mesmo id.
  */
-function removerProjeto(payload) {
+function removerProjeto_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
 
-    var projeto = projetoPorId(payload.id);
+    var projeto = projetoPorId_(payload.id);
     if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
 
     var inscritos = contarInscritos_(payload.id);
 
     if (inscritos > 0) {
-      atualizar(PROJETOS_COLECAO, payload.id, {
-        ativo: 'NAO', inscricoes_abertas: 'NAO', atualizado_em: agora()
+      atualizar_(PROJETOS_COLECAO, payload.id, {
+        ativo: 'NAO', inscricoes_abertas: 'NAO', atualizado_em: agora_()
       });
-      registrar('PROJETO_DESATIVADO', 'projeto', payload.id,
+      registrar_('PROJETO_DESATIVADO', 'projeto', payload.id,
         projeto.nome + ' (tinha ' + inscritos + ' inscritos — preservado)');
       return {
         ok: true,
@@ -758,8 +758,8 @@ function removerProjeto(payload) {
       };
     }
 
-    excluir(PROJETOS_COLECAO, payload.id);
-    registrar('PROJETO_EXCLUIDO', 'projeto', payload.id, projeto.nome);
+    excluir_(PROJETOS_COLECAO, payload.id);
+    registrar_('PROJETO_EXCLUIDO', 'projeto', payload.id, projeto.nome);
     return { ok: true, desativado: false, mensagem: 'Projeto excluído.' };
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -775,7 +775,7 @@ function validarProjeto_(d) {
   var vagas = Number(d.vagas);
   if (isNaN(vagas) || vagas < 0) erros.push('Vagas deve ser 0 (ilimitado) ou um número positivo.');
 
-  if (d.email_professor && !emailValido(d.email_professor)) {
+  if (d.email_professor && !emailValido_(d.email_professor)) {
     erros.push('E-mail do professor inválido.');
   }
 
@@ -806,7 +806,7 @@ function gerarCodigo_(base, idAtual) {
   var raiz = codigoDe_(base) || 'projeto';
   var usados = {};
 
-  listar(PROJETOS_COLECAO).itens.forEach(function (documento) {
+  listar_(PROJETOS_COLECAO).itens.forEach(function (documento) {
     // O projeto que está sendo editado não disputa consigo mesmo.
     if (idAtual && String(documento._id) === String(idAtual)) return;
     usados[codigoDe_(documento.codigo)] = true;
@@ -816,7 +816,7 @@ function gerarCodigo_(base, idAtual) {
   for (var n = 2; n < 200; n++) {
     if (!usados[raiz + '-' + n]) return raiz + '-' + n;
   }
-  return raiz + '-' + uid('').slice(-4);
+  return raiz + '-' + uid_('').slice(-4);
 }
 
 /**
@@ -824,12 +824,12 @@ function gerarCodigo_(base, idAtual) {
  *
  * Os dois lados da comparação passam por aqui, e é isso que a função existe para
  * garantir. O sistema sobre Sheets normalizava o código candidato com hífen
- * ('r-cidades') e os códigos já gravados sem ele — `normalizarTexto` troca
+ * ('r-cidades') e os códigos já gravados sem ele — `normalizarTexto_` troca
  * pontuação por espaço, então 'r-cidades' virava 'r cidades' e nunca casava com
  * nada. Resultado: a checagem de duplicidade não reprovava ninguém, e dois
  * projetos de mesmo nome saíam com o mesmo código. Uma função só, usada nas duas
  * pontas, é o que impede a divergência de voltar.
  */
 function codigoDe_(texto) {
-  return normalizarTexto(texto).replace(/\s+/g, '-').slice(0, 40);
+  return normalizarTexto_(texto).replace(/\s+/g, '-').slice(0, 40);
 }

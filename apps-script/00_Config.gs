@@ -160,7 +160,7 @@ SCHEMA[TAB.CONFIG] = [
  * (`situacao_cadastro`, ver `cadastroCancelado_` em 04_Inscricoes.gs) E que não
  * tem inscrição viva. Com inscrição viva o status continua sendo o da cascata —
  * a pessoa ocupa vaga de verdade — e a marca viaja em `situacao_cadastro`. É
- * o único status que a coordenação NÃO pode definir à mão (`resolverAluno`,
+ * o único status que a coordenação NÃO pode definir à mão (`resolverAluno_`,
  * 10_Painel.gs): ele nasce da lista oficial e some pela reimportação.
  */
 var STATUS = {
@@ -183,7 +183,7 @@ var STATUS_LABEL = {
 var CONFIG_PADRAO = [
   { chave: 'admin_emails', valor: '', descricao: 'E-mails autorizados no painel, separados por vírgula. É a lista que vale para as DUAS portas: o botão "Entrar com o Google" e o link por e-mail. Lista vazia = ninguém entra; a saída é rodar liberarAcesso("email") no editor do Apps Script.' },
   { chave: 'coordenadores_gerais', valor: '', descricao: 'Quem é COORDENADOR GERAL, separado por vírgula. Todo e-mail de admin_emails que NÃO estiver aqui é PROFESSOR: vê e exporta as listas de inscritos e disciplinas, e não remove projeto, não anula, não promove, não importa lista oficial e não configura. CAMPO VAZIO = todos os e-mails de admin_emails são coordenadores gerais (é o estado de origem do sistema, e é por isso que implantar sem tocar no banco não muda nada para ninguém). Um e-mail aqui que não esteja em admin_emails não vale nada: quem ENTRA é decidido só por admin_emails, e o nível nunca é porta. O caminho certo para mexer nisto é Configurações > Quem tem acesso ao painel, que derruba a sessão de quem mudou de nível — este campo existe porque a tela de Configurações lista toda chave que exista no banco, e uma chave que ia aparecer de qualquer jeito é melhor que apareça explicada.' },
-  { chave: 'url_painel', valor: 'https://cesutech.github.io/painel/', descricao: 'Endereço do painel. Serve para montar o link de acesso enviado por e-mail. Muda quando o repositório trocar de casa (para cesutech.github.io) — e é config, e não código, justamente para essa troca não exigir reimplantar o Apps Script.' },
+  { chave: 'url_painel', valor: 'https://cesutech.github.io/painel/', descricao: 'Endereço do painel. Serve para montar o link de acesso enviado por e-mail e o endereço que liberarAcesso() imprime. Só vale um dos endereços escritos no código do servidor (PAINEIS_ACEITOS, em 07b_LinkPorEmail.gs), ou vazio, que é o padrão: o link leva um código de entrada, e não pode ir para um endereço que alguém digitou. Mudar o painel de casa é acrescentar o endereço novo lá, publicar o servidor, e só então trocar esta chave.' },
   { chave: 'url_exec', valor: '', descricao: 'Endereço /exec desta implantação, e SÓ para o gatilho que mantém a instância acordada (08_Api.gs). Deixe VAZIA: o sistema descobre o endereço sozinho por ScriptApp.getService().getUrl(). Ela existe para o caso em que o que vem de lá não é o /exec público — um endereço terminado em /dev, ou a forma /a/macros/<domínio>/, que pedem sessão do Google e fariam o ping anônimo receber uma tela de login em vez de acordar o sistema. Preencha com o MESMO endereço que o site usa (docs/assets/config.js, chave endpoint); rodar instalarGatilhoAquecimento() no editor diz se é preciso.' },
   { chave: 'form_id', valor: '', descricao: 'ID do Google Forms de inscrição (opcional — só se quiser manter o Forms atual).' },
   { chave: 'cadastro_aberto', valor: 'SIM', descricao: 'SIM/NAO — controla se o formulário público aceita novas inscrições.' },

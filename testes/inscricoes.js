@@ -10,8 +10,8 @@
  *      inscrição, contra duas varreduras de coluna no sistema em produção;
  *   3. as guardas do endpoint público (honeypot, tempo mínimo, sinal de origem,
  *      teto por hora) continuam recusando o que recusavam;
- *   4. a região protegida de `reservarVaga` continua custando duas requisições
- *      quando quem grava é o `gravarInscricao` de verdade, e não um dublê.
+ *   4. a região protegida de `reservarVaga_` continua custando duas requisições
+ *      quando quem grava é o `gravarInscricao_` de verdade, e não um dublê.
  *
  * O `LockService` falso daqui é o mínimo para (4): ele carimba quantas
  * requisições já tinham ido ao Firestore quando o lock foi obtido e devolvido. O
@@ -122,7 +122,7 @@ function detalheDoLog(falso, acao) {
 }
 
 function criarProjeto(api, id, campos) {
-  api.inserir('projetos', Object.assign({
+  api.inserir_('projetos', Object.assign({
     codigo: id,
     nome: 'Projeto ' + id,
     professor: 'Marina Exemplo',
@@ -138,7 +138,7 @@ function criarProjeto(api, id, campos) {
 /** Semeia a lista oficial como a importação vai semear: id = matrícula. */
 function matricular(api, matriculas) {
   matriculas.forEach((m) => {
-    api.inserir('matriculados', { matricula: m, nome: 'Aluno ' + m, curso: 'ADS' }, m);
+    api.inserir_('matriculados', { matricula: m, nome: 'Aluno ' + m, curso: 'ADS' }, m);
   });
 }
 
@@ -150,7 +150,7 @@ function inscricoesGravadas(falso) {
   return ids;
 }
 
-/** O que o site manda: tudo que Cadastro.html e docs/assets/app.js preenchem. */
+/** O que o site manda: tudo que docs/assets/app.js preenche. */
 const BASE = {
   matricula: '9110001',
   nome: 'Maria da Silva',
@@ -174,11 +174,11 @@ grupo('normalizarMatricula');
 
 teste('pontuação, espaço e caixa somem; vazio continua vazio', () => {
   const { api } = ambiente();
-  igual(api.normalizarMatricula(' 911-0001 '), '9110001');
-  igual(api.normalizarMatricula('ads/911.0001'), 'ADS9110001');
-  igual(api.normalizarMatricula(''), '');
-  igual(api.normalizarMatricula(null), '');
-  igual(api.normalizarMatricula(undefined), '');
+  igual(api.normalizarMatricula_(' 911-0001 '), '9110001');
+  igual(api.normalizarMatricula_('ads/911.0001'), 'ADS9110001');
+  igual(api.normalizarMatricula_(''), '');
+  igual(api.normalizarMatricula_(null), '');
+  igual(api.normalizarMatricula_(undefined), '');
 });
 
 grupo('A lista oficial virou leitura por id');
@@ -188,7 +188,7 @@ teste('matrícula na lista: uma leitura por id, e nenhuma varredura', () => {
   matricular(api, ['9110001', '9110002', '9110003']);
   zerar(falso);
 
-  igual(api.matriculaConhecida('911-0001'), true, 'a pontuação do aluno não pode importar');
+  igual(api.matriculaConhecida_('911-0001'), true, 'a pontuação do aluno não pode importar');
   igual(falso.requisicoes.length, 1, 'uma requisição, e uma só');
   igual(quantas(falso, LEITURA_MATRICULA), 1);
   igual(quantas(falso, CONSULTA), 0, 'varrer a lista oficial é o que esta fase veio matar');
@@ -199,7 +199,7 @@ teste('matrícula fora da lista: false, e ainda é uma leitura só', () => {
   matricular(api, ['9110001']);
   zerar(falso);
 
-  igual(api.matriculaConhecida('9999999'), false);
+  igual(api.matriculaConhecida_('9999999'), false);
   igual(falso.requisicoes.length, 1, 'o 404 do banco é a resposta, não um erro');
 });
 
@@ -208,8 +208,8 @@ teste('matrícula vazia não chega a ir ao banco', () => {
   matricular(api, ['9110001']);
   zerar(falso);
 
-  igual(api.matriculaConhecida(''), false);
-  igual(api.matriculaConhecida('///'), false, 'sem alfanumérico não sobra matrícula');
+  igual(api.matriculaConhecida_(''), false);
+  igual(api.matriculaConhecida_('///'), false, 'sem alfanumérico não sobra matrícula');
   igual(falso.requisicoes.length, 0);
 });
 
@@ -230,22 +230,22 @@ grupo('A matrícula cancelada na lista oficial — a porta pública não disting
 
 /** A marca que a revisão de uma importação grava (05c_Revisao.gs), como ela grava: PATCH de 4 campos. */
 function cancelar(api, matricula) {
-  api.atualizarEmLote('matriculados', [{
+  api.atualizarEmLote_('matriculados', [{
     _id: matricula, situacao_cadastro: 'CANCELADO', cancelado_em: '2026-09-21 19:00:00',
     cancelado_por: 'prof@exemplo.com', cancelado_lote_id: '20260921T220000000Z_abc'
   }]);
 }
 
 teste('matriculaConhecida é false para o cancelado, e ainda custa UMA leitura', () => {
-  // Mutação que derruba: `ler(...) !== null` sem olhar a marca — o cancelado
+  // Mutação que derruba: `ler_(...) !== null` sem olhar a marca — o cancelado
   // continuaria passando no formulário como se estivesse na lista.
   const { api, falso } = ambiente();
   matricular(api, ['9110001', '9110002']);
   cancelar(api, '9110001');
   zerar(falso);
 
-  igual(api.matriculaConhecida('9110001'), false);
-  igual(api.matriculaConhecida('9110002'), true, 'a marca de um não pode contaminar o outro');
+  igual(api.matriculaConhecida_('9110001'), false);
+  igual(api.matriculaConhecida_('9110002'), true, 'a marca de um não pode contaminar o outro');
   igual(quantas(falso, LEITURA_MATRICULA), 2, 'uma leitura de ponto por pergunta, como antes');
   igual(quantas(falso, CONSULTA), 0);
 });
@@ -277,10 +277,10 @@ teste('AVISAR deixa o cancelado passar, e a inscrição entra como não conferid
   criarProjeto(api, 'p_1');
   matricular(api, ['9110001']);
   cancelar(api, '9110001');
-  api.gravarConfig('modo_validacao_matricula', 'AVISAR');
+  api.gravarConfig_('modo_validacao_matricula', 'AVISAR');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(falso.documentos.get('inscricoes/' + r.protocolo).matricula_conferida.stringValue, 'NAO',
     'cancelado na lista de hoje não é matrícula conferida');
@@ -288,20 +288,20 @@ teste('AVISAR deixa o cancelado passar, e a inscrição entra como não conferid
 
 teste('a reimportação apaga a marca: o documento volta inteiro, sem os 4 campos', () => {
   // É a reativação do desenho — sem função nenhuma. Mutação que derruba:
-  // `escreverEmLote` gravando com `updateMask` (viraria mescla e a marca
+  // `escreverEmLote_` gravando com `updateMask` (viraria mescla e a marca
   // sobreviveria à lista nova).
   const { api } = ambiente();
   matricular(api, ['9110001']);
   cancelar(api, '9110001');
-  igual(api.matriculaConhecida('9110001'), false);
+  igual(api.matriculaConhecida_('9110001'), false);
 
-  api.escreverEmLote('matriculados', [{ _id: '9110001', matricula: '9110001', nome: 'Aluno 9110001', lote_id: 'L2' }]);
-  const doc = api.ler('matriculados', '9110001');
+  api.escreverEmLote_('matriculados', [{ _id: '9110001', matricula: '9110001', nome: 'Aluno 9110001', lote_id: 'L2' }]);
+  const doc = api.ler_('matriculados', '9110001');
   igual(doc.situacao_cadastro, undefined);
   igual(doc.cancelado_em, undefined);
   igual(doc.cancelado_por, undefined);
   igual(doc.cancelado_lote_id, undefined);
-  igual(api.matriculaConhecida('9110001'), true);
+  igual(api.matriculaConhecida_('9110001'), true);
 });
 
 grupo('checarMatriculaNaLista_ — o switch de validação por projeto');
@@ -340,7 +340,7 @@ teste('modo AVISAR deixa passar a matrícula que não está na lista', () => {
   const { api } = ambiente();
   criarProjeto(api, 'p_1');
   matricular(api, ['9110001']);
-  api.gravarConfig('modo_validacao_matricula', 'AVISAR');
+  api.gravarConfig_('modo_validacao_matricula', 'AVISAR');
 
   igual(api.checarMatriculaNaLista_('9999999', 'p_1'), '');
 });
@@ -381,7 +381,7 @@ grupo('Deduplicação pelo id do documento');
 teste('o id do documento é a chave de dedup, e não existe campo id nem hash_dedup', () => {
   const { api, falso } = ambiente();
 
-  const r = api.gravarInscricao(envio({ projeto_id: 'p_1', origem: 'SITE' }));
+  const r = api.gravarInscricao_(envio({ projeto_id: 'p_1', origem: 'SITE' }));
 
   igual(r.duplicada, false);
   igual(r.id, api.chaveDedup_(envio({ projeto_id: 'p_1' })));
@@ -402,9 +402,9 @@ teste('a segunda gravação é recusada pelo banco: uma requisição, sem leitur
   const { api, falso } = ambiente();
   const dados = envio({ projeto_id: 'p_1' });
 
-  const primeira = api.gravarInscricao(dados);
+  const primeira = api.gravarInscricao_(dados);
   zerar(falso);
-  const segunda = api.gravarInscricao(dados);
+  const segunda = api.gravarInscricao_(dados);
 
   igual(segunda, { id: primeira.id, duplicada: true });
   igual(falso.requisicoes.length, 1, 'só o POST que o banco recusou');
@@ -415,29 +415,29 @@ teste('a segunda gravação é recusada pelo banco: uma requisição, sem leitur
 teste('o custo da dedup não cresce com o tamanho da coleção', () => {
   const { api, falso } = ambiente();
   const dados = envio({ projeto_id: 'p_1' });
-  api.gravarInscricao(dados);
+  api.gravarInscricao_(dados);
   for (let i = 0; i < 200; i++) {
-    api.inserir('inscricoes', { projeto_id: 'p_1', matricula: 'X' + i }, 'outra_' + i);
+    api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: 'X' + i }, 'outra_' + i);
   }
   zerar(falso);
 
-  igual(api.gravarInscricao(dados).duplicada, true);
+  igual(api.gravarInscricao_(dados).duplicada, true);
   igual(falso.requisicoes.length, 1, 'com 201 documentos no banco, ainda uma requisição');
 });
 
 teste('a mesma pessoa em projetos diferentes são duas inscrições', () => {
   const { api, falso } = ambiente();
 
-  igual(api.gravarInscricao(envio({ projeto_id: 'p_1' })).duplicada, false);
-  igual(api.gravarInscricao(envio({ projeto_id: 'p_2' })).duplicada, false);
+  igual(api.gravarInscricao_(envio({ projeto_id: 'p_1' })).duplicada, false);
+  igual(api.gravarInscricao_(envio({ projeto_id: 'p_2' })).duplicada, false);
   igual(inscricoesGravadas(falso).length, 2, 'o que se impede é entrar duas vezes no MESMO projeto');
 });
 
 teste('a matrícula é normalizada antes de virar chave', () => {
   const { api } = ambiente();
 
-  api.gravarInscricao(envio({ projeto_id: 'p_1', matricula: '911-0001' }));
-  igual(api.gravarInscricao(envio({ projeto_id: 'p_1', matricula: '9110001' })).duplicada, true);
+  api.gravarInscricao_(envio({ projeto_id: 'p_1', matricula: '911-0001' }));
+  igual(api.gravarInscricao_(envio({ projeto_id: 'p_1', matricula: '9110001' })).duplicada, true);
 });
 
 teste('sem matrícula, o CPF é a chave; sem os dois, e-mail mais nome', () => {
@@ -445,21 +445,21 @@ teste('sem matrícula, o CPF é a chave; sem os dois, e-mail mais nome', () => {
 
   const semMatricula = { projeto_id: 'p_1', nome: 'Maria da Silva', email: 'maria@exemplo.com' };
 
-  igual(api.gravarInscricao(Object.assign({ cpf: '529.982.247-25' }, semMatricula)).duplicada, false);
-  igual(api.gravarInscricao(Object.assign({ cpf: '52998224725' }, semMatricula)).duplicada, true,
+  igual(api.gravarInscricao_(Object.assign({ cpf: '529.982.247-25' }, semMatricula)).duplicada, false);
+  igual(api.gravarInscricao_(Object.assign({ cpf: '52998224725' }, semMatricula)).duplicada, true,
     'a pontuação do CPF não faz pessoa nova');
 
-  const soEmail = api.gravarInscricao(semMatricula);
+  const soEmail = api.gravarInscricao_(semMatricula);
   igual(soEmail.duplicada, false, 'sem CPF a chave muda, então esta é outra inscrição');
-  igual(api.gravarInscricao(Object.assign({}, semMatricula)).duplicada, true);
+  igual(api.gravarInscricao_(Object.assign({}, semMatricula)).duplicada, true);
 });
 
 teste('e-mail igual com nome diferente não é a mesma pessoa', () => {
   const { api } = ambiente();
   const familia = { projeto_id: 'p_1', email: 'silva@exemplo.com' };
 
-  igual(api.gravarInscricao(Object.assign({ nome: 'Maria da Silva' }, familia)).duplicada, false);
-  igual(api.gravarInscricao(Object.assign({ nome: 'João da Silva' }, familia)).duplicada, false);
+  igual(api.gravarInscricao_(Object.assign({ nome: 'Maria da Silva' }, familia)).duplicada, false);
+  igual(api.gravarInscricao_(Object.assign({ nome: 'João da Silva' }, familia)).duplicada, false);
 });
 
 // O terceiro chamador de gravarInscricao no sistema sobre Sheets roda dentro do
@@ -470,8 +470,8 @@ teste('sem lock nenhum instalado, a duplicata continua impossível', () => {
   igual(api.LockService, undefined, 'o sandbox não tem LockService, e gravarInscricao não precisa');
 
   const dados = envio({ projeto_id: 'p_1' });
-  const a = api.gravarInscricao(dados);
-  const b = api.gravarInscricao(dados);
+  const a = api.gravarInscricao_(dados);
+  const b = api.gravarInscricao_(dados);
 
   igual([a.duplicada, b.duplicada], [false, true]);
   igual(inscricoesGravadas(falso).length, 1);
@@ -481,9 +481,9 @@ grupo('outrosProjetosDe_');
 
 teste('uma consulta só, por matrícula, ignorando o projeto atual', () => {
   const { api, falso } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '9110001', email: 'maria@exemplo.com' }, 'i1');
-  api.inserir('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital', matricula: '9110001', email: 'maria@exemplo.com' }, 'i2');
-  api.inserir('inscricoes', { projeto_id: 'p_3', projeto_nome: 'Empreender', matricula: '9999999', email: 'outro@exemplo.com' }, 'i3');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '9110001', email: 'maria@exemplo.com' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital', matricula: '9110001', email: 'maria@exemplo.com' }, 'i2');
+  api.inserir_('inscricoes', { projeto_id: 'p_3', projeto_nome: 'Empreender', matricula: '9999999', email: 'outro@exemplo.com' }, 'i3');
   zerar(falso);
 
   igual(api.outrosProjetosDe_(envio({ projeto_id: 'p_2' })), ['R+ Cidades']);
@@ -492,7 +492,7 @@ teste('uma consulta só, por matrícula, ignorando o projeto atual', () => {
 
 teste('sem matrícula, cai para o e-mail', () => {
   const { api, falso } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '', email: 'maria@exemplo.com' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '', email: 'maria@exemplo.com' }, 'i1');
   zerar(falso);
 
   igual(api.outrosProjetosDe_({ projeto_id: 'p_2', email: 'MARIA@Exemplo.com ' }), ['R+ Cidades']);
@@ -503,14 +503,14 @@ teste('sem matrícula, cai para o e-mail', () => {
 // Duas pessoas que dividem um e-mail continuam sendo duas pessoas.
 teste('com matrícula, e-mail igual em outro projeto não conta', () => {
   const { api } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '7777777', email: 'maria@exemplo.com' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '7777777', email: 'maria@exemplo.com' }, 'i1');
 
   igual(api.outrosProjetosDe_(envio({ projeto_id: 'p_2' })), []);
 });
 
 teste('sem matrícula e sem e-mail não consulta nada', () => {
   const { api, falso } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '', email: '' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '', email: '' }, 'i1');
   zerar(falso);
 
   igual(api.outrosProjetosDe_({ projeto_id: 'p_2', nome: 'Maria' }), []);
@@ -522,14 +522,14 @@ teste('sem matrícula e sem e-mail não consulta nada', () => {
 // string vazia — o aluno lia "Você já está inscrito em ."
 teste('inscrição sem projeto não vira "outro projeto"', () => {
   const { api } = ambiente();
-  api.inserir('inscricoes', { projeto_id: '', projeto_nome: '', matricula: '9110001' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: '', projeto_nome: '', matricula: '9110001' }, 'i1');
 
   igual(api.outrosProjetosDe_(envio({ projeto_id: 'p_2' })), []);
 });
 
 teste('sem projeto_nome gravado, o id do projeto serve de rótulo', () => {
   const { api } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: '', matricula: '9110001' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: '', matricula: '9110001' }, 'i1');
 
   igual(api.outrosProjetosDe_(envio({ projeto_id: 'p_2' })), ['p_1']);
 });
@@ -540,7 +540,7 @@ teste('sem projeto_nome gravado, o id do projeto serve de rótulo', () => {
 // teste esquecido no banco, para ela crescer sem freio dentro de submeterInscricao.
 teste('a consulta declara limite — nada no caminho do aluno lê sem teto', () => {
   const { api, falso } = ambiente();
-  api.inserir('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '9110001' }, 'i1');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', projeto_nome: 'R+ Cidades', matricula: '9110001' }, 'i1');
   zerar(falso);
 
   api.outrosProjetosDe_(envio({ projeto_id: 'p_2' }));
@@ -555,7 +555,7 @@ teste('o corte não muda a resposta que importa: length e o primeiro nome', () =
   // em 20 é seguro POR ISSO, e não porque 20 seja um número bonito.
   const { api } = ambiente();
   for (let i = 1; i <= 25; i++) {
-    api.inserir('inscricoes', {
+    api.inserir_('inscricoes', {
       projeto_id: 'p_' + String(i).padStart(3, '0'),
       projeto_nome: 'Projeto ' + String(i).padStart(3, '0'),
       matricula: '9110001'
@@ -576,7 +576,7 @@ teste('honeypot preenchido recusa, registra BLOQUEIO e não grava', () => {
   criarProjeto(api, 'p_1');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1', website: 'http://spam' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1', website: 'http://spam' }));
 
   igual(r, { ok: false, erro: 'Não foi possível registrar a inscrição.' });
   igual(acoesDoLog(falso), ['BLOQUEIO']);
@@ -611,7 +611,7 @@ teste('o mesmo envio pelo formulário interno passa: ele não tem como informar 
 teste('teto por hora recusa no limite, e a hora seguinte volta a aceitar', () => {
   const relogio = criarRelogio(Date.UTC(2026, 7, 5, 12, 0, 0));
   const { api } = ambiente({ relogio });
-  api.gravarConfig('limite_inscricoes_hora', '2');
+  api.gravarConfig_('limite_inscricoes_hora', '2');
 
   igual(api.verificarAntiAbuso_({}), '');
   igual(api.verificarAntiAbuso_({}), '');
@@ -634,7 +634,7 @@ teste('os padrões de config deste arquivo são os mesmos de CONFIG_PADRAO', () 
   api.CONFIG_PADRAO.forEach((c) => { padrao[c.chave] = String(c.valor); });
 
   const usadas = [];
-  const regex = /config\('([a-z_]+)',\s*'([^']*)'\)/g;
+  const regex = /\bconfig_\('([a-z_]+)',\s*'([^']*)'\)/g;
   let m;
   while ((m = regex.exec(codigo)) !== null) {
     usadas.push(m[1]);
@@ -651,14 +651,14 @@ grupo('validarInscricao');
 teste('nome sem sobrenome, e-mail torto, matrícula curta e whatsapp curto', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao({ nome: 'Maria', email: 'maria@exemplo.com', matricula: '9110001', consentimento_lgpd: true }),
+  igual(api.validarInscricao_({ nome: 'Maria', email: 'maria@exemplo.com', matricula: '9110001', consentimento_lgpd: true }),
     ['Informe o nome completo.']);
-  igual(api.validarInscricao(envio({ email: 'sem-arroba' })), ['E-mail inválido.']);
-  igual(api.validarInscricao(envio({ matricula: '' })), ['Informe a matrícula.']);
-  igual(api.validarInscricao(envio({ matricula: '123' })),
+  igual(api.validarInscricao_(envio({ email: 'sem-arroba' })), ['E-mail inválido.']);
+  igual(api.validarInscricao_(envio({ matricula: '' })), ['Informe a matrícula.']);
+  igual(api.validarInscricao_(envio({ matricula: '123' })),
     ['A matrícula tem 7 dígitos. Confira o número no seu portal do aluno.']);
-  igual(api.validarInscricao(envio({ whatsapp: '4899' })), ['WhatsApp inválido.']);
-  igual(api.validarInscricao(envio()), []);
+  igual(api.validarInscricao_(envio({ whatsapp: '4899' })), ['WhatsApp inválido.']);
+  igual(api.validarInscricao_(envio()), []);
 });
 
 // O pedido do Prof. Mário (19/09): a matrícula digitada errada entrava pela
@@ -672,16 +672,16 @@ const MENSAGEM_7 = 'A matrícula tem 7 dígitos. Confira o número no seu portal
 teste('sete dígitos passa; seis e oito sem zero recusam dizendo o tamanho certo', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ matricula: '9110001' })), []);
-  igual(api.validarInscricao(envio({ matricula: '911000' })), [MENSAGEM_7], 'seis dígitos');
-  igual(api.validarInscricao(envio({ matricula: '91100011' })), [MENSAGEM_7], 'oito dígitos sem zero à esquerda');
-  igual(api.validarInscricao(envio({ matricula: '911000111' })), [MENSAGEM_7], 'nove dígitos');
-  igual(api.validarInscricao(envio({ matricula: '911000A' })), [MENSAGEM_7], 'letra no lugar de dígito');
+  igual(api.validarInscricao_(envio({ matricula: '9110001' })), []);
+  igual(api.validarInscricao_(envio({ matricula: '911000' })), [MENSAGEM_7], 'seis dígitos');
+  igual(api.validarInscricao_(envio({ matricula: '91100011' })), [MENSAGEM_7], 'oito dígitos sem zero à esquerda');
+  igual(api.validarInscricao_(envio({ matricula: '911000111' })), [MENSAGEM_7], 'nove dígitos');
+  igual(api.validarInscricao_(envio({ matricula: '911000A' })), [MENSAGEM_7], 'letra no lugar de dígito');
 });
 
 teste('a mensagem diz o número, e não só "inválida" — é o que ensina a corrigir', () => {
   const { api } = ambiente();
-  const erro = api.validarInscricao(envio({ matricula: '911000' }))[0];
+  const erro = api.validarInscricao_(envio({ matricula: '911000' }))[0];
 
   verdadeiro(/\b7\b/.test(erro), 'a mensagem não diz quantos dígitos são: ' + erro);
   verdadeiro(/dígitos/.test(erro), erro);
@@ -689,14 +689,14 @@ teste('a mensagem diz o número, e não só "inválida" — é o que ensina a co
 
 teste('oito dígitos COM zero à esquerda passa, e grava os sete', () => {
   // A forma da secretaria: 09110001. O aluno lê 9110001 no portal. As duas são a
-  // mesma matrícula, e a chave gravada é a sem zero (`normalizarMatricula`).
+  // mesma matrícula, e a chave gravada é a sem zero (`normalizarMatricula_`).
   const { api, falso } = ambiente();
   matricular(api, ['9110001']);
   comLock(api, falso);
 
-  igual(api.validarInscricao(envio({ matricula: '09110001' })), []);
+  igual(api.validarInscricao_(envio({ matricula: '09110001' })), []);
 
-  const r = api.submeterInscricao(envio({ matricula: '09110001', curso_fase: '', declara_ciencia: false }));
+  const r = api.submeterInscricao_(envio({ matricula: '09110001', curso_fase: '', declara_ciencia: false }));
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(falso.documentos.get('inscricoes/' + r.protocolo).matricula.stringValue, '9110001');
 });
@@ -704,9 +704,9 @@ teste('oito dígitos COM zero à esquerda passa, e grava os sete', () => {
 teste('a pontuação que o aluno digita não conta no tamanho', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ matricula: '911.0001' })), []);
-  igual(api.validarInscricao(envio({ matricula: ' 911-0001 ' })), []);
-  igual(api.validarInscricao(envio({ matricula: '0911.0001' })), [], 'zero à esquerda e pontuação, juntos');
+  igual(api.validarInscricao_(envio({ matricula: '911.0001' })), []);
+  igual(api.validarInscricao_(envio({ matricula: ' 911-0001 ' })), []);
+  igual(api.validarInscricao_(envio({ matricula: '0911.0001' })), [], 'zero à esquerda e pontuação, juntos');
 });
 
 teste('zero à esquerda que esconde matrícula curta é recusado', () => {
@@ -716,14 +716,14 @@ teste('zero à esquerda que esconde matrícula curta é recusado', () => {
   // vira `0`.
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ matricula: '0110001' })), [MENSAGEM_7]);
-  igual(api.validarInscricao(envio({ matricula: '00110001' })), [MENSAGEM_7]);
-  igual(api.validarInscricao(envio({ matricula: '0000000' })), [MENSAGEM_7]);
+  igual(api.validarInscricao_(envio({ matricula: '0110001' })), [MENSAGEM_7]);
+  igual(api.validarInscricao_(envio({ matricula: '00110001' })), [MENSAGEM_7]);
+  igual(api.validarInscricao_(envio({ matricula: '0000000' })), [MENSAGEM_7]);
   // E o inverso: a chave certa atrás de zeros demais também é tamanho errado —
   // o formulário aceita UM zero à esquerda, que é como a secretaria escreve, e
   // não "qualquer quantidade".
-  igual(api.validarInscricao(envio({ matricula: '009110001' })), [MENSAGEM_7]);
-  igual(api.validarInscricao(envio({ matricula: '000009110001' })), [MENSAGEM_7]);
+  igual(api.validarInscricao_(envio({ matricula: '009110001' })), [MENSAGEM_7]);
+  igual(api.validarInscricao_(envio({ matricula: '000009110001' })), [MENSAGEM_7]);
 });
 
 teste('o envio recusa antes de qualquer leitura, e não grava', () => {
@@ -731,10 +731,10 @@ teste('o envio recusa antes de qualquer leitura, e não grava', () => {
   criarProjeto(api, 'p_1');
   matricular(api, ['9110001']);
   comLock(api, falso);
-  api.config('cadastro_aberto', 'SIM');   // a configuração já está em cache
+  api.config_('cadastro_aberto', 'SIM');   // a configuração já está em cache
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1', matricula: '911000' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1', matricula: '911000' }));
 
   igual(r, { ok: false, erro: MENSAGEM_7 });
   igual(quantas(falso, LEITURA_MATRICULA), 0, 'matrícula de tamanho errado não vale uma leitura da lista');
@@ -743,11 +743,11 @@ teste('o envio recusa antes de qualquer leitura, e não grava', () => {
 
 teste('matricula_digitos=8 na configuração muda a régua — e a mensagem', () => {
   const { api } = ambiente();
-  api.gravarConfig('matricula_digitos', '8');
+  api.gravarConfig_('matricula_digitos', '8');
 
-  igual(api.validarInscricao(envio({ matricula: '91100011' })), []);
-  igual(api.validarInscricao(envio({ matricula: '091100011' })), [], 'nove com zero à esquerda');
-  igual(api.validarInscricao(envio({ matricula: '9110001' })),
+  igual(api.validarInscricao_(envio({ matricula: '91100011' })), []);
+  igual(api.validarInscricao_(envio({ matricula: '091100011' })), [], 'nove com zero à esquerda');
+  igual(api.validarInscricao_(envio({ matricula: '9110001' })),
     ['A matrícula tem 8 dígitos. Confira o número no seu portal do aluno.']);
 });
 
@@ -756,14 +756,14 @@ teste('chave vazia, texto ou zero: a régua continua em 7, e o motivo vai para o
   // não pode reabri-la em silêncio: cai no padrão de fábrica e reclama.
   ['', 'sete', '0', '-7', '7 dígitos'].forEach((valor) => {
     const { api, registros } = ambiente();
-    api.gravarConfig('matricula_digitos', valor);
+    api.gravarConfig_('matricula_digitos', valor);
 
     igual(api.matriculaDigitos_(), 7, 'com a chave em "' + valor + '"');
-    igual(api.validarInscricao(envio({ matricula: '9110001' })), [], 'com a chave em "' + valor + '"');
-    igual(api.validarInscricao(envio({ matricula: '911000' })), [MENSAGEM_7], 'com a chave em "' + valor + '"');
+    igual(api.validarInscricao_(envio({ matricula: '9110001' })), [], 'com a chave em "' + valor + '"');
+    igual(api.validarInscricao_(envio({ matricula: '911000' })), [MENSAGEM_7], 'com a chave em "' + valor + '"');
 
     if (valor === '') {
-      // Vazio é "não configurado", que é o contrato de `config()` — não é erro.
+      // Vazio é "não configurado", que é o contrato de `config_()` — não é erro.
       igual(registros.erros.length, 0, 'chave vazia não é defeito');
     } else {
       verdadeiro(registros.erros.some((e) => e.indexOf('matricula_digitos') === 0),
@@ -781,7 +781,7 @@ teste('o padrão de fábrica é 7, e está em UM lugar: CONFIG_PADRAO', () => {
   verdadeiro(/zero à esquerda/i.test(semente.descricao), 'a descrição precisa dizer que o zero é aceito');
   verdadeiro(/recusa/i.test(semente.descricao), 'a descrição precisa dizer a consequência');
 
-  // O único 7 escrito em 04_Inscricoes.gs é o padrão do `config()`, que o teste
+  // O único 7 escrito em 04_Inscricoes.gs é o padrão do `config_()`, que o teste
   // dos padrões já confere. Um segundo literal seria o que envelhece sozinho.
   const codigo = fs.readFileSync(path.join(PASTA_GS, '04_Inscricoes.gs'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -791,7 +791,7 @@ teste('o padrão de fábrica é 7, e está em UM lugar: CONFIG_PADRAO', () => {
 });
 
 teste('a régua é uma função só, e o envio e a rota de conferência precisam dela', () => {
-  // `erroFormatoMatricula_` é o que `validarInscricao` chama. Se a rota
+  // `erroFormatoMatricula_` é o que `validarInscricao_` chama. Se a rota
   // `?api=matricula` (08_Api.gs) tiver a própria conta, o site diz uma coisa ao
   // sair do campo e o servidor diz outra no envio.
   const { api } = ambiente();
@@ -816,10 +816,10 @@ teste('o site recebe o número em ?api=config, e é o MESMO que o servidor valid
 
   igual(amb.api.dadosFormularioPublico_().matriculaDigitos, 7);
 
-  amb.api.gravarConfig('matricula_digitos', '8');
+  amb.api.gravarConfig_('matricula_digitos', '8');
   igual(amb.api.dadosFormularioPublico_().matriculaDigitos, 8, 'a configuração não chegou ao site');
 
-  amb.api.gravarConfig('matricula_digitos', 'sete');
+  amb.api.gravarConfig_('matricula_digitos', 'sete');
   igual(amb.api.dadosFormularioPublico_().matriculaDigitos, 7, 'chave torta tem de virar o padrão também para o site');
 });
 
@@ -828,12 +828,12 @@ teste('telefone com pontuação grava só os dígitos; nove dígitos recusa', ()
   matricular(api, ['9110001']);
   comLock(api, falso);
 
-  igual(api.validarInscricao(envio({ whatsapp: '(48) 99999-9999' })), []);
-  igual(api.validarInscricao(envio({ whatsapp: '(48) 9999-9999' })), [], 'dez dígitos: fixo com DDD');
-  igual(api.validarInscricao(envio({ whatsapp: '999999999' })), ['WhatsApp inválido.'], 'nove dígitos: faltou o DDD');
-  igual(api.validarInscricao(envio({ whatsapp: '(48) 99999-99999' })), ['WhatsApp inválido.'], 'doze dígitos');
+  igual(api.validarInscricao_(envio({ whatsapp: '(48) 99999-9999' })), []);
+  igual(api.validarInscricao_(envio({ whatsapp: '(48) 9999-9999' })), [], 'dez dígitos: fixo com DDD');
+  igual(api.validarInscricao_(envio({ whatsapp: '999999999' })), ['WhatsApp inválido.'], 'nove dígitos: faltou o DDD');
+  igual(api.validarInscricao_(envio({ whatsapp: '(48) 99999-99999' })), ['WhatsApp inválido.'], 'doze dígitos');
 
-  const r = api.submeterInscricao(envio({ whatsapp: '(48) 99999-9999', curso_fase: '', declara_ciencia: false }));
+  const r = api.submeterInscricao_(envio({ whatsapp: '(48) 99999-9999', curso_fase: '', declara_ciencia: false }));
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(falso.documentos.get('inscricoes/' + r.protocolo).whatsapp.stringValue, '48999999999');
 });
@@ -841,39 +841,39 @@ teste('telefone com pontuação grava só os dígitos; nove dígitos recusa', ()
 teste('e-mail precisa de algo@algo.algo', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ email: 'maria@exemplo' })), ['E-mail inválido.'], 'sem o domínio de topo');
-  igual(api.validarInscricao(envio({ email: 'maria exemplo@x.com' })), ['E-mail inválido.'], 'espaço');
-  igual(api.validarInscricao(envio({ email: '@exemplo.com' })), ['E-mail inválido.'], 'sem a parte local');
-  igual(api.validarInscricao(envio({ email: 'MARIA@Exemplo.com ' })), [], 'caixa e espaço na ponta são normalizados');
+  igual(api.validarInscricao_(envio({ email: 'maria@exemplo' })), ['E-mail inválido.'], 'sem o domínio de topo');
+  igual(api.validarInscricao_(envio({ email: 'maria exemplo@x.com' })), ['E-mail inválido.'], 'espaço');
+  igual(api.validarInscricao_(envio({ email: '@exemplo.com' })), ['E-mail inválido.'], 'sem a parte local');
+  igual(api.validarInscricao_(envio({ email: 'MARIA@Exemplo.com ' })), [], 'caixa e espaço na ponta são normalizados');
 });
 
 teste('CPF só é conferido quando vem preenchido', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ cpf: '' })), []);
-  igual(api.validarInscricao(envio({ cpf: '111.111.111-11' })), ['CPF inválido.']);
-  igual(api.validarInscricao(envio({ cpf: '529.982.247-25' })), []);
+  igual(api.validarInscricao_(envio({ cpf: '' })), []);
+  igual(api.validarInscricao_(envio({ cpf: '111.111.111-11' })), ['CPF inválido.']);
+  igual(api.validarInscricao_(envio({ cpf: '529.982.247-25' })), []);
 });
 
 teste('curso e fase e declaração de ciência só são exigidos quando há projeto', () => {
   const { api } = ambiente();
 
-  igual(api.validarInscricao(envio({ curso_fase: '', declara_ciencia: false })), []);
-  igual(api.validarInscricao(envio({ projeto_id: 'p_1', curso_fase: '', declara_ciencia: false })),
+  igual(api.validarInscricao_(envio({ curso_fase: '', declara_ciencia: false })), []);
+  igual(api.validarInscricao_(envio({ projeto_id: 'p_1', curso_fase: '', declara_ciencia: false })),
     ['Selecione seu curso e fase.', 'É necessário declarar ciência para participar do projeto.']);
 });
 
 teste('o aviso de privacidade é exigido sempre', () => {
   const { api } = ambiente();
-  igual(api.validarInscricao(envio({ consentimento_lgpd: false })),
+  igual(api.validarInscricao_(envio({ consentimento_lgpd: false })),
     ['É necessário aceitar o aviso de privacidade.']);
 });
 
 teste('exigir_matricula=NAO libera inscrição sem matrícula', () => {
   const { api } = ambiente();
-  api.gravarConfig('exigir_matricula', 'NAO');
+  api.gravarConfig_('exigir_matricula', 'NAO');
 
-  igual(api.validarInscricao(envio({ matricula: '' })), []);
+  igual(api.validarInscricao_(envio({ matricula: '' })), []);
 });
 
 grupo('submeterInscricao ponta a ponta');
@@ -884,7 +884,7 @@ teste('caminho feliz com projeto: grava, devolve protocolo e registra INSCRICAO_
   matricular(api, ['9110001']);
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1', origem: 'SITE_EXTERNO', tempoPreenchimento: 42000 }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1', origem: 'SITE_EXTERNO', tempoPreenchimento: 42000 }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, false);
@@ -913,7 +913,7 @@ teste('a escrita da inscrição cai entre pegar e soltar o lock, e é a única',
   const eventos = comLock(api, falso);
   zerar(falso);
 
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   const pegou = marco(eventos, 'pegou');
   const soltou = marco(eventos, 'soltou');
@@ -930,8 +930,8 @@ teste('reenvio do mesmo aluno devolve duplicada e não cria segunda inscrição'
   matricular(api, ['9110001']);
   comLock(api, falso);
 
-  const primeira = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const primeira = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r, {
     ok: true,
@@ -950,7 +950,7 @@ teste('a lista oficial é consultada uma vez por inscrição, e a agregação ne
   comLock(api, falso);
   zerar(falso);
 
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(quantas(falso, LEITURA_MATRICULA), 1, 'o sistema sobre Sheets lia a lista duas vezes');
   igual(quantas(falso, AGREGACAO), 1, 'a única agregação é a contagem de vagas de reservarVaga');
@@ -959,10 +959,10 @@ teste('a lista oficial é consultada uma vez por inscrição, e a agregação ne
 teste('cadastro fechado recusa antes de qualquer outra coisa', () => {
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1');
-  api.gravarConfig('cadastro_aberto', 'NAO');
+  api.gravarConfig_('cadastro_aberto', 'NAO');
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r, { ok: false, erro: 'As inscrições estão encerradas no momento.' });
   igual(quantas(falso, ESCRITA_INSCRICAO), 0);
@@ -973,10 +973,10 @@ teste('projeto esgotado devolve a recusa de reservarVaga, com a situação', () 
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1', { vagas: '1' });
   matricular(api, ['9110001', '9110002']);
-  api.inserir('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.ok, false);
   igual(r.situacao, 'ESGOTADO');
@@ -989,7 +989,7 @@ teste('sem projeto_id grava por INSCRICAO_SITE, sem pegar lock', () => {
   matricular(api, ['9110001']);
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ curso_fase: '', declara_ciencia: false }));
+  const r = api.submeterInscricao_(envio({ curso_fase: '', declara_ciencia: false }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(eventos.length, 0, 'quem não disputa vaga não entra na fila do auditório');
@@ -1003,7 +1003,7 @@ teste('matrícula desconhecida com BLOQUEAR recusa apontando o campo', () => {
   matricular(api, ['9110002']);
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.ok, false);
   igual(r.campo, 'matricula');
@@ -1015,10 +1015,10 @@ teste('em modo AVISAR a inscrição entra marcada como não conferida', () => {
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1');
   matricular(api, ['9110002']);
-  api.gravarConfig('modo_validacao_matricula', 'AVISAR');
+  api.gravarConfig_('modo_validacao_matricula', 'AVISAR');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(falso.documentos.get('inscricoes/' + r.protocolo).matricula_conferida.stringValue, 'NAO',
@@ -1034,14 +1034,14 @@ teste('aluno_projeto_unico=SIM pergunta a quem já está em outro projeto, em ve
   criarProjeto(api, 'p_1');
   criarProjeto(api, 'p_2', { nome: 'Arte Digital Floripa', codigo: 'arte' });
   matricular(api, ['9110001']);
-  api.inserir('inscricoes', {
+  api.inserir_('inscricoes', {
     projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa',
     matricula: '9110001', email: 'maria@exemplo.com', origem: 'SITE'
   }, 'i_outra');
-  api.gravarConfig('aluno_projeto_unico', 'SIM');
+  api.gravarConfig_('aluno_projeto_unico', 'SIM');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r, {
     ok: false,
@@ -1056,10 +1056,10 @@ teste('com aluno_projeto_unico=NAO o aviso vai junto do sucesso', () => {
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1');
   matricular(api, ['9110001']);
-  api.inserir('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', matricula: '9110001' }, 'i_outra');
+  api.inserir_('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', matricula: '9110001' }, 'i_outra');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.aviso, 'Atenção: você também consta inscrito em Arte Digital Floripa.');
@@ -1069,11 +1069,11 @@ teste('reenvio não repete o aviso de outro projeto — nada de novo aconteceu',
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1');
   matricular(api, ['9110001']);
-  api.inserir('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', matricula: '9110001' }, 'i_outra');
+  api.inserir_('inscricoes', { projeto_id: 'p_2', projeto_nome: 'Arte Digital Floripa', matricula: '9110001' }, 'i_outra');
   comLock(api, falso);
 
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.duplicada, true);
   igual(r.aviso, undefined);
@@ -1084,10 +1084,10 @@ teste('reenvio não repete o aviso de outro projeto — nada de novo aconteceu',
 teste('falha do banco vira mensagem genérica, e o motivo fica no console', () => {
   const { api, falso, registros } = ambiente();
   criarProjeto(api, 'p_1');
-  api.config('cadastro_aberto', 'SIM');   // aquece o cache, para o erro cair na lista oficial
+  api.config_('cadastro_aberto', 'SIM');   // aquece o cache, para o erro cair na lista oficial
   falso.forcar(500, 'INTERNAL', 'pane no servidor');
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r, { ok: false, erro: 'Erro ao registrar. Tente novamente em instantes.' });
   verdadeiro(registros.erros.some((e) => e.indexOf('submeterInscricao') === 0), 'console: ' + registros.erros.join(' | '));
@@ -1105,7 +1105,7 @@ teste('falha do banco vira mensagem genérica, e o motivo fica no console', () =
  * digitada torta é ignorada e anotada, e nunca fecha a inscrição; e que o
  * interruptor manual continua mandando por cima da janela.
  *
- * O relógio é o de `criarRelogio`, em UTC; `agora()` formata em -03:00, então
+ * O relógio é o de `criarRelogio`, em UTC; `agora_()` formata em -03:00, então
  * 13:00Z é '10:00' no carimbo — é contra esse texto que a janela compara.
  */
 grupo('A janela geral de inscrição — ANTES, ABERTA, DEPOIS');
@@ -1116,7 +1116,7 @@ const MEIO_DA_JANELA = Date.UTC(2026, 9, 5, 13, 0, 0);
 function ambienteNaJanela(chaves, instante) {
   const relogio = criarRelogio(instante === undefined ? MEIO_DA_JANELA : instante);
   const amb = ambiente({ relogio });
-  Object.keys(chaves || {}).forEach((chave) => amb.api.gravarConfig(chave, chaves[chave]));
+  Object.keys(chaves || {}).forEach((chave) => amb.api.gravarConfig_(chave, chaves[chave]));
   criarProjeto(amb.api, 'p_1');
   matricular(amb.api, ['9110001']);
   comLock(amb.api, amb.falso);
@@ -1130,7 +1130,7 @@ teste('as duas chaves vazias = SEM_JANELA, e a inscrição entra como sempre ent
   igual(api.janelaDeInscricao_(), { estado: 'SEM_JANELA', inicio: '', fim: '' });
   igual(api.recusaPelaJanela_(), '');
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(inscricoesGravadas(falso).length, 1);
 });
@@ -1152,7 +1152,7 @@ teste('antes do início: recusa dizendo a data, sem ler nada além da configura�
   zerar(falso);
 
   igual(api.janelaDeInscricao_().estado, 'ANTES');
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r, { ok: false, erro: 'As inscrições abrem em 07/10/2026 às 08:00.' });
   igual(quantas(falso, ESCRITA_INSCRICAO), 0);
@@ -1164,7 +1164,7 @@ teste('depois do fim: recusa dizendo a data, e nada é gravado', () => {
   const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
 
   igual(api.janelaDeInscricao_().estado, 'DEPOIS');
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })),
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_1' })),
     { ok: false, erro: 'As inscrições encerraram em 03/10/2026 às 18:00.' });
   igual(inscricoesGravadas(falso).length, 0);
 });
@@ -1176,7 +1176,7 @@ teste('dentro da janela — início e fim definidos — aceita', () => {
 
   igual(api.janelaDeInscricao_(),
     { estado: 'ABERTA', inicio: '2026-10-01 08:00', fim: '2026-10-30 18:00' });
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(inscricoesGravadas(falso).length, 1);
 });
@@ -1202,7 +1202,7 @@ teste('a janela é por MINUTO e compara texto no fuso do carimbo — nunca UTC',
 teste('a inscrição SEM projeto — o formulário interno — também respeita a janela', () => {
   const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
 
-  igual(api.submeterInscricao(envio({ curso_fase: '', declara_ciencia: false })).ok, false);
+  igual(api.submeterInscricao_(envio({ curso_fase: '', declara_ciencia: false })).ok, false);
   igual(inscricoesGravadas(falso).length, 0);
 });
 
@@ -1217,7 +1217,7 @@ teste('chave fora do formato é ignorada e anotada — nunca fecha a inscrição
     verdadeiro(registros.erros.some((e) => e.indexOf('inscricoes_fim: "' + valor.slice(0, 40)) === 0),
       'sem aviso no console para "' + valor + '": ' + registros.erros.join(' | '));
 
-    const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+    const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
     igual(r.ok, true, '"' + valor + '" fechou a inscrição: ' + r.erro);
     igual(inscricoesGravadas(falso).length, 1);
   });
@@ -1227,7 +1227,7 @@ teste('início torto e fim certo: o fim continua valendo sozinho', () => {
   const { api } = ambienteNaJanela({ inscricoes_inicio: 'segunda', inscricoes_fim: '2026-10-03 18:00' });
 
   igual(api.janelaDeInscricao_(), { estado: 'DEPOIS', inicio: '', fim: '2026-10-03 18:00' });
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })).ok, false);
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_1' })).ok, false);
 });
 
 teste('cadastro_aberto=NAO recusa por cima da janela, com a mensagem de sempre', () => {
@@ -1235,7 +1235,7 @@ teste('cadastro_aberto=NAO recusa por cima da janela, com a mensagem de sempre',
     cadastro_aberto: 'NAO', inscricoes_inicio: '2026-10-01 08:00', inscricoes_fim: '2026-10-30 18:00'
   });
 
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })),
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_1' })),
     { ok: false, erro: 'As inscrições estão encerradas no momento.' });
   igual(inscricoesGravadas(falso).length, 0);
 });
@@ -1243,13 +1243,13 @@ teste('cadastro_aberto=NAO recusa por cima da janela, com a mensagem de sempre',
 teste('a recusa da janela vem antes das guardas: não consome o teto por hora nem registra bloqueio', () => {
   const { api, falso } = ambienteNaJanela({ inscricoes_fim: '2026-10-03 18:00' });
 
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
   igual(api.PropertiesService.getScriptProperties().getProperty('throttle_contagem'), null,
     'a recusa da janela contou como inscrição no teto por hora');
 
   // Robô fora da janela leva a mensagem da janela, e não a do honeypot — e não
   // deixa BLOQUEIO na trilha: a janela fechou antes de a guarda olhar.
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1', website: 'http://spam' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1', website: 'http://spam' }));
   igual(r.erro, 'As inscrições encerraram em 03/10/2026 às 18:00.');
   igual(acoesDoLog(falso), []);
 });
@@ -1259,7 +1259,7 @@ grupo('Reenvio depois de queda de rede — a dedup é do banco');
 // A pergunta que originou este bloco: "um reenvio pode gravar duas vezes?".
 // Não pode, e a proteção é de CONSTRUÇÃO, não de conferência nossa: a chave do
 // documento é `chaveDedup_`, o `createDocument` recusa a segunda com 409
-// ALREADY_EXISTS, e `inserir` trata esse 409 como resposta — nunca como erro.
+// ALREADY_EXISTS, e `inserir_` trata esse 409 como resposta — nunca como erro.
 // O que faltava era o PROTOCOLO na segunda resposta.
 teste('o mesmo envio três vezes grava uma vez, e devolve o MESMO protocolo', () => {
   const { api, falso } = ambiente();
@@ -1267,9 +1267,9 @@ teste('o mesmo envio três vezes grava uma vez, e devolve o MESMO protocolo', ()
   matricular(api, ['9110001']);
   comLock(api, falso);
 
-  const primeira = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
-  const segunda = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
-  const terceira = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const primeira = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
+  const segunda = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
+  const terceira = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual([primeira.ok, segunda.ok, terceira.ok], [true, true, true],
     'quem reenviou depois de perder a resposta não pode receber erro');
@@ -1284,10 +1284,10 @@ teste('a segunda gravação não custa leitura nem entra na conta de vagas', () 
   criarProjeto(api, 'p_1', { vagas: '2' });
   matricular(api, ['9110001']);
   comLock(api, falso);
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
   zerar(falso);
 
-  api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(quantas(falso, ESCRITA_INSCRICAO), 1,
     'a duplicata é descoberta pelo 409 da PRÓPRIA escrita — sem leitura prévia');
@@ -1308,7 +1308,7 @@ teste('com a chave em NAO, o documento gravado não ganha campo nenhum', () => {
   matricular(api, ['9110001']);
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   const gravado = documento(falso, r.protocolo);
   igual(gravado.em_espera, undefined, 'a marca só existe no documento de quem está na fila');
@@ -1319,11 +1319,11 @@ teste('com a chave em SIM, o excedente entra marcado e recebe protocolo', () => 
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1', { vagas: '1' });
   matricular(api, ['9110001', '9110002']);
-  api.inserir('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.em_espera, true);
@@ -1341,11 +1341,11 @@ teste('a mensagem diz que a inscrição foi registrada, e não fala em esgotado'
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1', { vagas: '1' });
   matricular(api, ['9110001', '9110002']);
-  api.inserir('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   verdadeiro(r.mensagem.indexOf('registrada') !== -1, 'a frase foi: ' + r.mensagem);
   verdadeiro(r.mensagem.toLowerCase().indexOf('esgotad') === -1, 'a frase foi: ' + r.mensagem);
@@ -1357,12 +1357,12 @@ teste('o texto da espera é editável pela coordenação, como o do esgotado', (
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1', { vagas: '1' });
   matricular(api, ['9110001', '9110002']);
-  api.inserir('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
-  api.gravarConfig('texto_espera', 'Você está na lista. A coordenação confirma no início do encontro.');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
+  api.gravarConfig_('texto_espera', 'Você está na lista. A coordenação confirma no início do encontro.');
   comLock(api, falso);
 
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_1' })).mensagem,
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_1' })).mensagem,
     'Você está na lista. A coordenação confirma no início do encontro.');
 });
 
@@ -1374,11 +1374,11 @@ teste('o aluno não consegue se marcar como em espera pelo payload', () => {
   matricular(api, ['9110001', '9110002']);
   comLock(api, falso);
 
-  const comProjeto = api.submeterInscricao(envio({ projeto_id: 'p_1', em_espera: 'SIM' }));
+  const comProjeto = api.submeterInscricao_(envio({ projeto_id: 'p_1', em_espera: 'SIM' }));
   igual(documento(falso, comProjeto.protocolo).em_espera, undefined,
     'o cliente escolheu não ocupar vaga, e o servidor obedeceu');
 
-  const semProjeto = api.submeterInscricao(envio({
+  const semProjeto = api.submeterInscricao_(envio({
     matricula: '9110002', em_espera: 'SIM', curso_fase: '', declara_ciencia: false
   }));
   igual(documento(falso, semProjeto.protocolo).em_espera, undefined,
@@ -1389,12 +1389,12 @@ teste('reenvio de quem está na fila devolve o mesmo protocolo, sem segunda linh
   const { api, falso } = ambiente();
   criarProjeto(api, 'p_1', { vagas: '1' });
   matricular(api, ['9110001', '9110002']);
-  api.inserir('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.inserir_('inscricoes', { projeto_id: 'p_1', matricula: '9110002' }, 'ja_estava');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
   comLock(api, falso);
 
-  const primeira = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
-  const segunda = api.submeterInscricao(envio({ projeto_id: 'p_1' }));
+  const primeira = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
+  const segunda = api.submeterInscricao_(envio({ projeto_id: 'p_1' }));
 
   igual(segunda.duplicada, true);
   igual(segunda.protocolo, primeira.protocolo);
@@ -1436,7 +1436,7 @@ function cenarioDaTroca(chave) {
   criarProjeto(amb.api, 'p_x', { nome: 'Robótica na Escola', codigo: 'robotica' });
   criarProjeto(amb.api, 'p_y', { nome: 'Horta Comunitária', codigo: 'horta' });
   matricular(amb.api, ['9110001', '9110002']);
-  if (chave) amb.api.gravarConfig('aluno_projeto_unico', chave);
+  if (chave) amb.api.gravarConfig_('aluno_projeto_unico', chave);
   return amb;
 }
 
@@ -1459,10 +1459,10 @@ function inscreverEm(api, id, campos) {
     raw_json: '{}'
   }, campos || {});
 
-  // As duas marcas da fila andam juntas — é assim que `gravarInscricao` as
+  // As duas marcas da fila andam juntas — é assim que `gravarInscricao_` as
   // escreve, e é o par que `contarEmEspera_` conta.
   if (doc.em_espera === 'SIM') doc.espera_de = doc.projeto_id;
-  api.inserir('inscricoes', doc, id);
+  api.inserir_('inscricoes', doc, id);
   return id;
 }
 
@@ -1486,7 +1486,7 @@ teste('com a chave em NAO, `trocar_de` no payload não muda nada: região de 2, 
   const eventos = comLock(api, falso);
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.aviso, 'Atenção: você também consta inscrito em Robótica na Escola.', 'o aviso de sempre');
@@ -1517,7 +1517,7 @@ teste('a rodada 1 PERGUNTA, fora do lock: o conjunto que sairia, sem protocolo e
   const eventos = comLock(api, falso);
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r, {
     ok: false,
@@ -1536,12 +1536,12 @@ teste('a rodada 1 não convida para uma troca impossível: projeto cheio recusa 
   // aluno confirmaria uma troca que só pode terminar em recusa, e teria de
   // decidir duas vezes para ficar onde estava.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_y', { vagas: '1' });
+  api.atualizar_('projetos', 'p_y', { vagas: '1' });
   inscreverEm(api, 'i_x');
   inscreverEm(api, 'i_cheio', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', matricula: '9110002' });
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r.ok, false);
   igual(r.situacao, 'ESGOTADO');
@@ -1560,7 +1560,7 @@ teste('e-mail diferente do da inscrição anterior: recusa SEM nomear projeto ne
   inscreverEm(api, 'i_x', { email: 'outro@exemplo.com' });
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r, {
     ok: false,
@@ -1582,7 +1582,7 @@ teste('inscrição feita PELA COORDENAÇÃO não é trocável pelo aluno, mesmo 
   inscreverEm(api, 'i_x', { origem: 'COORDENACAO', incluido_por: 'coordenacao@exemplo.com' });
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r, {
     ok: false,
@@ -1594,9 +1594,9 @@ teste('inscrição feita PELA COORDENAÇÃO não é trocável pelo aluno, mesmo 
   igual(inscricoesGravadas(falso), ['i_x'], 'a inscrição da coordenação foi mexida');
 
   // E a mesma inscrição, feita pelo SITE, troca normalmente.
-  api.excluir('inscricoes', 'i_x');
+  api.excluir_('inscricoes', 'i_x');
   inscreverEm(api, 'i_x');
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
 });
 
 teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na quarentena e a nova com trocada_de', () => {
@@ -1609,7 +1609,7 @@ teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na qua
   const eventos = comLock(api, falso);
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, false);
@@ -1631,7 +1631,7 @@ teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na qua
   igual(anuladas(falso), ['i_x']);
   igual(acoesDoLog(falso), ['INSCRICAO_PROJETO', 'INSCRICAO_TROCADA']);
 
-  const guardada = api.ler('inscricoes_anuladas', 'i_x');
+  const guardada = api.ler_('inscricoes_anuladas', 'i_x');
   igual(guardada.anulado_por, 'aluno', 'a sentinela do aluno é o que separa a troca da anulação');
   igual(guardada.anulado_motivo, 'TROCA');
   igual(guardada.trocado_para, r.protocolo);
@@ -1639,7 +1639,7 @@ teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na qua
   igual(guardada.nome, 'Maria da Silva', 'a cópia guarda o documento inteiro, e não um resumo');
   igual(guardada.curso_fase, 'WORK EXPERIENCE - ADM21');
 
-  const nova = api.ler('inscricoes', r.protocolo);
+  const nova = api.ler_('inscricoes', r.protocolo);
   igual(nova.projeto_id, 'p_y');
   igual(nova.projeto_nome, 'Horta Comunitária');
   igual(nova.trocada_de, 'i_x');
@@ -1649,13 +1649,13 @@ teste('a rodada 2 troca de verdade: UM `:commit` dentro do lock, a antiga na qua
 teste('a troca declara o cadastro sujo — e sobrevive a 10_Painel.gs não estar carregado', () => {
   // A troca é a única escrita que muda a ficha do aluno SEM mudar contagem
   // nenhuma (o `:commit` apaga uma inscrição e cria outra), e o freio 1 do
-  // Atualizar compara contagens — por isso `submeterInscricao` chama
+  // Atualizar compara contagens — por isso `submeterInscricao_` chama
   // `esquecerMarcaDaReconciliacao_`, que mora em 10_Painel.gs. Este arquivo NÃO
   // carrega o painel (ver `GS`, lá em cima), que é exatamente a situação em que
   // a chamada precisa não derrubar nada.
   //
   // Mutação que derruba: tirar o try/catch da chamada — o `ReferenceError` sobe
-  // até o `catch` de `submeterInscricao`, e o aluno lê "Erro ao registrar" sobre
+  // até o `catch` de `submeterInscricao_`, e o aluno lê "Erro ao registrar" sobre
   // uma troca que JÁ aconteceu no banco (a antiga na quarentena, a nova criada).
   const amb = cenarioDaTroca('SIM');
   igual(typeof amb.api.esquecerMarcaDaReconciliacao_, 'undefined',
@@ -1663,7 +1663,7 @@ teste('a troca declara o cadastro sujo — e sobrevive a 10_Painel.gs não estar
   inscreverEm(amb.api, 'i_x');
   comLock(amb.api, amb.falso);
 
-  const r = amb.api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = amb.api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.trocada, { de: [{ projeto_nome: 'Robótica na Escola', codigo: 'robotica' }] });
@@ -1684,14 +1684,14 @@ teste('a troca INDETERMINADA declara o cadastro sujo do mesmo jeito — ali ela 
   // dúvida.
   //
   // Mutação que derruba: tirar o `|| resultado.troca_indeterminada` da guarda de
-  // `submeterInscricao`. A suíte inteira fica verde com ela, e o ramo que some é
+  // `submeterInscricao_`. A suíte inteira fica verde com ela, e o ramo que some é
   // justamente o do dia em que o banco engasga.
   const amb = cenarioDaTroca('SIM');
   inscreverEm(amb.api, 'i_x');
   comLock(amb.api, amb.falso);
   amb.falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
-  const r = amb.api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = amb.api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.trocada, undefined, 'o cenário exige o ramo INDETERMINADO, e não o da troca confirmada');
@@ -1712,7 +1712,7 @@ teste('sem outra inscrição ativa, a regra custa UMA consulta a mais — e ela 
   const eventos = comLock(api, falso);
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   const pegou = marco(eventos, 'pegou');
@@ -1734,7 +1734,7 @@ teste('a vizinha grava o MESMO projeto durante a espera: duplicada com o protoco
   });
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, true);
@@ -1757,7 +1757,7 @@ teste('duas PRIMEIRAS inscrições ao mesmo tempo: a consulta de dentro do lock 
     }
   });
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r.ok, false);
   igual(r.troca_pendente, true);
@@ -1777,13 +1777,13 @@ teste('o que apareceu DEPOIS do consentimento não é cancelado: re-pergunta com
     aoEsperar: () => {
       if (falso.documentos.has('inscricoes/i_p1')) return;
       // A outra aba completou a troca p_x -> p_1 enquanto esta esperava.
-      api.excluir('inscricoes', 'i_x');
+      api.excluir_('inscricoes', 'i_x');
       inscreverEm(api, 'i_p1', { projeto_id: 'p_1', projeto_nome: 'Marcenaria Social' });
     }
   });
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, false);
   igual(r.troca_pendente, true);
@@ -1798,7 +1798,7 @@ teste('o projeto novo enche durante a espera: nada é cancelado, e a resposta di
   // fica sem nenhuma das duas inscrições, que é o desastre que a peça inteira
   // existe para impedir.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_y', { vagas: '1' });
+  api.atualizar_('projetos', 'p_y', { vagas: '1' });
   inscreverEm(api, 'i_x');
   const eventos = comLock(api, falso, {
     aoEsperar: () => {
@@ -1808,7 +1808,7 @@ teste('o projeto novo enche durante a espera: nada é cancelado, e a resposta di
   });
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, false);
   igual(r.situacao, 'ESGOTADO');
@@ -1829,13 +1829,13 @@ teste('com a fila de espera ligada, a troca NÃO cai na lista de espera', () => 
   // é um negócio que ninguém aceitaria se lhe perguntassem. Mutação que derruba:
   // deixar G6 gravar em espera.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_y', { vagas: '1' });
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.atualizar_('projetos', 'p_y', { vagas: '1' });
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
   inscreverEm(api, 'i_x');
   inscreverEm(api, 'i_cheio', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária', matricula: '9110002' });
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, false);
   igual(r.situacao, 'ESGOTADO');
@@ -1859,7 +1859,7 @@ teste('a posse é conferida DE NOVO dentro do lock: a inscrição que nasceu no 
     }
   });
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.campo, 'email');
   igual(r.troca_pendente, undefined, 'a recusa de posse vem antes da re-pergunta');
@@ -1889,7 +1889,7 @@ teste('a região do lock é de 3 idas mesmo quando a RESPOSTA precisa de um proj
   });
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_z'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_z'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(marco(eventos, 'soltou') - marco(eventos, 'pegou'), 3,
@@ -1922,7 +1922,7 @@ teste('a re-pergunta de dentro do lock também monta a resposta do lado de fora'
   });
   zerar(falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.troca_pendente, true, 'erro foi: ' + r.erro);
   igual(r.reperguntar, undefined, 'o conjunto cru não pode vazar para a tela');
@@ -1957,7 +1957,7 @@ teste('a origem COORDENACAO é conferida DE NOVO dentro do lock: a inscrição q
   });
 
   // O aluno consentiu nos DOIS: é o caminho em que nada mais o protege.
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_1'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x', 'p_1'] }));
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('Marcenaria Social') !== -1, 'a recusa nomeia o projeto: ' + r.erro);
@@ -1973,11 +1973,11 @@ teste('inscrição em projeto do semestre passado (ativo=NAO) não conta para a 
   // Mutação que derruba: ignorar `ativo` — o aluno do semestre passado seria
   // obrigado a "trocar" de um projeto que já acabou para se inscrever no novo.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_x', { ativo: 'NAO' });
+  api.atualizar_('projetos', 'p_x', { ativo: 'NAO' });
   inscreverEm(api, 'i_x');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.trocada, undefined, 'não havia o que trocar');
@@ -1989,7 +1989,7 @@ teste('o projeto novo FECHA entre a pergunta e a confirmação: nada é cancelad
   // A rodada 2 é a de maior aposta: o aluno já clicou em [Trocar] e autorizou um
   // cancelamento. Ler só "as inscrições para este projeto estão encerradas" é
   // concluir que ficou sem nenhuma das duas — o mesmo dano que `mantida` existe
-  // para impedir no ESGOTADO. FECHADO e INATIVO são recusados por `reservarVaga`
+  // para impedir no ESGOTADO. FECHADO e INATIVO são recusados por `reservarVaga_`
   // ANTES do lock, então nem chegam ao gravador: quem decora a resposta é o de
   // fora, com o conjunto que o aluno tinha na tela.
   //
@@ -2000,9 +2000,9 @@ teste('o projeto novo FECHA entre a pergunta e a confirmação: nada é cancelad
   inscreverEm(api, 'i_x');
   comLock(api, falso);
 
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_y' })).troca_pendente, true);
-  api.atualizar('projetos', 'p_y', { inscricoes_abertas: 'NAO' });
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_y' })).troca_pendente, true);
+  api.atualizar_('projetos', 'p_y', { inscricoes_abertas: 'NAO' });
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, false);
   igual(r.situacao, 'FECHADO');
@@ -2010,14 +2010,14 @@ teste('o projeto novo FECHA entre a pergunta e a confirmação: nada é cancelad
   verdadeiro(r.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + r.erro);
   verdadeiro(r.erro.indexOf('foram encerradas') !== -1,
     'a abertura é da SITUAÇÃO: "as vagas acabaram" seria mentira aqui. A frase foi: ' + r.erro);
-  verdadeiro(api.ler('inscricoes', 'i_x') !== null, 'a inscrição antiga foi cancelada numa recusa');
+  verdadeiro(api.ler_('inscricoes', 'i_x') !== null, 'a inscrição antiga foi cancelada numa recusa');
   igual(quantas(falso, COMMIT), 0);
   igual(anuladas(falso), []);
 
   // E o projeto DESLIGADO no meio tem a terceira abertura — ele não teve as
   // inscrições encerradas, ele sumiu da lista.
-  api.atualizar('projetos', 'p_y', { inscricoes_abertas: 'SIM', ativo: 'NAO' });
-  const desligado = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  api.atualizar_('projetos', 'p_y', { inscricoes_abertas: 'SIM', ativo: 'NAO' });
+  const desligado = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
   igual(desligado.situacao, 'INATIVO');
   verdadeiro(desligado.erro.indexOf('não está mais disponível') !== -1, 'a frase foi: ' + desligado.erro);
   verdadeiro(desligado.erro.indexOf('foi mantida') !== -1, 'a frase foi: ' + desligado.erro);
@@ -2032,7 +2032,7 @@ teste('reenvio para o projeto em que já está: duplicada com o protocolo, aviso
   inscreverEm(api, 'i_y', { projeto_id: 'p_y', projeto_nome: 'Horta Comunitária' });
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, true);
@@ -2050,9 +2050,9 @@ teste('reenviar a confirmação depois do sucesso devolve o mesmo protocolo, sem
   inscreverEm(api, 'i_x');
   comLock(api, falso);
 
-  const primeira = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const primeira = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
   zerar(falso);
-  const segunda = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const segunda = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(segunda.ok, true, 'erro foi: ' + segunda.erro);
   igual(segunda.duplicada, true);
@@ -2072,7 +2072,7 @@ teste('`trocar_de` grande demais é recusado ANTES de ler qualquer coisa; id com
 
   const muitos = [];
   for (let i = 0; i < 21; i++) muitos.push('p_' + i);
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: muitos }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: muitos }));
 
   igual(r, { ok: false, erro: 'Pedido de troca inválido. Recarregue a página e tente de novo.' });
   igual(quantas(falso, CONSULTA), 0, 'a recusa sai antes de ler as inscrições da pessoa');
@@ -2090,14 +2090,14 @@ teste('matrícula vazia desliga a regra: grava como sempre, e a inscrição anti
   // e-mail — duas pessoas da mesma família com o mesmo e-mail viram a mesma
   // pessoa, e uma cancelaria a inscrição da outra.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.gravarConfig('exigir_matricula', 'NAO');
+  api.gravarConfig_('exigir_matricula', 'NAO');
   // Sem matrícula não há o que conferir contra a lista oficial — é o projeto
   // aberto à comunidade, o único lugar em que este caso existe de verdade.
-  api.atualizar('projetos', 'p_y', { validar_matricula: 'NAO' });
+  api.atualizar_('projetos', 'p_y', { validar_matricula: 'NAO' });
   inscreverEm(api, 'i_x', { matricula: '' });
   const eventos = comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', matricula: '', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', matricula: '', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.trocada, undefined);
@@ -2113,18 +2113,18 @@ teste('matrícula CANCELADA na lista oficial: a inscrição nova entra, a TROCA 
   // `conhecida === false` como gatilho — o projeto aberto à comunidade, onde
   // ninguém está na lista, passaria a recusar toda troca.
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_y', { validar_matricula: 'NAO' });
+  api.atualizar_('projetos', 'p_y', { validar_matricula: 'NAO' });
   cancelar(api, '9110001');
   comLock(api, falso);
 
   // Sem outra inscrição ativa: a nova entra, porque ela não destrói nada.
-  const nova = api.submeterInscricao(envio({ projeto_id: 'p_y' }));
+  const nova = api.submeterInscricao_(envio({ projeto_id: 'p_y' }));
   igual(nova.ok, true, 'erro foi: ' + nova.erro);
-  api.excluir('inscricoes', nova.protocolo);
+  api.excluir_('inscricoes', nova.protocolo);
 
   inscreverEm(api, 'i_x');
   zerar(falso);   // a marca de cancelamento também é um `:commit` (atualizarEmLote)
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r, {
     ok: false,
@@ -2139,8 +2139,8 @@ teste('matrícula CANCELADA na lista oficial: a inscrição nova entra, a TROCA 
   // E o projeto aberto à comunidade, com a matrícula fora da lista, troca
   // normalmente — o gatilho é a MARCA, não o desconhecimento.
   cancelar(api, '9110002');   // outra pessoa, para a lista continuar existindo
-  api.excluir('matriculados', '9110001');
-  igual(api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
+  api.excluir_('matriculados', '9110001');
+  igual(api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] })).ok, true);
 });
 
 teste('o documento da troca é o do caminho PÚBLICO: sem incluido_por, com os três aceites', () => {
@@ -2151,8 +2151,8 @@ teste('o documento da troca é o do caminho PÚBLICO: sem incluido_por, com os t
   inscreverEm(api, 'i_x');
   comLock(api, falso);
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
-  const nova = api.ler('inscricoes', r.protocolo);
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const nova = api.ler_('inscricoes', r.protocolo);
 
   igual(nova.incluido_por, undefined, 'a troca é do aluno: `incluido_por` ali sairia mentindo');
   igual(nova.declara_ciencia, 'SIM');
@@ -2188,25 +2188,25 @@ teste('a coordenação anula a antiga entre a consulta e o commit: a troca compl
       // está montado, e a coordenação anula a inscrição antiga.
       if (!anulou && String(url).indexOf(':commit') !== -1) {
         anulou = true;
-        const guardada = Object.assign({}, api.ler('inscricoes', 'i_x'), {
+        const guardada = Object.assign({}, api.ler_('inscricoes', 'i_x'), {
           anulado_em: '2026-09-22 18:00:00', anulado_por: 'coordenacao@exemplo.com'
         });
-        api.escreverEmLote('inscricoes_anuladas', [guardada]);
-        api.excluir('inscricoes', 'i_x');
+        api.escreverEmLote_('inscricoes_anuladas', [guardada]);
+        api.excluir_('inscricoes', 'i_x');
       }
       return real.fetch(url, opcoes);
     },
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
   api.UrlFetchApp = real;
 
   verdadeiro(anulou, 'o cenário não chegou a acontecer');
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, false, 'a resposta disse "você já estava inscrito" sem ter criado nada');
   igual(inscricoesGravadas(falso), [r.protocolo]);
-  igual(api.ler('inscricoes_anuladas', 'i_x').anulado_motivo, 'TROCA',
+  igual(api.ler_('inscricoes_anuladas', 'i_x').anulado_motivo, 'TROCA',
     'a cópia da troca sobrescreve a da coordenação — o que se perde é trilha, nunca o aluno');
 });
 
@@ -2230,7 +2230,7 @@ teste('o 503 na RESPOSTA do commit da troca: ela ENTROU, e a trilha da troca sai
   comLock(api, falso);
   falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.duplicada, true, 'a inscrição de Y existe — quem a criou é que não se sabe');
@@ -2297,7 +2297,7 @@ teste('503 COM a coordenação gravando durante a retentativa: a troca NÃO entr
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
   api.UrlFetchApp = real;
 
   verdadeiro(tentativas >= 2, 'o cenário exige a retentativa: houve ' + tentativas);
@@ -2317,7 +2317,7 @@ teste('503 COM a coordenação gravando durante a retentativa: a troca NÃO entr
 });
 
 teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: duplicada honesta, sem cancelamento nenhum', () => {
-  // O 409 SEM retentativa nenhuma, e ele é alcançável sem 503: `incluirInscricao`
+  // O 409 SEM retentativa nenhuma, e ele é alcançável sem 503: `incluirInscricao_`
   // (10_Painel.gs) grava em `inscricoes` com a MESMA `chaveDedup_` e SEM o lock.
   // O `:commit` inteiro é recusado — a antiga continua VIVA, a quarentena vazia
   // —, e o aluno está em Y por outra via. Mutação que derruba: responder aqui o
@@ -2349,7 +2349,7 @@ teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: dup
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = api.submeterInscricao(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
+  const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', trocar_de: ['p_x'] }));
   api.UrlFetchApp = real;
 
   verdadeiro(incluiu, 'o cenário não chegou a acontecer');
@@ -2373,13 +2373,13 @@ teste('a coordenação cria a MESMA inscrição entre a decisão e o commit: dup
 // contar antes do `waitLock` — ou qualquer escrita da troca fora da região.
 teste('com a regra ligada, 70 tentativas mais 10 vizinhas em 60 vagas fecham em exatamente 60', () => {
   const { api, falso } = cenarioDaTroca('SIM');
-  api.atualizar('projetos', 'p_y', { vagas: '60', validar_matricula: 'NAO' });
+  api.atualizar_('projetos', 'p_y', { vagas: '60', validar_matricula: 'NAO' });
 
   let vizinhas = 0;
   comLock(api, falso, {
     aoEsperar: () => {
       if (vizinhas >= 10) return;
-      api.inserir('inscricoes', { projeto_id: 'p_y' }, 'vizinha_' + vizinhas);
+      api.inserir_('inscricoes', { projeto_id: 'p_y' }, 'vizinha_' + vizinhas);
       vizinhas++;
     }
   });
@@ -2387,7 +2387,7 @@ teste('com a regra ligada, 70 tentativas mais 10 vizinhas em 60 vagas fecham em 
   let aceitas = 0;
   let recusadas = 0;
   for (let i = 0; i < 70; i++) {
-    const r = api.submeterInscricao(envio({ projeto_id: 'p_y', matricula: String(9110001 + i) }));
+    const r = api.submeterInscricao_(envio({ projeto_id: 'p_y', matricula: String(9110001 + i) }));
     if (r.ok) aceitas++;
     else recusadas++;
   }
@@ -2419,12 +2419,12 @@ teste('a contagem de vagas de 09_Projetos.gs enxerga o que gravarInscricao grava
   const { api } = ambiente();
   criarProjeto(api, 'p_1');
 
-  api.gravarInscricao(envio({ projeto_id: 'p_1' }));
-  api.gravarInscricao(envio({ projeto_id: 'p_1', matricula: '9110002' }));
-  api.gravarInscricao(envio({ projeto_id: 'p_2', matricula: '9110003' }));
+  api.gravarInscricao_(envio({ projeto_id: 'p_1' }));
+  api.gravarInscricao_(envio({ projeto_id: 'p_1', matricula: '9110002' }));
+  api.gravarInscricao_(envio({ projeto_id: 'p_2', matricula: '9110003' }));
 
   igual(api.contarInscritos_('p_1'), 2, 'coleção e campo projeto_id são o contrato entre as duas fases');
-  igual(api.listarProjetos(false).filter((p) => p.id === 'p_1')[0].restantes, 58);
+  igual(api.listarProjetos_(false).filter((p) => p.id === 'p_1')[0].restantes, 58);
 });
 
 // ---------------------------------------------------------------- Resultado

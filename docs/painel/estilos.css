@@ -1,23 +1,15 @@
-  /* Estilos do formulário interno (Cadastro.html), servido pelo Apps Script.
-     Tudo inline: o iframe do Google Sites bloqueia recursos externos.
+  /* Estilos do painel de gestão (docs/painel/index.html).
 
-     ESTE ARQUIVO TEM UM GÊMEO: `docs/painel/estilos.css` é o miolo deste
-     <style>, byte a byte, porque o painel mudou para o GitHub Pages e lá não
-     existe `include()`. Copiar CSS é o começo de duas telas que divergem em
-     silêncio, e por isso a cópia é CONFERIDA: `testes/painel-site.js` compara os
-     dois e falha se alguém editar um só. Para atualizar o gêmeo:
-
-       node -e "const f=require('fs'),t=f.readFileSync('apps-script/Estilos.html','utf8'); \
-         f.writeFileSync('docs/painel/estilos.css', t.slice(t.indexOf('<style>')+8, t.lastIndexOf('</style>')))"
-
-     Alternativa descartada: servir o CSS do Pages para o Cadastro.html. Ele roda
-     dentro do iframe do Google Sites, que bloqueia recurso externo — foi por
-     isso que este arquivo nasceu inline. */
+     Este CSS nasceu como o miolo de `apps-script/Estilos.html`, o <style> que o
+     Apps Script embutia no formulário interno e no painel antigo, e por meses foi
+     uma cópia conferida byte a byte daquele arquivo. Em 16/11/2026 as páginas do
+     Apps Script saíram do servidor (ver "Nenhuma resposta é página", em
+     apps-script/08_Api.gs), e esta passou a ser a única cópia. */
 
   /* Mesma paleta do site público — extraída de unicesusc.edu.br.
-     Ver docs/assets/estilos.css. Aqui a fonte fica no stack do sistema:
-     o Apps Script serve estas páginas de outro domínio, e carregar o
-     Montserrat de lá exigiria hospedá-lo duas vezes. */
+     Ver docs/assets/estilos.css. Aqui a fonte fica no stack do sistema, como
+     ficava quando este CSS também era servido pelo Apps Script, de outro
+     domínio, onde carregar o Montserrat exigiria hospedá-lo duas vezes. */
   :root {
     --vinho: #5c2235;
     --vinho-escuro: #451a28;
@@ -419,9 +411,8 @@
      chama `window.print()`. Aí — e só aí — a impressão troca a tela por ele.
 
      A CLASSE NO BODY não é cerimônia. Sem ela isto valeria para todo Ctrl+P, e
-     o `Cadastro.html` (o gêmeo deste CSS, que não tem `#area-impressao` nenhum)
-     imprimiria folha em branco — o formulário do aluno é impresso de verdade,
-     por quem preenche no balcão.
+     imprimir a própria tela do painel sairia em folha em branco: fora do clique
+     em Exportar PDF, `#area-impressao` está vazio.
 
      E o `.modal-fundo` é o motivo de a regra ser "esconde TUDO" e não "esconde o
      painel": ele é `position: fixed` cobrindo a página com fundo escuro, e

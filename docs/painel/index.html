@@ -320,7 +320,7 @@
   <!--
     Os filtros seguem o mesmo desenho da aba Disciplinas: resolvidos NO NAVEGADOR,
     sobre a lista que já veio. São poucos projetos por semestre e cada recarga
-    custa uma agregação POR projeto (ver `listarProjetos` em 09_Projetos.gs) —
+    custa uma agregação POR projeto (ver `listarProjetos_` em 09_Projetos.gs) —
     filtrar no servidor a cada tecla pagaria essa conta de novo sem necessidade.
   -->
   <section id="secao-projetos" class="oculto">
@@ -365,7 +365,7 @@
     ninguém perceber. Ver o cabeçalho de 12_Disciplinas.gs.
 
     Os filtros desta aba são resolvidos NO NAVEGADOR, sobre a lista que já veio.
-    Não é preguiça: são quatro campos, `listar` aceita um `fieldFilter` só
+    Não é preguiça: são quatro campos, `listar_` aceita um `fieldFilter` só
     (02_Repo.gs), e a coleção tem dezenas de documentos. Filtrar aqui custa zero
     leitura por tecla e responde na hora.
   -->
@@ -782,8 +782,9 @@
    * Este arquivo era `apps-script/Admin.html`, servido pelo próprio Apps Script
    * em `/exec?p=admin`. As telas são as mesmas — o que mudou foi o TRANSPORTE:
    * onde havia `google.script.run` (que só existe dentro de uma página servida
-   * pelo Apps Script) agora há um POST para o `/exec`. Aquele endereço passou a
-   * apontar para cá; ver o cabeçalho de `apps-script/Admin.html`.
+   * pelo Apps Script) agora há um POST para o `/exec`. Aquele endereço hoje
+   * responde só JSON, com o endereço daqui: o servidor não serve mais página
+   * nenhuma (ver "Nenhuma resposta é página", em `apps-script/08_Api.gs`).
    *
    * A mudança é do encanamento, e por um motivo só: entrar com conta Google
    * exige que o Google reconheça a ORIGEM da página, e a origem de uma página
@@ -1094,7 +1095,7 @@
    * Esperar `sessaoAtiva` responder para só então pedir os números empilhava
    * DUAS execuções do Apps Script antes de a primeira tela aparecer, e a segunda
    * reconfere o mesmo token de qualquer jeito — toda função do painel começa por
-   * `exigirAdmin`. Se o token tiver morrido, quem devolve a tela de login é o
+   * `exigirAdmin_`. Se o token tiver morrido, quem devolve a tela de login é o
    * `chamar()`, que reconhece a recusa do servidor.
    *
    * O risco de abrir o painel antes da confirmação é nenhum: a casca do painel
@@ -2098,7 +2099,7 @@
    *     200 linhas  ->   65 KiB crus,  ~10 KiB comprimidos  (334 B por linha)
    *    1000 linhas  ->  326 KiB crus,  ~46 KiB comprimidos
    *
-   * e, do lado do servidor, o `runQuery` que `listar` baixa e faz `JSON.parse`
+   * e, do lado do servidor, o `runQuery` que `listar_` baixa e faz `JSON.parse`
    * dentro do Apps Script cresce de 0,26 MiB para 1,28 MiB — o documento inteiro
    * viaja, `raw_json` incluído, e só depois `resumoParaAuditorio_` o descarta.
    *
@@ -2452,7 +2453,7 @@
    *
    * A premissa foi conferida no servidor antes desta linha existir: `doGet` e
    * `doPost` (08_Api.gs) são os ÚNICOS pontos de entrada, e os dois respondem
-   * sempre por `ContentService`/`HtmlService`, que saem como HTTP 200. Não existe
+   * sempre por `ContentService`, que sai como HTTP 200. Não existe
    * no Apps Script como um web app devolver outro código, e não há nenhum
    * `setStatusCode` no repositório. Toda recusa nossa — sessão expirada, ação
    * desconhecida, corpo inválido, erro interno — viaja como `{ ok: false }` com
@@ -2929,6 +2930,28 @@
     return String(v === null || v === undefined ? '' : v)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Um texto como ARGUMENTO de um `onclick="f(...)"` escrito na marcação — já
+   * com as aspas: `onclick="f(' + argumentoJs(id) + ')"`.
+   *
+   * São dois contextos, um dentro do outro, e cada um tem o seu escape. O
+   * navegador primeiro decodifica o ATRIBUTO — é ali que `&#39;` volta a ser `'`
+   * — e só depois compila o JavaScript. `escapar` entre aspas escritas à mão
+   * protege só o primeiro: o `'` chega inteiro ao segundo e fecha a string. Aqui
+   * o `JSON.stringify` faz a string do JavaScript, com as aspas e as barras que
+   * ela precisa, e o `escapar` por fora a guarda dentro do atributo.
+   *
+   * TODO texto que entra num `onclick` da marcação passa por aqui — o id que o
+   * servidor gera, a chave de configuração, o e-mail da lista de acesso, e até
+   * as constantes do código. O painel desenha o que está no banco, e o banco
+   * pode ter sido escrito por outro caminho que não estas telas. Há teste que
+   * reprova a forma antiga no painel inteiro e clica em cada aba com os piores
+   * textos (testes/painel-navegador.js).
+   */
+  function argumentoJs(v) {
+    return escapar(JSON.stringify(String(v === null || v === undefined ? '' : v)));
   }
 
   // ------------------------------------------------------------ Aba Painel
@@ -3503,7 +3526,7 @@
    * A inscrição está dentro do período? — comparando SÓ O DIA.
    *
    * `criado_em` é 'yyyy-MM-dd HH:mm:ss' no fuso de `APP.timezone`
-   * (America/Sao_Paulo — é `agora()`, em 01_Utils.gs, e NÃO UTC), e o
+   * (America/Sao_Paulo — é `agora_()`, em 01_Utils.gs, e NÃO UTC), e o
    * `<input type="date">` entrega 'yyyy-MM-dd' no fuso de quem digita, que é o
    * mesmo. Os dois lados têm largura fixa e zero à esquerda, e por isso comparar
    * texto é comparar data — sem `new Date()`, que leria o carimbo como UTC e
@@ -3600,7 +3623,7 @@
   function botaoDeOrdem_(ordem, chave, rotulo, funcao) {
     var ativo = ordem.chave === chave;
     return '<button type="button" class="ordenar' + (ativo ? ' ordenar--ativo' : '') +
-      '" onclick="' + funcao + '(\'' + chave + '\')">' + rotulo +
+      '" onclick="' + funcao + '(' + argumentoJs(chave) + ')">' + rotulo +
       (ativo ? ' ' + (ordem.desc ? '▼' : '▲') : '') + '</button>';
   }
 
@@ -3908,9 +3931,8 @@
    * inscrição anterior para fazer esta, e o protocolo antigo, que ele pode ter
    * fotografado, está na quarentena). Uma inscrição pode ter os dois.
    *
-   * Os selos reusam as classes que a tela já tem (`estilos.css` é gêmeo byte a
-   * byte do `<style>` de apps-script/Estilos.html): classe nova aqui obrigaria a
-   * regenerar o gêmeo, e nenhuma das duas notícias é mais grave que "na espera",
+   * Os selos reusam as classes que a tela já tem (`estilos.css`): classe nova
+   * aqui seria CSS novo por uma notícia que não é mais grave que "na espera",
    * que já usa a cor de atenção.
    */
   function selosDaProcedencia_(i) {
@@ -4023,7 +4045,7 @@
     return '<button type="button" class="btn' + (marcada ? ' btn--primario' : '') + '" ' +
       'id="linha-' + lista + '-' + escapar(id) + '" aria-pressed="' + (marcada ? 'true' : 'false') + '" ' +
       'style="display:block;width:100%;text-align:left;border-radius:0;border-width:0 0 1px;padding:11px 12px" ' +
-      'onclick="tocarLinha(\'' + lista + '\', \'' + escapar(id) + '\')">' +
+      'onclick="tocarLinha(' + argumentoJs(lista) + ', ' + argumentoJs(id) + ')">' +
       '<span style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
       '<span><strong>' + (marcada ? '✓ ' : '') + escapar(nome) + '</strong>' +
       // `opacity` no lugar de `.texto-fraco`: a classe fixa um cinza escuro, que
@@ -4150,7 +4172,7 @@
       ' &middot; até ' + teto + ' por vez</strong>' + acao +
       (fora ? '<button class="btn" onclick="limparFiltroAuditorio()">Mostrar as ' +
         fora + '</button>' : '') +
-      '<button class="btn" onclick="limparMarcas(\'' + lista + '\')">Limpar</button></div>' +
+      '<button class="btn" onclick="limparMarcas(' + argumentoJs(lista) + ')">Limpar</button></div>' +
       (demais
         ? '<div class="aviso aviso--atencao">São <strong>' + visiveis +
           '</strong> na tela, e ' + (lista === 'recentes' ? 'anular' : 'promover') +
@@ -4345,9 +4367,9 @@
           // de Editar porque é a leitura — o que se faz mais vezes, e o que não
           // muda nada — e porque encostá-la nos dois botões que gravam convida ao
           // clique errado.
-          '<button class="btn btn--pequeno" onclick="verInscritosProjeto(\'' + escapar(p.id) + '\')">Inscritos</button> ' +
+          '<button class="btn btn--pequeno" onclick="verInscritosProjeto(' + argumentoJs(p.id) + ')">Inscritos</button> ' +
           '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.projeto) +
-          ' onclick="abrirFormProjeto(\'' + escapar(p.id) + '\')">Editar</button> ' +
+          ' onclick="abrirFormProjeto(' + argumentoJs(p.id) + ')">Editar</button> ' +
           // Um clique, sem abrir a edição: inativar é a ação do dia em que um
           // projeto sai do ar (professor desistiu, turma cancelada), e obrigar a
           // passar pelo formulário inteiro para virar uma caixa faz a coordenação
@@ -4355,11 +4377,11 @@
           '<button class="btn btn--pequeno" data-gravando="' +
           (p.ativo ? 'Inativando...' : 'Ativando...') + '"' +
           travaDeNivel(POR_QUE_TRAVADO.projetoInativar) +
-          ' onclick="aoGravar(this, alternarProjetoUI, \'' + escapar(p.id) + '\')">' +
+          ' onclick="aoGravar(this, alternarProjetoUI, ' + argumentoJs(p.id) + ')">' +
           (p.ativo ? 'Inativar' : 'Ativar') + '</button> ' +
           '<button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..."' +
           travaDeNivel(POR_QUE_TRAVADO.projetoRemover) +
-          ' onclick="aoGravar(this, removerProjetoUI, \'' + escapar(p.id) + '\')">Remover</button>' +
+          ' onclick="aoGravar(this, removerProjetoUI, ' + argumentoJs(p.id) + ')">Remover</button>' +
           '</td></tr>';
       });
 
@@ -4383,7 +4405,7 @@
   /**
    * A ocupação deste projeto NÃO veio na resposta?
    *
-   * `listarProjetos` (09_Projetos.gs) devolve `inscritos` null quando a chave
+   * `listarProjetos_` (09_Projetos.gs) devolve `inscritos` null quando a chave
    * `contar_ocupacao_na_lista` está em NAO — a lista não agrega, para se medir
    * quanto do tempo de carregamento é a contagem. A pergunta é feita ao DADO, e
    * não ao sinalizador `ocupacao_contada` que vem junto: uma resposta antiga, de
@@ -4501,7 +4523,7 @@
       '<strong>Ativo</strong> — aparece no site</label></div>' +
       // A caixa lê `inscricoes_abertas`, que o servidor agora manda. Deduzi-la de
       // `p.situacao !== 'FECHADO'` reabria em silêncio as inscrições de todo
-      // projeto INATIVO — ver o comentário em listarProjetos (09_Projetos.gs).
+      // projeto INATIVO — ver o comentário em listarProjetos_ (09_Projetos.gs).
       '<div class="campo checkbox"><input type="checkbox" id="pj-abertas"' +
       (!p || p.inscricoes_abertas ? ' checked' : '') + '><label for="pj-abertas">' +
       '<strong>Inscrições abertas</strong> — desmarque para encerrar antes de lotar</label></div>' +
@@ -4533,7 +4555,7 @@
       '<button class="btn btn--primario" id="modal-salvar"' +
       travaDeNivel(POR_QUE_TRAVADO.projeto) +
       ' onclick="aoGravar(this, salvarProjetoUI, ' +
-      (p ? '\'' + escapar(p.id) + '\'' : 'null') + ')">Salvar</button>';
+      (p ? argumentoJs(p.id) : 'null') + ')">Salvar</button>';
 
     definirBanner((p && p.banner) || '');
   }
@@ -4759,7 +4781,7 @@
    * Filtra a tabela de projetos sem ir ao servidor.
    *
    * Redesenha a partir de PROJETOS, que é o que a última carga trouxe. Cada
-   * recarga custa uma agregação POR projeto (`listarProjetos`, 09_Projetos.gs);
+   * recarga custa uma agregação POR projeto (`listarProjetos_`, 09_Projetos.gs);
    * refazer isso a cada tecla digitada seria pagar a conta de novo por nada.
    */
   function filtrarProjetos() {
@@ -4899,7 +4921,7 @@
           // quem ainda não está em projeto nenhum.
           '<button class="btn btn--pequeno btn--primario" id="insc-proj-incluir"' +
           travaDeNivel(POR_QUE_TRAVADO.incluirAluno) +
-          ' onclick="abrirInclusaoDeAluno(\'' + escapar(id) + '\')">Incluir aluno</button>') +
+          ' onclick="abrirInclusaoDeAluno(' + argumentoJs(id) + ')">Incluir aluno</button>') +
         '<div id="insc-proj-tabela"></div>';
 
       corpo.innerHTML = html;
@@ -5398,7 +5420,7 @@
     var inscricoes = INCLUSAO.jaEm || [];
 
     // A porta da coordenação AVISA sobre o cancelado, não recusa (a pública
-    // recusa, calada — `matriculaConhecida`): a ficha preenche do mesmo jeito e
+    // recusa, calada — `matriculaConhecida_`): a ficha preenche do mesmo jeito e
     // a inscrição entra marcada. O aviso vive no mesmo estado que o de
     // já-inscrito, e por isso sobrevive à troca de projeto no select.
     var cancelado = INCLUSAO.cancelado
@@ -5736,7 +5758,13 @@
       '</tr></thead><tbody>';
 
     itens.forEach(function (d) {
-      var id = escapar(d.id);
+      // O id vai CRU para a variável, e cada botão o passa por `argumentoJs`,
+      // sem aspas em volta: dentro de um `onclick`, `escapar` entre aspas
+      // escritas à mão não protege a string do JavaScript (ver o comentário de
+      // `argumentoJs`). Hoje o id é um hash e não muda nada na tela; é a forma
+      // que impede o próximo botão de nascer com o id interpolado por um
+      // caminho que não protege.
+      var id = d.id;
 
       html += '<tr>' +
         '<td class="quebra"><strong>' + escapar(d.curso) + '</strong>' +
@@ -5751,18 +5779,18 @@
         (d.ativo ? 'Ativa' : 'Inativa') + '</span></td>' +
         '<td style="white-space:nowrap">' +
         '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.disciplina) +
-        ' onclick="abrirEdicaoDisciplina(\'' + id + '\')">Editar</button> ' +
+        ' onclick="abrirEdicaoDisciplina(' + argumentoJs(id) + ')">Editar</button> ' +
         '<button class="btn btn--pequeno" data-gravando="' +
         (d.ativo ? 'Inativando...' : 'Ativando...') + '"' +
         travaDeNivel(POR_QUE_TRAVADO.disciplina) +
-        ' onclick="aoGravar(this, alternarDisciplinaUI, \'' + id + '\',' + (d.ativo ? 'false' : 'true') + ')">' +
+        ' onclick="aoGravar(this, alternarDisciplinaUI, ' + argumentoJs(id) + ', ' + (d.ativo ? 'false' : 'true') + ')">' +
         (d.ativo ? 'Inativar' : 'Ativar') + '</button> ' +
         // "Inscritos" NÃO leva trava: é leitura, e é o que o professor mais usa
         // nesta aba.
-        '<button class="btn btn--pequeno" onclick="verInscritosDisciplina(\'' + id + '\')">Inscritos</button> ' +
+        '<button class="btn btn--pequeno" onclick="verInscritosDisciplina(' + argumentoJs(id) + ')">Inscritos</button> ' +
         '<button class="btn btn--pequeno btn--perigo" data-gravando="Excluindo..."' +
         travaDeNivel(POR_QUE_TRAVADO.disciplina) +
-        ' onclick="aoGravar(this, removerDisciplinaUI, \'' + id + '\')">Excluir</button>' +
+        ' onclick="aoGravar(this, removerDisciplinaUI, ' + argumentoJs(id) + ')">Excluir</button>' +
         '</td></tr>';
     });
 
@@ -6007,7 +6035,7 @@
       '<button class="btn" onclick="fecharModal()">Cancelar</button>' +
       '<button class="btn btn--primario" id="modal-salvar"' +
       travaDeNivel(POR_QUE_TRAVADO.disciplina) +
-      ' onclick="aoGravar(this, salvarEdicaoDisciplinaUI, \'' + escapar(d.id) + '\')">Salvar</button>';
+      ' onclick="aoGravar(this, salvarEdicaoDisciplinaUI, ' + argumentoJs(d.id) + ')">Salvar</button>';
   }
 
   function salvarEdicaoDisciplinaUI(id) {
@@ -6114,7 +6142,7 @@
   function abasDaJanelaDisciplina(id, ativa) {
     var botao = function (chave, rotulo) {
       return '<button class="btn btn--pequeno' + (ativa === chave ? ' btn--primario' : '') + '" ' +
-        'onclick="trocarVistaDisciplina(\'' + escapar(id) + '\', \'' + chave + '\')">' + rotulo + '</button> ';
+        'onclick="trocarVistaDisciplina(' + argumentoJs(id) + ', ' + argumentoJs(chave) + ')">' + rotulo + '</button> ';
     };
     return '<div class="mb">' +
       botao('turma', 'Turma na lista oficial') +
@@ -6198,7 +6226,7 @@
       '<div class="campo"><label for="disc-turma-campo">Turma na lista oficial</label>' +
       '<input type="text" id="disc-turma-campo" value="' + escapar(turma || '') + '"></div>' +
       '<div class="campo">' +
-      '<button class="btn btn--pequeno" onclick="consultarTurmaDisciplina(\'' + escapar(id) + '\')">' +
+      '<button class="btn btn--pequeno" onclick="consultarTurmaDisciplina(' + argumentoJs(id) + ')">' +
       'Consultar</button></div>';
 
     if (comRecorte) {
@@ -6431,9 +6459,9 @@
    */
   function botoesDeExportacao(qual, extra) {
     return '<div class="barra-acoes">' +
-      '<button class="btn btn--pequeno" onclick="exportar(\'' + qual + '\', \'excel\')">Exportar Excel</button>' +
+      '<button class="btn btn--pequeno" onclick="exportar(' + argumentoJs(qual) + ', \'excel\')">Exportar Excel</button>' +
       '<button class="btn btn--pequeno" data-gravando="Preparando a impressão..." ' +
-      'onclick="aoGravar(this, exportar, \'' + qual + '\', \'pdf\')">Exportar PDF</button>' +
+      'onclick="aoGravar(this, exportar, ' + argumentoJs(qual) + ', \'pdf\')">Exportar PDF</button>' +
       // O que a janela quiser na MESMA barra — hoje, o "Incluir aluno" da janela
       // de projeto. Na mesma barra, e não numa segunda, porque duas barras de
       // botões uma embaixo da outra é o que faz uma janela parecer duas.
@@ -7013,11 +7041,11 @@
           '<td>' + seloDeStatus(a) + '</td>' +
           '<td class="pequeno texto-fraco">' + escapar(a.metodo_match) + '</td>' +
           '<td style="white-space:nowrap">' +
-          '<button class="btn btn--pequeno" onclick="abrirDetalhe(\'' + escapar(a.id) + '\')">Ver</button> ' +
+          '<button class="btn btn--pequeno" onclick="abrirDetalhe(' + argumentoJs(a.id) + ')">Ver</button> ' +
           // "Ver" fica inteiro: a ficha é leitura, e é a aba do professor.
           // "Editar" muda nome, matrícula e PROJETO do aluno — ver J10-5.
           '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.editarAluno) +
-          ' onclick="abrirEdicaoAluno(\'' + escapar(a.id) + '\')">Editar</button>' +
+          ' onclick="abrirEdicaoAluno(' + argumentoJs(a.id) + ')">Editar</button>' +
           '</td></tr>';
       });
 
@@ -7236,8 +7264,8 @@
       html += '<div class="aviso aviso--atencao pequeno">Este aluno veio <strong>só da lista oficial</strong>: ' +
         'ele não se inscreveu. Matrícula, nome digitado e projeto não existem para editar.' +
         (oficial && oficial.matricula
-          ? ' <button class="btn btn--pequeno" id="ed-incluir" onclick="abrirInclusaoDeAluno(\'\', \'' +
-            escapar(oficial.matricula) + '\')">Incluir num projeto</button>'
+          ? ' <button class="btn btn--pequeno" id="ed-incluir" onclick="abrirInclusaoDeAluno(\'\', ' +
+            argumentoJs(oficial.matricula) + ')">Incluir num projeto</button>'
           : '') +
         '</div>';
     }
@@ -7942,7 +7970,7 @@
         entreParenteses +
         '<div class="barra-acoes"><button class="btn btn--primario" id="botao-revisar-pos"' +
         travaDeNivel(POR_QUE_TRAVADO.revisar) +
-        ' onclick="abrirRevisaoDeLote(\'' + escapar(r.loteId) + '\')">Revisar</button></div></div>';
+        ' onclick="abrirRevisaoDeLote(' + argumentoJs(r.loteId) + ')">Revisar</button></div></div>';
     }
     if (r.sumiramMaisQueVieram) {
       html += '<div class="aviso aviso--erro"><strong>Sumiram mais alunos do que vieram</strong> (' +
@@ -8106,11 +8134,11 @@
     // para ele — é uma linha em `funcoesDoProfessor_` mais uma aqui —, os botões
     // já nascem certos, e o dia da reabertura não é o dia de descobrir isto.
     return '<button class="btn btn--pequeno"' + travaDeNivel(POR_QUE_TRAVADO.revisar) +
-      ' onclick="abrirRevisaoDeLote(\'' + escapar(l.lote_id) + '\')">' +
+      ' onclick="abrirRevisaoDeLote(' + argumentoJs(l.lote_id) + ')">' +
       (l.revisado_em ? 'Revisar de novo' : 'Revisar') + '</button> ' +
       '<button class="btn btn--pequeno" data-gravando="Apagando..."' +
       travaDeNivel(POR_QUE_TRAVADO.revisar) +
-      ' onclick="aoGravar(this, expurgarLoteUI, \'' + escapar(l.lote_id) + '\')">Apagar matriculados</button>';
+      ' onclick="aoGravar(this, expurgarLoteUI, ' + argumentoJs(l.lote_id) + ')">Apagar matriculados</button>';
   }
 
   /**
@@ -8379,7 +8407,7 @@
 
     html += '<p class="texto-fraco pequeno">Marcar todos: ' +
       ['MANTER', 'CANCELAR', 'EXCLUIR'].map(function (acao) {
-        return '<button type="button" class="btn btn--pequeno" onclick="marcarTodosRevisao(\'' + lista + '\', \'' + acao + '\')">' +
+        return '<button type="button" class="btn btn--pequeno" onclick="marcarTodosRevisao(' + argumentoJs(lista) + ', ' + argumentoJs(acao) + ')">' +
           rotuloDaAcao(acao) + '</button>';
       }).join(' ') + '</p>' +
       '<div class="tabela-wrap" id="rev-' + lista + '-projeto"><table><thead><tr>' +
@@ -8631,17 +8659,23 @@
       var html = '';
       if (r.urlWebApp) {
         html += '<div class="cartao"><h2>Endereços</h2>' +
-          '<p class="pequeno"><strong>Formulário público:</strong><br>' +
-          '<a href="' + escapar(r.urlWebApp) + '" target="_blank">' + escapar(r.urlWebApp) + '</a></p>' +
           '<p class="pequeno"><strong>Site dos projetos (é o que o aluno usa):</strong><br>' +
           '<a href="' + escapar(BASE_SITE) + '/" target="_blank">' + escapar(BASE_SITE) + '/</a></p>' +
           // O endereço do painel MUDOU, e este é o lugar onde a coordenação vem
-          // procurá-lo. Mostrar o `?p=admin` de antes mandaria a pessoa para a
-          // página que só redireciona — e o link salvo por ela nasceria velho.
+          // procurá-lo. Mostrar o `?p=admin` de antes mandaria a pessoa a um
+          // endereço que só responde JSON — e o link salvo por ela nasceria velho.
           '<p class="pequeno"><strong>Painel de gestão (este):</strong><br>' +
           '<a href="' + escapar(BASE_SITE) + '/painel/" target="_blank">' +
           escapar(BASE_SITE) + '/painel/</a></p>' +
-          '<p class="pequeno texto-fraco">Use o primeiro endereço no Google Sites: Inserir &rsaquo; Incorporar &rsaquo; Por URL.</p></div>';
+          // O `/exec` vem por último, sem link e com o aviso. Até 16/11/2026 ele
+          // servia o formulário interno, e era ele que este cartão mandava pôr no
+          // Google Sites; hoje ele responde só JSON (ver "Nenhuma resposta é
+          // página", em apps-script/08_Api.gs), e incorporado mostraria texto
+          // técnico no lugar de um formulário.
+          '<p class="pequeno"><strong>Servidor (só a API do site e do painel):</strong><br>' +
+          escapar(r.urlWebApp) + '</p>' +
+          '<p class="pequeno texto-fraco">O endereço do servidor não abre página: ' +
+          'não é ele que vai no Google Sites.</p></div>';
       }
 
       html += '<div class="cartao"><h2>Parâmetros</h2>';
@@ -8653,7 +8687,7 @@
           // Este é o único Salvar fora da janela, e há um por parâmetro na tela ao
           // mesmo tempo — daí o id carregar a chave, para cada um ser ele mesmo.
           '<button class="btn btn--pequeno mt" id="salvar-cfg-' + escapar(c.chave) + '" ' +
-          'onclick="aoGravar(this, salvarCfg, \'' + escapar(c.chave) + '\')">Salvar</button>' +
+          'onclick="aoGravar(this, salvarCfg, ' + argumentoJs(c.chave) + ')">Salvar</button>' +
           '</div>';
       });
       el.innerHTML = html + '</div>';
@@ -8791,12 +8825,12 @@
           '<td style="white-space:nowrap">' +
           '<button class="btn btn--pequeno" data-gravando="Mudando..."' +
           (ultimo ? ' disabled aria-disabled="true" title="' + escapar(SO_UM_COORDENADOR) + '"' : '') +
-          ' onclick="aoGravar(this, definirNivelUI, \'' + escapar(p.email) + '\', \'' +
-          (manda ? 'professor' : 'coordenador') + '\')">' +
+          ' onclick="aoGravar(this, definirNivelUI, ' + argumentoJs(p.email) + ', ' +
+          argumentoJs(manda ? 'professor' : 'coordenador') + ')">' +
           (manda ? 'Tornar Professor' : 'Tornar coordenador geral') + '</button> ' +
           '<button class="btn btn--pequeno btn--perigo" data-gravando="Removendo..." ' +
-          'onclick="aoGravar(this, removerAcesso, \'' +
-          escapar(p.email) + '\')">Remover</button></td></tr>';
+          'onclick="aoGravar(this, removerAcesso, ' +
+          argumentoJs(p.email) + ')">Remover</button></td></tr>';
       });
       html += '</tbody></table></div>';
     }

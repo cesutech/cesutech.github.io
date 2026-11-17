@@ -7,7 +7,7 @@
  */
 
 /** Remove acentos, pontuação e espaços extras. Base de toda comparação. */
-function normalizarTexto(v) {
+function normalizarTexto_(v) {
   if (v === null || v === undefined) return '';
   return String(v)
     .normalize('NFD')
@@ -19,12 +19,12 @@ function normalizarTexto(v) {
 }
 
 /** Nome em caixa alta, sem acento, para uso como chave de comparação. */
-function chaveNome(v) {
-  return normalizarTexto(v).toUpperCase();
+function chaveNome_(v) {
+  return normalizarTexto_(v).toUpperCase();
 }
 
 /** "Maria  da SILVA" -> "Maria da Silva". Preposições ficam minúsculas. */
-function formatarNome(v) {
+function formatarNome_(v) {
   if (!v) return '';
   var minusculas = ['de', 'da', 'do', 'das', 'dos', 'e'];
   return String(v).trim().replace(/\s+/g, ' ').toLowerCase().split(' ')
@@ -36,14 +36,14 @@ function formatarNome(v) {
 }
 
 /** Só os dígitos do CPF. */
-function normalizarCpf(v) {
+function normalizarCpf_(v) {
   if (!v) return '';
   return String(v).replace(/\D/g, '');
 }
 
 /** Valida CPF pelos dois dígitos verificadores. */
-function cpfValido(v) {
-  var cpf = normalizarCpf(v);
+function cpfValido_(v) {
+  var cpf = normalizarCpf_(v);
   if (cpf.length !== 11) return false;
   if (/^(\d)\1{10}$/.test(cpf)) return false; // 111.111.111-11 e afins
 
@@ -57,19 +57,19 @@ function cpfValido(v) {
 }
 
 /** 000.000.000-00 para exibição. */
-function formatarCpf(v) {
-  var cpf = normalizarCpf(v);
+function formatarCpf_(v) {
+  var cpf = normalizarCpf_(v);
   if (cpf.length !== 11) return v || '';
   return cpf.slice(0, 3) + '.' + cpf.slice(3, 6) + '.' + cpf.slice(6, 9) + '-' + cpf.slice(9);
 }
 
-function normalizarEmail(v) {
+function normalizarEmail_(v) {
   if (!v) return '';
   return String(v).trim().toLowerCase();
 }
 
-function emailValido(v) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizarEmail(v));
+function emailValido_(v) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizarEmail_(v));
 }
 
 /**
@@ -98,7 +98,7 @@ function emailValido(v) {
  * acentuada, e tirar acento aqui seria inventar uma regra que a secretaria não
  * conhece.
  */
-function normalizarTurma(v) {
+function normalizarTurma_(v) {
   if (v === null || v === undefined) return '';
 
   // O QUALIFICADOR ENTRE PARÊNTESES SAI, e o espaço TODO sai junto. A mesma
@@ -133,7 +133,7 @@ function normalizarTurma(v) {
  * Nome de curso -> a forma em que ele é gravado. 'Análise  e  Desenvolvimento'
  * vira 'Análise e Desenvolvimento', e a caixa fica como está.
  *
- * O tratamento é DE PROPÓSITO mais fraco que o de `normalizarTurma`, e a
+ * O tratamento é DE PROPÓSITO mais fraco que o de `normalizarTurma_`, e a
  * diferença é o que cada campo é. Turma é código, lido por máquina e comparado
  * por igualdade. Curso é nome próprio, lido por GENTE — na ficha do aluno, no
  * cartão "Alunos por curso", no CSV que a coordenação abre. Subir 'Análise e
@@ -147,13 +147,13 @@ function normalizarTurma(v) {
  * duas linhas no histograma de cursos para o mesmo curso. É a mesma régua que o
  * cadastro de disciplinas já aplica ao campo `curso` desde sempre.
  */
-function normalizarNomeDeCurso(v) {
+function normalizarNomeDeCurso_(v) {
   if (v === null || v === undefined) return '';
   return String(v).trim().replace(/\s+/g, ' ');
 }
 
 /** Telefone só com dígitos, sem o 55 do país. */
-function normalizarTelefone(v) {
+function normalizarTelefone_(v) {
   if (!v) return '';
   var d = String(v).replace(/\D/g, '');
   if (d.length > 11 && d.indexOf('55') === 0) d = d.slice(2);
@@ -161,8 +161,8 @@ function normalizarTelefone(v) {
 }
 
 /** (48) 99999-9999 */
-function formatarTelefone(v) {
-  var d = normalizarTelefone(v);
+function formatarTelefone_(v) {
+  var d = normalizarTelefone_(v);
   if (d.length === 11) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
   if (d.length === 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
   return v || '';
@@ -172,7 +172,7 @@ function formatarTelefone(v) {
  * Aceita Date, dd/mm/aaaa, aaaa-mm-dd e serial do Excel.
  * Devolve sempre 'aaaa-mm-dd' (ordenável como texto) ou ''.
  */
-function normalizarData(v) {
+function normalizarData_(v) {
   if (!v && v !== 0) return '';
 
   if (Object.prototype.toString.call(v) === '[object Date]') {
@@ -193,37 +193,37 @@ function normalizarData(v) {
   var br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
   if (br) {
     var ano = br[3].length === 2 ? (Number(br[3]) > 30 ? '19' + br[3] : '20' + br[3]) : br[3];
-    return ano + '-' + pad2(br[2]) + '-' + pad2(br[1]);
+    return ano + '-' + pad2_(br[2]) + '-' + pad2_(br[1]);
   }
 
   var iso = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
-  if (iso) return iso[1] + '-' + pad2(iso[2]) + '-' + pad2(iso[3]);
+  if (iso) return iso[1] + '-' + pad2_(iso[2]) + '-' + pad2_(iso[3]);
 
   return '';
 }
 
 /** 'aaaa-mm-dd' -> 'dd/mm/aaaa' para exibição. */
-function formatarData(v) {
-  var d = normalizarData(v);
+function formatarData_(v) {
+  var d = normalizarData_(v);
   if (!d) return '';
   var p = d.split('-');
   return p[2] + '/' + p[1] + '/' + p[0];
 }
 
-function pad2(n) {
+function pad2_(n) {
   return ('0' + String(n)).slice(-2);
 }
 
-function agora() {
+function agora_() {
   return Utilities.formatDate(new Date(), APP.timezone, 'yyyy-MM-dd HH:mm:ss');
 }
 
-function uid(prefixo) {
+function uid_(prefixo) {
   return (prefixo || 'id') + '_' + Utilities.getUuid().replace(/-/g, '').slice(0, 12);
 }
 
 /** Hash curto e estável — usado para detectar inscrição duplicada. */
-function hash(texto) {
+function hash_(texto) {
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, String(texto), Utilities.Charset.UTF_8);
   return bytes.map(function (b) {
     return ('0' + (b & 0xFF).toString(16)).slice(-2);
@@ -234,9 +234,9 @@ function hash(texto) {
  * Similaridade 0..1 entre dois textos (Dice sobre bigramas).
  * Usada só para sugerir match por nome — nunca confirma sozinha.
  */
-function similaridade(a, b) {
-  var x = normalizarTexto(a).replace(/\s/g, '');
-  var y = normalizarTexto(b).replace(/\s/g, '');
+function similaridade_(a, b) {
+  var x = normalizarTexto_(a).replace(/\s/g, '');
+  var y = normalizarTexto_(b).replace(/\s/g, '');
   if (!x || !y) return 0;
   if (x === y) return 1;
   if (x.length < 2 || y.length < 2) return 0;
@@ -261,8 +261,8 @@ function similaridade(a, b) {
  * Dado um cabeçalho de planilha, adivinha a qual campo canônico ele
  * corresponde. Devolve { campo, score } ou null.
  */
-function adivinharCampo(cabecalho) {
-  var alvo = normalizarTexto(cabecalho);
+function adivinharCampo_(cabecalho) {
+  var alvo = normalizarTexto_(cabecalho);
   if (!alvo) return null;
 
   var melhor = null;
@@ -271,7 +271,7 @@ function adivinharCampo(cabecalho) {
       var s;
       if (alvo === sin) s = 1;
       else if (alvo.indexOf(sin) !== -1 || sin.indexOf(alvo) !== -1) s = 0.85;
-      else s = similaridade(alvo, sin);
+      else s = similaridade_(alvo, sin);
 
       if (s >= 0.75 && (!melhor || s > melhor.score)) melhor = { campo: campo, score: s };
     });
@@ -280,7 +280,7 @@ function adivinharCampo(cabecalho) {
 }
 
 /** Escapa texto para interpolação segura em HTML. */
-function escaparHtml(v) {
+function escaparHtml_(v) {
   return String(v === null || v === undefined ? '' : v)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

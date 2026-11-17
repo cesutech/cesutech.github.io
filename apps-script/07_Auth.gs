@@ -7,13 +7,13 @@
  * (appsscript.json) — a única forma de o aluno se inscrever sem ter conta
  * Google. Nessa combinação, e com conta Gmail comum, o Apps Script NÃO entrega a
  * identidade de quem acessa: `Session.getActiveUser().getEmail()` volta vazio
- * (`usuarioAtual()`, 04_Log.gs). O servidor não sabe quem está do outro lado, e
+ * (`usuarioAtual_()`, 04_Log.gs). O servidor não sabe quem está do outro lado, e
  * nenhuma quantidade de configuração muda isso sem trocar o `executeAs` — o que
  * quebraria a inscrição anônima, que é a razão de o sistema existir.
  *
  * Daí a entrada ser provada NO NAVEGADOR: o Google Identity Services devolve um
  * ID token (JWT assinado pelo Google), o navegador manda o comprovante para cá e
- * o servidor o VERIFICA (`entrarComGoogle`). Isso identifica de verdade — o log
+ * o servidor o VERIFICA (`entrarComGoogle_`). Isso identifica de verdade — o log
  * diz o e-mail, e não 'anonimo'.
  *
  * ------------------------------------------------- A porta que não mora aqui
@@ -29,10 +29,14 @@
  * posse da caixa institucional não tem nenhum dos três defeitos.
  *
  * A terceira é `liberarMeuAcesso()`, rodada à mão no editor, para o dia em que a
- * allowlist estiver vazia e não houver para onde mandar link nenhum.
+ * allowlist estiver vazia e não houver para onde mandar link nenhum. Ela é
+ * pública porque o editor precisa vê-la, e por isso confere na primeira linha
+ * que a conta que pediu a execução é a que a roda, fora de uma requisição ao web
+ * app (`exigirDono_`, mais abaixo) — a mesma guarda de toda ferramenta de editor
+ * do projeto.
  *
  * As três terminam no mesmo lugar — `criarSessao_` — e nada depois disso muda:
- * `exigirAdmin(token)` continua sendo a primeira linha de toda função sensível.
+ * `exigirAdmin_(token)` continua sendo a primeira linha de toda função sensível.
  *
  * -------------------------------------------------- O que a verificação exige
  *
@@ -50,7 +54,7 @@ var VALIDADE_SESSAO_MS = 8 * 60 * 60 * 1000; // 8 horas
  * Onde mora o client id do OAuth. Propriedade do script, nunca no código.
  *
  * Ele NÃO é segredo — o navegador precisa dele para inicializar o Google
- * Identity Services, então ele sai daqui em `modoDeAcesso()` e fica visível no
+ * Identity Services, então ele sai daqui em `modoDeAcesso_()` e fica visível no
  * código-fonte da página. O que ele é: um identificador que muda por ambiente
  * (o de teste não é o de produção). Deixá-lo no código obrigaria a editar e
  * reimplantar o projeto para trocar de ambiente, que é exatamente o tipo de
@@ -116,8 +120,9 @@ var GOOGLE_TETO_VERIFICACOES_HORA = 60;
  * saiu da allowlist recebem a MESMA frase. Uma recusa que varia conta ao
  * visitante o que ele ainda não sabe.
  *
- * A frase é a mesma de `exigirAdmin` porque o painel a reconhece por expressão
- * regular para se deslogar sozinho (o envelope `chamar()` do Admin.html).
+ * A frase é a mesma de `exigirAdmin_` porque o painel a reconhece por expressão
+ * regular para se deslogar sozinho (o envelope `chamar()`, em
+ * docs/painel/index.html).
  * Mudá-la aqui sem mudar lá deixa o professor preso numa tela que não recarrega.
  */
 var RECUSA_SESSAO = 'Sessão expirada ou inválida. Faça login novamente.';
@@ -134,7 +139,7 @@ var RECUSA_SESSAO = 'Sessão expirada ou inválida. Faça login novamente.';
  *
  * Ela também não nomeia ninguém: dizer "peça a fulano@" transformaria a recusa
  * num diretório de quem manda no sistema, que é a mesma razão de
- * `pedirLinkDeAcesso` responder igual para endereço autorizado e não autorizado.
+ * `pedirLinkDeAcesso_` responder igual para endereço autorizado e não autorizado.
  */
 var RECUSA_NIVEL = 'Esta ação é da coordenação geral. Seu acesso é de professor.';
 
@@ -143,8 +148,8 @@ var RECUSA_NIVEL = 'Esta ação é da coordenação geral. Seu acesso é de prof
  *
  * Hoje esta função nunca dá certo, e continua no arquivo de propósito. Em
  * `executeAs: USER_DEPLOYING` com conta Gmail comum — a implantação de agora —
- * `usuarioAtual()` volta 'anonimo' e ela recusa todo mundo, apontando para o
- * botão do Google. Quem faz o trabalho de verdade é `entrarComGoogle`.
+ * `usuarioAtual_()` volta 'anonimo' e ela recusa todo mundo, apontando para o
+ * botão do Google. Quem faz o trabalho de verdade é `entrarComGoogle_`.
  *
  * Ela vale numa implantação Workspace com "Executar como: Usuário que acessa",
  * cenário que o projeto pode assumir quando o sistema mudar para a conta
@@ -155,9 +160,9 @@ var RECUSA_NIVEL = 'Esta ação é da coordenação geral. Seu acesso é de prof
  * infraestrutura do Google entrega uma identidade, ou não entrega — e uma
  * identidade entregue ainda precisa estar na allowlist para virar sessão.
  */
-function autenticar() {
+function autenticar_() {
   try {
-    var email = usuarioAtual();
+    var email = usuarioAtual_();
 
     if (!email || email === 'anonimo') {
       return {
@@ -168,7 +173,7 @@ function autenticar() {
     }
 
     if (!emailAutorizado_(email)) {
-      registrar('LOGIN_NEGADO', 'painel', email, 'fora da allowlist');
+      registrar_('LOGIN_NEGADO', 'painel', email, 'fora da allowlist');
       return {
         ok: false,
         erro: 'A conta ' + email + ' não tem acesso ao painel. Peça à coordenação ' +
@@ -176,7 +181,7 @@ function autenticar() {
       };
     }
 
-    registrar('LOGIN', 'painel', email, 'via identidade da implantação');
+    registrar_('LOGIN', 'painel', email, 'via identidade da implantação');
     // `nivel` viaja com a sessão recém-criada porque a tela desenha a fita de
     // abas no instante seguinte, e sem ele ela abriria no nível mais baixo para
     // subir meio segundo depois, numa chamada a mais. Custo zero: a allowlist
@@ -219,11 +224,11 @@ function autenticar() {
  *      descobrir sobre si mesmo. Não há enumeração possível: para perguntar pela
  *      conta alheia seria preciso um token emitido para ela.
  */
-function entrarComGoogle(idToken) {
+function entrarComGoogle_(idToken) {
   try {
     var conferido = verificarIdTokenGoogle_(idToken);
     if (!conferido.ok) {
-      registrarRecusa('LOGIN_NEGADO', 'painel', '',
+      registrarRecusa_('LOGIN_NEGADO', 'painel', '',
         'ID token recusado: ' + conferido.motivo, 'login_google');
 
       // O teto tem frase própria porque a causa é OUTRA, e a saída também. As
@@ -247,7 +252,7 @@ function entrarComGoogle(idToken) {
     }
 
     if (!emailAutorizado_(conferido.email)) {
-      registrarRecusa('LOGIN_NEGADO', 'painel', conferido.email,
+      registrarRecusa_('LOGIN_NEGADO', 'painel', conferido.email,
         'conta Google fora da allowlist', 'login_google_negado');
       return {
         ok: false,
@@ -258,19 +263,19 @@ function entrarComGoogle(idToken) {
 
 
     // A entrada é a primeira ação da pessoa, e a única em que ela se identifica
-    // sem ter sessão ainda — `exigirAdmin`, que anota o operador nas outras,
+    // sem ter sessão ainda — `exigirAdmin_`, que anota o operador nas outras,
     // não passa por aqui. O e-mail já foi PROVADO (`verificarIdTokenGoogle_`) e
     // já passou pela allowlist, então a linha de LOGIN pode dizer quem entrou
     // na coluna "Quem", e não só no campo da entidade. As recusas acima ficam
     // sem operador de propósito: ninguém entrou.
     anotarOperador_(conferido.email);
-    registrar('LOGIN', 'painel', conferido.email, 'via conta Google (ID token)');
+    registrar_('LOGIN', 'painel', conferido.email, 'via conta Google (ID token)');
     return {
       ok: true,
       token: criarSessao_(conferido.email),
       usuario: conferido.email,
       via: 'google',
-      // Ver `autenticar`: o nível vem junto para a tela nascer com a fita certa.
+      // Ver `autenticar_`: o nível vem junto para a tela nascer com a fita certa.
       nivel: nivelDe_(conferido.email)
     };
   } catch (err) {
@@ -308,7 +313,7 @@ function entrarComGoogle(idToken) {
  *
  * O `motivo` que sai daqui vai para a trilha de auditoria, e não para a tela: é
  * ele que permite descobrir depois se o que faltou foi o client id trocado ou a
- * conta sem e-mail confirmado. Ver `entrarComGoogle`.
+ * conta sem e-mail confirmado. Ver `entrarComGoogle_`.
  */
 function verificarIdTokenGoogle_(idToken) {
   var clienteId = String(
@@ -359,8 +364,8 @@ function verificarIdTokenGoogle_(idToken) {
 
   if (String(dados.email_verified) !== 'true') return { ok: false, motivo: 'email_verified' };
 
-  var email = normalizarEmail(dados.email);
-  if (!emailValido(email)) return { ok: false, motivo: 'email' };
+  var email = normalizarEmail_(dados.email);
+  if (!emailValido_(email)) return { ok: false, motivo: 'email' };
 
   return { ok: true, email: email, clienteId: clienteId };
 }
@@ -412,9 +417,9 @@ function excedeuVerificacoesGoogle_() {
  * Desligá-la por configuração seria reintroduzir o jeito de trancar o painel por
  * fora que este arquivo inteiro existe para evitar.
  */
-function modoDeAcesso() {
+function modoDeAcesso_() {
   try {
-    var email = usuarioAtual();
+    var email = usuarioAtual_();
     var lista = adminEmails_();
     var clienteId = String(
       PropertiesService.getScriptProperties().getProperty(GOOGLE_CLIENT_ID_PROP) || ''
@@ -441,7 +446,7 @@ function modoDeAcesso() {
 }
 
 /** Encerra a sessão atual. */
-function sair(token) {
+function sair_(token) {
   if (token) PropertiesService.getScriptProperties().deleteProperty('sess_' + token);
   return { ok: true };
 }
@@ -450,10 +455,10 @@ function sair(token) {
  * Guarda usada por toda função sensível. Lança erro se o token não valer.
  *
  * E É AQUI QUE A TRILHA APRENDE QUEM ESTÁ OPERANDO. A sessão sabe o e-mail; o
- * web app publicado não (`usuarioAtual()` volta 'anonimo' — ver o topo deste
+ * web app publicado não (`usuarioAtual_()` volta 'anonimo' — ver o topo deste
  * arquivo); e esta é a única linha por onde toda função do painel passa com o
  * token na mão. `anotarOperador_` (04_Log.gs) guarda o e-mail pela execução e
- * `registrar` o grava na coluna `usuario`, sem que nenhuma das ~70 chamadas de
+ * `registrar_` o grava na coluna `usuario`, sem que nenhuma das ~70 chamadas de
  * log precise carregar o token até lá. O cabeçalho de 04_Log.gs tem a conta
  * inteira de por que é assim e não por parâmetro.
  *
@@ -470,7 +475,7 @@ function sair(token) {
  * para devolver o documento — e abrir a guarda de autenticação para poupar uma
  * leitura local é troca ruim.
  */
-function exigirAdmin(token) {
+function exigirAdmin_(token) {
   if (!tokenValido_(token)) {
     anotarOperador_('');
     throw new Error(RECUSA_SESSAO);
@@ -484,14 +489,14 @@ function exigirAdmin(token) {
  *
  * A ORDEM É A DECISÃO, e ela é dupla:
  *
- *   1. `exigirAdmin` PRIMEIRO. Quem não tem sessão leva `RECUSA_SESSAO` e não
+ *   1. `exigirAdmin_` PRIMEIRO. Quem não tem sessão leva `RECUSA_SESSAO` e não
  *      aprende que existe um segundo nível — e, principalmente, a recusa
  *      continua custando ZERO leitura do banco, que é o que o teste do token
  *      inventado mede. Invertida, toda tentativa anônima passaria a ler a
  *      configuração para descobrir um nível de alguém que não existe;
  *   2. só então o nível, lido fresco (`nivelDaSessao_`). Quem passou pela sessão
  *      e é recusado aqui existe: a pessoa é conhecida, a ação é que não é dela —
- *      e por isso ela sai da execução ANOTADA por `exigirAdmin`, e a linha da
+ *      e por isso ela sai da execução ANOTADA por `exigirAdmin_`, e a linha da
  *      trilha diz qual professor tentou.
  *
  * Ela é BOOLEANA de propósito. Uma assinatura `exigirNivel(token, nivel)` pediria
@@ -500,12 +505,12 @@ function exigirAdmin(token) {
  *
  * Onde ela é cobrada: no DESPACHO (`rotaDoPainel_`, 08_Api.gs), que é a porta de
  * todas as funções do painel, e por dentro só nas quatro que CONCEDEM OU REVOGAM
- * PODER (`incluirAdmin`, `removerAdmin`, `definirNivel`, `salvarConfiguracao`).
+ * PODER (`incluirAdmin_`, `removerAdmin_`, `definirNivel_`, `salvarConfiguracao_`).
  * As quatro já leem configuração, então ali o custo é literalmente zero, e são
  * elas a superfície de escalada de privilégio.
  */
-function exigirCoordenador(token) {
-  exigirAdmin(token);
+function exigirCoordenador_(token) {
+  exigirAdmin_(token);
   if (nivelDaSessao_(token) !== 'coordenador') throw new Error(RECUSA_NIVEL);
   return true;
 }
@@ -515,7 +520,7 @@ function exigirCoordenador(token) {
  * é por ela que a TELA descobre com que nível se desenhar.
  *
  * `nivel` VAI SÓ NA RESPOSTA BOA, e é a mesma regra da ordem dentro de
- * `exigirCoordenador`: quem não tem sessão não aprende que existem dois níveis.
+ * `exigirCoordenador_`: quem não tem sessão não aprende que existem dois níveis.
  * A recusa continua sendo `{ ok: false }` e nada mais — byte a byte o que era
  * antes desta peça.
  *
@@ -530,34 +535,313 @@ function exigirCoordenador(token) {
  * Um cliente que mentisse para si mesmo aqui só conseguiria habilitar botões
  * que o servidor recusa um por um.
  */
-function sessaoAtiva(token) {
+function sessaoAtiva_(token) {
   if (!tokenValido_(token)) return { ok: false };
   return { ok: true, nivel: nivelDaSessao_(token) };
+}
+
+// ------------------------- Quem roda as ferramentas do editor e os gatilhos
+
+/**
+ * Recusa das ferramentas de editor. Diz o caminho certo, e só ele: quem chega
+ * aqui por ele lê a frase no registro de execução e sabe o que fazer; quem chega
+ * por outro não precisa de mais nada.
+ */
+var RECUSA_EDITOR = 'Esta função só roda pelo editor do Apps Script (botão Executar), com a ' +
+  'conta de quem está com o projeto aberto.';
+
+/** Recusa dos gatilhos: o mesmo, com o caminho do acionador instalado. */
+var RECUSA_GATILHO = 'Esta função só roda pelo acionador instalado neste projeto, ou pelo editor ' +
+  'do Apps Script (botão Executar), com a conta de quem está com o projeto aberto.';
+
+/**
+ * O complemento da recusa quando falta o e-mail de quem pediu a execução — o
+ * `Session` que lança e o que volta vazio, que para quem está no editor querem
+ * dizer a mesma coisa. Fora do editor é o caso de toda execução anônima, e a
+ * frase não conta nada que o repositório já não conte.
+ */
+var RECUSA_SEM_EMAIL = 'Se você já está no editor, o Apps Script não entregou o seu e-mail: ' +
+  'confira se userinfo.email está no appsscript.json e se esta conta autorizou o projeto. ' +
+  'A saída para esse caso está no comentário de liberarAcesso (07b_LinkPorEmail.gs).';
+
+/**
+ * A execução em curso é uma REQUISIÇÃO AO WEB APP? Quem marca é a primeira linha
+ * de `doGet` e de `doPost` (08_Api.gs); quem lê são as duas guardas abaixo, que
+ * recusam tudo o que acontecer dentro de uma requisição.
+ *
+ * Existe porque a pergunta das contas não basta sozinha. Pela documentação do
+ * `Session`, o ativo vem igual ao efetivo também quando o PRÓPRIO DONO abre o
+ * `/exec` logado na conta dele. Hoje nenhuma rota chega a uma ferramenta de
+ * editor ou a um gatilho (testes/portas.js cobra), e esta marca é o que mantém a
+ * guarda de pé no dia em que uma chegar, seja quem for que esteja logado no
+ * navegador.
+ *
+ * O escopo global do Apps Script nasce zerado a cada execução (ver CONFIG_CACHE,
+ * 03_Config.gs): marcada no `doGet`, a requisição vale até o fim daquela
+ * execução, e a seguinte nasce desmarcada. Nada desmarca, e nada precisa — o
+ * editor, o acionador e o ping do aquecimento são execuções à parte.
+ */
+var EM_REQUISICAO_WEB = false;
+
+/**
+ * A guarda das FERRAMENTAS DE EDITOR — `setup`, as de instalar gatilho, o
+ * socorro de acesso, as provas. É a primeira linha de cada uma (há teste que
+ * confere, em testes/portas.js).
+ *
+ * Ela recusa, nesta ordem:
+ *
+ *   1. qualquer execução que seja uma requisição ao web app (`EM_REQUISICAO_WEB`,
+ *      acima) — inclusive a do dono logado no navegador;
+ *   2. a execução em que o Apps Script não entrega a conta de quem pediu;
+ *   3. a execução em que quem pediu não é a conta com que ela roda.
+ *
+ * As duas contas são as que o Apps Script entrega a toda execução:
+ *
+ *   getActiveUser     quem PEDIU esta execução;
+ *   getEffectiveUser  com a autoridade de QUEM ela roda.
+ *
+ * No editor as duas são a mesma pessoa: quem aperta Executar roda o script como
+ * si mesmo. No web app desta implantação, que roda como quem implantou
+ * (`executeAs: USER_DEPLOYING`), quem o acessa ou não tem conta visível — o ativo
+ * vem VAZIO, que é o caso do aluno e do painel no Pages — ou é outra pessoa do
+ * mesmo domínio, e o ativo vem com o e-mail DELA. Ativo não vazio e igual ao
+ * efetivo quer dizer "esta conta está agindo por conta própria": o editor, mas
+ * também — pela documentação do `Session` — o próprio dono abrindo o `/exec`
+ * logado, um acionador dele, ou um script de quem tem acesso a este projeto e o
+ * usa como biblioteca. É por isso que a regra 1 vem antes: o que sobra depois
+ * dela, na prática, é quem já tem o projeto nas mãos — e, para quem só tem o
+ * navegador, nada. (Não há execução pela API: o manifesto não declara
+ * `executionApi`.)
+ *
+ * FALHA FECHADA: se o Apps Script não entregar a conta de quem pediu — lançando,
+ * ou com o e-mail vazio, como faz quando o escopo `userinfo.email` falta —,
+ * recusa. Uma guarda que deixa passar quando não consegue perguntar não é guarda.
+ * Duas contas vazias são iguais e não provam nada: é o `!ativo` que as recusa.
+ *
+ * A recusa LANÇA e não escreve nada no banco — só `console.error`, que é de
+ * graça. Uma recusa que custasse escrita seria um jeito de gastar a cota do dia
+ * batendo na porta errada.
+ */
+function exigirDono_() {
+  if (EM_REQUISICAO_WEB) {
+    console.error('exigirDono_: recusada uma execução que é requisição ao web app.');
+    throw new Error(RECUSA_EDITOR);
+  }
+
+  var ativo = '';
+  var efetivo = '';
+  try {
+    ativo = normalizarEmail_(Session.getActiveUser().getEmail());
+    efetivo = normalizarEmail_(Session.getEffectiveUser().getEmail());
+  } catch (e) {
+    console.error('exigirDono_: o Apps Script não entregou as contas desta execução — ' + e.message);
+    throw new Error(RECUSA_EDITOR + ' ' + RECUSA_SEM_EMAIL);
+  }
+
+  if (!ativo) {
+    console.error('exigirDono_: recusada uma execução sem a conta de quem a pediu.');
+    throw new Error(RECUSA_EDITOR + ' ' + RECUSA_SEM_EMAIL);
+  }
+  if (ativo !== efetivo) {
+    console.error('exigirDono_: recusada uma execução pedida por outra conta.');
+    throw new Error(RECUSA_EDITOR);
+  }
+  return true;
+}
+
+/**
+ * A guarda dos GATILHOS — `reconciliarAutomatico`, `aquecerWebApp`,
+ * `fazerBackup` e `limparTemporariosAntigos`. Passa duas execuções, e só elas:
+ *
+ *   1. a que um ACIONADOR DESTE PROJETO disparou. O Apps Script põe no evento o
+ *      `triggerUid` do acionador, e ele é conferido contra os acionadores que o
+ *      projeto tem de verdade (`ScriptApp.getProjectTriggers()`). Um evento
+ *      montado à mão traz o campo que quiser; um id que não está na lista não é
+ *      acionador nenhum;
+ *   2. a do dono rodando à mão no editor (`exigirDono_`) — é como se faz o
+ *      primeiro backup antes de instalar o gatilho, ou se testa o aquecimento.
+ *
+ * O id é comparado como TEXTO: o evento e `getUniqueId()` não prometem o mesmo
+ * tipo, e uma comparação estrita entre número e texto recusaria o acionador de
+ * verdade, todo dia, em silêncio. E, quando o evento traz o id como NÚMERO, vale
+ * também a comparação como número: o exemplo da documentação do Google tem 19
+ * dígitos, mais do que um número do JavaScript guarda sem arredondar, e o texto
+ * de um número arredondado não é o texto do id — o acionador de verdade seria
+ * recusado. Número contra número arredonda os dois do mesmo jeito. Isso não abre
+ * nada: o id continua tendo de ser o de um acionador que o projeto tem.
+ *
+ * FALHA FECHADA: se a lista de acionadores não puder ser lida, recusa — e o
+ * gatilho de verdade, nesse dia, falha com a frase no registro de execução e com
+ * o e-mail de falha que o Google manda ao dono. Um backup que não rodou e avisou
+ * é melhor que uma porta que abre quando a pergunta falha. Antes de recusar, ela
+ * pergunta DUAS vezes (`idsDosAcionadores_`): uma falha passageira do serviço não
+ * pode custar o backup e a reconciliação do dia, que rodam uma vez só.
+ *
+ * O PREÇO é uma leitura da lista de acionadores por execução de gatilho — 288
+ * por dia, por causa do aquecimento. Não gasta UrlFetch nem Firestore, só tempo
+ * de execução, e é uma fração dos ~3 s que cada ping já custa (ver
+ * AQUECIMENTO_MINUTOS, 08_Api.gs). A segunda pergunta só acontece quando a
+ * primeira falha. A recusa, como a de `exigirDono_`, não escreve nada.
+ *
+ * E, como a de `exigirDono_`, ela recusa antes de tudo a execução que é
+ * requisição ao web app (`EM_REQUISICAO_WEB`): dentro de um `doGet` ou de um
+ * `doPost` não há acionador nenhum rodando, traga o evento o id que trouxer.
+ */
+function exigirGatilhoOuDono_(e) {
+  if (EM_REQUISICAO_WEB) {
+    console.error('exigirGatilhoOuDono_: recusada uma execução que é requisição ao web app.');
+    throw new Error(RECUSA_GATILHO);
+  }
+
+  var bruto = (e && e.triggerUid !== undefined && e.triggerUid !== null) ? e.triggerUid : '';
+  var uid = String(bruto);
+
+  if (uid) {
+    var reais = idsDosAcionadores_();
+    if (reais === null) throw new Error(RECUSA_GATILHO);
+    var casou = reais.some(function (id) {
+      return id === uid || (typeof bruto === 'number' && /^\d+$/.test(id) && Number(id) === bruto);
+    });
+    if (casou) return true;
+  }
+
+  try {
+    return exigirDono_();
+  } catch (err) {
+    console.error('exigirGatilhoOuDono_: recusada uma execução que não é de acionador nem do editor ' +
+      '(triggerUid: ' + (e ? typeof e.triggerUid : 'sem evento') + ').');
+    throw new Error(RECUSA_GATILHO);
+  }
+}
+
+/** Quanto esperar antes de perguntar a lista de acionadores pela segunda vez. */
+var ESPERA_ACIONADORES_MS = 1500;
+
+/**
+ * Os ids dos acionadores deste projeto, como texto — ou `null`, se a lista não
+ * puder ser lida nem na segunda tentativa.
+ *
+ * DUAS tentativas, e não mais: a segunda cobre a falha passageira do serviço, e
+ * uma terceira só esticaria a espera de uma execução que vai recusar de qualquer
+ * jeito. Cada falha vai para o console, com o número da tentativa.
+ */
+function idsDosAcionadores_() {
+  for (var tentativa = 1; tentativa <= 2; tentativa++) {
+    try {
+      return ScriptApp.getProjectTriggers().map(function (g) { return String(g.getUniqueId()); });
+    } catch (err) {
+      console.error('exigirGatilhoOuDono_: não consegui ler os acionadores do projeto (tentativa ' +
+        tentativa + ' de 2) — ' + err.message);
+      if (tentativa < 2) Utilities.sleep(ESPERA_ACIONADORES_MS);
+    }
+  }
+  return null;
 }
 
 // ----------------------------------------------- Quem tem acesso ao painel
 
 /**
- * A allowlist, normalizada e sem vazios.
+ * A allowlist, normalizada, sem vazios — e só com o que tem a forma de um
+ * e-mail de acesso (`emailDeAcessoValido_`).
  *
- * Fonte única: `emailAutorizado_`, `modoDeAcesso` e as três funções de gestão
+ * Fonte única: `emailAutorizado_`, `modoDeAcesso_` e as três funções de gestão
  * abaixo passam todas por aqui. Antes, cada uma repartia a mesma string com uma
- * regra ligeiramente diferente — `modoDeAcesso` só aparava espaço, as outras
+ * regra ligeiramente diferente — `modoDeAcesso_` só aparava espaço, as outras
  * normalizavam —, e o dia em que as duas discordassem seria o dia em que a tela
  * diz "há gente autorizada" e o login recusa.
+ *
+ * O FILTRO DA FORMA. Pelas telas, a lista só recebe o que passa na mesma
+ * conferência (`incluirAdmin_`, `regravarAllowlist_`, `liberarAcesso_`); o banco
+ * pode ter sido escrito por outro caminho — o console do Firestore, uma versão
+ * antiga do servidor, um backup restaurado. O que não tem a forma fica de fora
+ * de tudo o que esta lista decide: não entra, não recebe link, não é
+ * coordenador, e não vai para a tabela de quem tem acesso, onde o painel o
+ * poria dentro de botões. Ele continua no texto cru da chave, que é o que a aba
+ * Configurações mostra no campo `admin_emails`, e sai do banco na próxima
+ * gravação das listas — com a sessão dele, se uma versão anterior tiver aberto
+ * uma, e com a linha ADMIN_DESCARTADO na trilha (`aplicarAcessos_`), para o
+ * sumiço não ser mudo.
+ *
+ * O FILTRO NÃO DECIDE O PISO. Quem pergunta se a lista de coordenadores está
+ * vazia é `coordenadoresGerais_`, e ela cruza com `itensDaAllowlist_`, antes do
+ * filtro. Ver lá por quê.
  */
 function adminEmails_() {
-  return config('admin_emails', '').split(',')
-    .map(function (e) { return normalizarEmail(e); })
+  return itensDaAllowlist_().filter(function (e) { return emailDeAcessoValido_(e); });
+}
+
+/**
+ * Tudo o que está escrito em `admin_emails`, normalizado e sem vazios — com a
+ * forma de e-mail de acesso ou sem ela. As outras três leem daqui: `adminEmails_`
+ * (os que têm a forma), `descartadosDaAllowlist_` (os que não têm) e
+ * `coordenadoresGerais_` (o cruzamento que decide o piso).
+ */
+function itensDaAllowlist_() {
+  return config_('admin_emails', '').split(',')
+    .map(function (e) { return normalizarEmail_(e); })
     .filter(Boolean);
+}
+
+/**
+ * Os itens do texto cru de `admin_emails` que `adminEmails_` deixa de fora por
+ * não terem a forma de e-mail de acesso. É o que `aplicarAcessos_` anota na
+ * trilha quando a gravação os tira do banco.
+ */
+function descartadosDaAllowlist_() {
+  return itensDaAllowlist_().filter(function (e) { return !emailDeAcessoValido_(e); });
+}
+
+/**
+ * A lista de acesso está ILEGÍVEL: há texto escrito em `admin_emails`, e nenhum
+ * item tem a forma de e-mail de acesso — os endereços separados por ';' no
+ * console do Firestore, por exemplo.
+ *
+ * LISTA ILEGÍVEL NÃO É LISTA VAZIA, e a diferença é o nível de quem chega. Na
+ * vazia o painel não tem ninguém, e o primeiro nome que entra pode tudo, pelo
+ * piso (`incluirAdmin_`). Na ilegível há gente escrita que a leitura não
+ * reconhece: a materialização não teria o que congelar (`materializar_` recebe a
+ * lista filtrada, vazia), e quem chegasse nasceria coordenador. Por isso os
+ * gestos da tela que acrescentam ou mudam alguém recusam nesse estado, com a
+ * frase que diz a saída (`RECUSA_LISTA_ILEGIVEL`): o conserto é do editor, por
+ * `liberarAcesso`, que repõe um coordenador e tira do banco os itens sem forma.
+ *
+ * A recusa não mexe nas sessões abertas antes, que no piso valem como
+ * coordenadoras. Quem as derruba é o conserto: `liberarAcesso_` (07b), com a
+ * lista ilegível, derruba todas antes de abrir a sessão de quem rodou o socorro.
+ */
+function allowlistIlegivel_() {
+  return !adminEmails_().length && itensDaAllowlist_().length > 0;
+}
+
+/** A recusa dos gestos de acesso com a lista ilegível. Ver `allowlistIlegivel_`. */
+var RECUSA_LISTA_ILEGIVEL = 'A lista de acesso gravada não tem nenhum e-mail que valha: nenhum ' +
+  'item tem a forma de um endereço (o campo admin_emails, em Configurações, mostra o texto como ' +
+  'ele está), e mexer nela por aqui faria de quem chega coordenador geral. Nada foi alterado. O ' +
+  'conserto é pelo editor do Apps Script: rode liberarAcesso lá (liberarMeuAcesso, para a conta ' +
+  'que está no editor) e depois inclua as pessoas por aqui.';
+
+/**
+ * O e-mail tem a forma que a lista de acesso aceita?
+ *
+ * Mais estreita que `emailValido_` (01_Utils.gs), que é a do formulário do aluno
+ * e aceita qualquer coisa sem espaço dos dois lados do `@`. Aqui o e-mail é de
+ * uma conta Google que entra no painel, e o texto dele viaja para dentro de
+ * botões da tela de acesso e para as chaves das propriedades do link: sem aspa,
+ * parêntese, ponto e vírgula, barra ou espaço, nenhum desses lugares precisa
+ * confiar no próprio escape. Antes do `@`, letras, dígitos e `. _ % + -`;
+ * depois, rótulos de letras, dígitos e hífen, separados por ponto, e o último só
+ * de letras. Recebe o texto já normalizado ou não — normaliza de novo.
+ */
+function emailDeAcessoValido_(v) {
+  return /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(normalizarEmail_(v));
 }
 
 // ------------------------------------------- Quem é COORDENADOR GERAL, e quem
 //                                              é PROFESSOR
 
 /**
- * Os e-mails de `coordenadores_gerais`, normalizados e JÁ cruzados com a
- * allowlist.
+ * Os e-mails de `coordenadores_gerais`, normalizados e JÁ cruzados com o que
+ * está escrito em `admin_emails`.
  *
  * O cruzamento acontece aqui, na LEITURA, e de novo na ESCRITA
  * (`aplicarAcessos_`), e a repetição é de propósito: o NÍVEL NUNCA É PORTA. Um
@@ -566,16 +850,27 @@ function adminEmails_() {
  * dispensa transação entre as duas chaves: a ordem em que são lidas não muda
  * resposta nenhuma, e uma delas escrita sozinha não abre porta para ninguém.
  *
+ * O CRUZAMENTO É COM `itensDaAllowlist_`, E NÃO COM `adminEmails_`. Esta lista
+ * vazia é o PISO, e o piso faz de todo mundo coordenador (`nivelEm_`). Cruzada
+ * com a lista já filtrada, um banco em que todos os coordenadores têm e-mail
+ * sem forma de acesso voltaria vazio aqui, e os professores subiriam a
+ * coordenador; o primeiro gesto de acesso ainda gravaria a promoção
+ * (`materializar_`). Cruzada com o que está escrito, ela só fica vazia quando o
+ * banco diz que ninguém separou os níveis. O item sem forma conta para "não está
+ * vazia" e não vale para ninguém: ele não entra (`emailAutorizado_`), não tem
+ * nível (`nivelEm_` pergunta a allowlist filtrada antes desta lista) e sai do
+ * banco na próxima gravação, porque `aplicarAcessos_` grava pela forma.
+ *
  * Custo: ZERO leituras além da que já ia acontecer. As duas chaves moram no
- * mesmo documento de configuração, e `lerConfig` o cacheia pela execução inteira
+ * mesmo documento de configuração, e `lerConfig_` o cacheia pela execução inteira
  * (03_Config.gs). Foi o que permitiu ler o nível fresco a cada requisição, em
  * vez de guardá-lo na sessão.
  */
 function coordenadoresGerais_() {
-  var allowlist = adminEmails_();
-  return config('coordenadores_gerais', '').split(',')
-    .map(function (e) { return normalizarEmail(e); })
-    .filter(function (e) { return e && allowlist.indexOf(e) !== -1; });
+  var escritos = itensDaAllowlist_();
+  return config_('coordenadores_gerais', '').split(',')
+    .map(function (e) { return normalizarEmail_(e); })
+    .filter(function (e) { return e && escritos.indexOf(e) !== -1; });
 }
 
 /**
@@ -588,7 +883,12 @@ function coordenadoresGerais_() {
  * de "quem é coordenador", escrita à mão para o diff, seria a que um dia
  * discordaria desta — e o sintoma é a sessão que não cai quando devia.
  *
- * `gerais` já vem cruzada com a allowlist (ver `coordenadoresGerais_`).
+ * `gerais` já vem cruzada com o que está escrito em `admin_emails` (ver
+ * `coordenadoresGerais_`), e por isso pode trazer um item sem forma de e-mail de
+ * acesso, que a `allowlist` não tem. É a razão da segunda pergunta, logo depois
+ * do piso: quem não está na allowlist não tem nível nenhum, nem estando em
+ * `gerais`. Com as duas listas bem formadas, `gerais` está dentro da allowlist e
+ * essa ordem não muda resposta nenhuma.
  *
  * O PISO, e ele é a migração inteira: lista de gerais VAZIA quer dizer que
  * ninguém separou os níveis ainda, e nesse estado todo mundo é coordenador
@@ -611,11 +911,11 @@ function coordenadoresGerais_() {
  * nada, que é o que o teste do nível-não-é-porta cobra.
  */
 function nivelEm_(email, allowlist, gerais) {
-  var alvo = normalizarEmail(email);
+  var alvo = normalizarEmail_(email);
   if (!alvo) return '';
   if (!gerais.length) return 'coordenador';
-  if (gerais.indexOf(alvo) !== -1) return 'coordenador';
-  return allowlist.indexOf(alvo) === -1 ? '' : 'professor';
+  if (allowlist.indexOf(alvo) === -1) return '';
+  return gerais.indexOf(alvo) !== -1 ? 'coordenador' : 'professor';
 }
 
 /**
@@ -629,7 +929,7 @@ function nivelEm_(email, allowlist, gerais) {
  *
  * MODO DE FALHA: se a configuração não puder ser lida (Firestore fora do ar), a
  * resposta é '' e NINGUÉM é coordenador. É o lado certo para uma decisão de
- * autorização cair, e o mesmo lado que `entrarComGoogle` escolhe para falha de
+ * autorização cair, e o mesmo lado que `entrarComGoogle_` escolhe para falha de
  * rede. Não custa disponibilidade nenhuma: com o banco fora, as funções de
  * coordenação já não tinham o que fazer.
  */
@@ -673,8 +973,8 @@ function pessoasDoAcesso_(allowlist, gerais) {
  * Então o primeiro gesto que mexe no acesso escreve, por extenso, quem já era
  * coordenador — que é todo mundo que estava na lista até então.
  *
- * São TRÊS os gestos que a disparam, e não um: rebaixar (`definirNivel`),
- * incluir (`incluirAdmin`) e o campo de texto que acrescenta gente
+ * São TRÊS os gestos que a disparam, e não um: rebaixar (`definirNivel_`),
+ * incluir (`incluirAdmin_`) e o campo de texto que acrescenta gente
  * (`regravarAllowlist_`). Cada um tem teste próprio.
  */
 function materializar_(allowlistAntes, gerais) {
@@ -682,7 +982,15 @@ function materializar_(allowlistAntes, gerais) {
   return allowlistAntes.slice();
 }
 
-/** Reparte, normaliza e tira vazios e repetidos de uma lista de e-mails. */
+/**
+ * Reparte, normaliza e tira vazios, repetidos e o que não tem forma de e-mail
+ * de acesso de uma lista de e-mails.
+ *
+ * O último filtro é o mesmo de `adminEmails_`, e aqui ele é a rede do escritor
+ * único: quem chama `aplicarAcessos_` já recusou o e-mail sem forma com uma
+ * frase para a tela, e um quinto caminho que esquecesse de fazê-lo não grava
+ * no banco o que a leitura jogaria fora.
+ */
 function listaDeEmails_(bruto) {
   var lista = [];
   var partes = Object.prototype.toString.call(bruto) === '[object Array]'
@@ -690,8 +998,8 @@ function listaDeEmails_(bruto) {
     : String(bruto || '').split(',');
 
   partes.forEach(function (item) {
-    var email = normalizarEmail(item);
-    if (email && lista.indexOf(email) === -1) lista.push(email);
+    var email = normalizarEmail_(item);
+    if (email && emailDeAcessoValido_(email) && lista.indexOf(email) === -1) lista.push(email);
   });
   return lista;
 }
@@ -707,9 +1015,9 @@ function listaDeEmails_(bruto) {
  * professor tem.
  *
  * ELA MORA AQUI DENTRO, e não nas quatro portas que mexem em nível, pela lição
- * que este repositório já escreveu em `gravarConfig`: uma guarda espalhada por
+ * que este repositório já escreveu em `gravarConfig_`: uma guarda espalhada por
  * quatro caminhos é uma guarda que o QUINTO caminho — o que ainda não existe —
- * vai esquecer. Os quatro de hoje (`definirNivel`, `removerAdmin`, o campo
+ * vai esquecer. Os quatro de hoje (`definirNivel_`, `removerAdmin_`, o campo
  * `admin_emails` e o campo `coordenadores_gerais`) não escrevem por conta
  * própria; todos passam por aqui.
  *
@@ -719,7 +1027,7 @@ function listaDeEmails_(bruto) {
  *
  * `porta` é o detalhe que vai para a trilha, e ele diz POR ONDE — 'pela tela
  * Quem tem acesso', 'pelo campo admin_emails'. Por QUEM é a coluna `usuario`,
- * que `exigirAdmin` preenche (04_Log.gs); repetir o e-mail no detalhe seria
+ * que `exigirAdmin_` preenche (04_Log.gs); repetir o e-mail no detalhe seria
  * escrevê-lo duas vezes na mesma linha. A porta, essa sim, a coluna não tem como
  * saber — e é ela que separa o mesmo gesto feito em duas telas diferentes.
  *
@@ -733,6 +1041,9 @@ function listaDeEmails_(bruto) {
 function aplicarAcessos_(emails, gerais, porta, pisoOk) {
   var antesLista = adminEmails_();
   var antesGerais = coordenadoresGerais_();
+  // O que estava no texto cru e a leitura já deixava de fora (ver `adminEmails_`).
+  // Esta gravação o tira do banco — e a trilha diz, mais abaixo.
+  var descartados = descartadosDaAllowlist_();
 
   var lista = listaDeEmails_(emails);
   // O cruzamento: o nível não é porta nem na escrita, e um nome que ficou na
@@ -754,7 +1065,7 @@ function aplicarAcessos_(emails, gerais, porta, pisoOk) {
   // leva a lista de níveis de carona — remover alguém, incluir alguém, regravar
   // a allowlist, repor o acesso pelo editor. Esses dizem `pisoOk` por escrito.
   //
-  // NÃO É LEGÍTIMO para quem está decidindo NÍVEL. `definirNivel` e o campo
+  // NÃO É LEGÍTIMO para quem está decidindo NÍVEL. `definirNivel_` e o campo
   // `coordenadores_gerais` mandam a lista por extenso, e uma lista vazia vinda
   // deles é o ÚLTIMO coordenador sendo rebaixado. Sem esta conferência o piso
   // desfazia o gesto em silêncio: a gravação não mudava nada, ninguém mudava de
@@ -781,16 +1092,31 @@ function aplicarAcessos_(emails, gerais, porta, pisoOk) {
 
   gravarAcessos_(lista, chefes);
 
+  // O item sai do banco e a SESSÃO dele cai junto, pela mesma razão de quem sai
+  // da lista, logo abaixo. As portas de hoje não abrem sessão para quem não tem
+  // a forma, mas a sessão mora nas propriedades do PROJETO, e não na versão: a
+  // que uma versão anterior do servidor abriu atravessa a troca e continua lá.
+  // Sem cair aqui ela seguiria valendo — no piso, como coordenadora —, e nenhum
+  // gesto de tela a alcança: `removerAdmin_` não acha o item na lista que vale.
+  // A linha existe para o item não sumir do banco sem deixar rastro — é a única
+  // cópia dele fora dos backups. O texto vai cortado: não tem a forma de um
+  // endereço, e a trilha não é lugar para guardar o que alguém escreveu ali.
+  descartados.forEach(function (item) {
+    invalidarSessoesDe_(item);
+    registrar_('ADMIN_DESCARTADO', 'config', item.slice(0, 80),
+      'sem forma de e-mail; saiu do banco ' + porta);
+  });
+
   antesLista.forEach(function (email) {
     if (lista.indexOf(email) !== -1) return;
     // Tirar da lista e deixar entrar por mais oito horas é não ter tirado.
     invalidarSessoesDe_(email);
-    registrar('ADMIN_REMOVIDO', 'config', email, porta);
+    registrar_('ADMIN_REMOVIDO', 'config', email, porta);
   });
 
   lista.forEach(function (email) {
     if (antesLista.indexOf(email) === -1) {
-      registrar('ADMIN_INCLUIDO', 'config', email, porta);
+      registrar_('ADMIN_INCLUIDO', 'config', email, porta);
       return;
     }
 
@@ -802,7 +1128,7 @@ function aplicarAcessos_(emails, gerais, porta, pisoOk) {
     // isso a tela dela fica errada por até oito horas, e cada clique vira uma
     // recusa que ela não tem como explicar.
     invalidarSessoesDe_(email);
-    registrar('NIVEL_ALTERADO', 'config', email,
+    registrar_('NIVEL_ALTERADO', 'config', email,
       rotuloDoNivel_(antes) + ' -> ' + rotuloDoNivel_(depois) + ', ' + porta);
   });
 
@@ -814,12 +1140,12 @@ function aplicarAcessos_(emails, gerais, porta, pisoOk) {
  *
  * Devolve também `voce`, que é o e-mail da sessão em curso — é o que permite à
  * tela esconder o botão de remover na própria linha, e é a informação que torna
- * a recusa de `removerAdmin` compreensível antes de acontecer. Hoje ele nunca
+ * a recusa de `removerAdmin_` compreensível antes de acontecer. Hoje ele nunca
  * vem vazio: as três portas nascem de um e-mail conhecido.
  */
-function listarAdmins(payload) {
+function listarAdmins_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
+    exigirAdmin_(payload && payload.token);
     return respostaDoAcesso_(adminEmails_(), coordenadoresGerais_(), payload.token);
   } catch (err) {
     return { ok: false, erro: err.message };
@@ -829,8 +1155,8 @@ function listarAdmins(payload) {
 /**
  * A resposta que as QUATRO funções do cartão "Quem tem acesso" devolvem.
  *
- * Tem de ser a mesma nas quatro (`listarAdmins`, `incluirAdmin`, `removerAdmin`
- * e `definirNivel`) porque é a mesma `desenharAcesso()` que redesenha a tabela
+ * Tem de ser a mesma nas quatro (`listarAdmins_`, `incluirAdmin_`, `removerAdmin_`
+ * e `definirNivel_`) porque é a mesma `desenharAcesso()` que redesenha a tabela
  * depois de cada uma. Uma que devolvesse a forma antiga apagaria a coluna Nível
  * depois de incluir alguém — defeito que passa em teste de unidade e aparece no
  * dedo de quem usa.
@@ -860,22 +1186,28 @@ function respostaDoAcesso_(lista, gerais, token, extras) {
  * `materializar_`): com a lista de gerais ainda vazia, gravar só a allowlist
  * nova deixaria o piso valendo e o recém-chegado nasceria podendo tudo — que é
  * o pedido da coordenação ao contrário. Promover é um segundo gesto, com
- * confirmação própria (`definirNivel`): padrão que se escolhe não é padrão.
+ * confirmação própria (`definirNivel_`): padrão que se escolhe não é padrão.
  *
- * Cobra por dentro (`exigirCoordenador`) porque CONCEDE PODER. As quatro da
- * coroa pagam essa conferência aqui além da do despacho; ver `exigirCoordenador`.
+ * Cobra por dentro (`exigirCoordenador_`) porque CONCEDE PODER. As quatro da
+ * coroa pagam essa conferência aqui além da do despacho; ver `exigirCoordenador_`.
  */
-function incluirAdmin(payload) {
+function incluirAdmin_(payload) {
   try {
-    exigirCoordenador(payload && payload.token);
+    exigirCoordenador_(payload && payload.token);
     payload = payload || {};
 
-    var email = normalizarEmail(payload.email);
-    if (!emailValido(email)) {
+    var email = normalizarEmail_(payload.email);
+    // A forma da LISTA DE ACESSO, e não a do formulário do aluno: é a mesma que
+    // `adminEmails_` usa para ler, e um e-mail que passasse aqui e não lá
+    // entraria na lista com a tela dizendo "incluído" e ficaria de fora de tudo.
+    if (!emailDeAcessoValido_(email)) {
       return { ok: false, erro: 'Informe um e-mail válido.' };
     }
 
     var lista = adminEmails_();
+    // A lista ILEGÍVEL não tem o que congelar, e quem chega nasceria coordenador
+    // (ver `allowlistIlegivel_`). O conserto é do editor.
+    if (allowlistIlegivel_()) return { ok: false, erro: RECUSA_LISTA_ILEGIVEL };
     var gerais = coordenadoresGerais_();
     // Comparação sem diferenciar maiúsculas porque `adminEmails_` já normalizou
     // os dois lados. 'Coordenacao@Exemplo.com' e 'coordenacao@exemplo.com' são a
@@ -894,6 +1226,8 @@ function incluirAdmin(payload) {
     // professor pela materialização, e os de antes continuam como estavam. Com
     // a allowlist ainda vazia (o painel sem ninguém, consertado pelo editor)
     // não há o que congelar, e o piso é o que faz o primeiro nome poder tudo.
+    // Vazia de verdade: a ilegível, que também não teria o que congelar, já
+    // recusou acima.
     var r = aplicarAcessos_(lista, congelados, 'pela tela Quem tem acesso', true);
     if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -924,19 +1258,19 @@ function incluirAdmin(payload) {
  * dono. Quem recusa isso é `aplicarAcessos_`, onde a invariante mora para que
  * nenhum dos quatro caminhos possa esquecê-la. Aqui só se traduz a frase.
  *
- * Cobra por dentro (`exigirCoordenador`) porque REVOGA PODER.
+ * Cobra por dentro (`exigirCoordenador_`) porque REVOGA PODER.
  *
  * Quem sai perde a sessão junto (`invalidarSessoesDe_`). Sem isso, "remover o
  * acesso" continuaria valendo por até oito horas — que é o tempo em que a pessoa
  * removida ainda poderia exportar o cadastro inteiro. Tirar da lista e deixar
  * entrar é não ter tirado.
  */
-function removerAdmin(payload) {
+function removerAdmin_(payload) {
   try {
-    exigirCoordenador(payload && payload.token);
+    exigirCoordenador_(payload && payload.token);
     payload = payload || {};
 
-    var email = normalizarEmail(payload.email);
+    var email = normalizarEmail_(payload.email);
     var lista = adminEmails_();
     var posicao = lista.indexOf(email);
     if (posicao === -1) {
@@ -993,8 +1327,8 @@ function removerAdmin(payload) {
 /**
  * Promove ou rebaixa alguém que JÁ está na lista de acesso.
  *
- * O segundo gesto que `incluirAdmin` deixou para trás, e o único que cria
- * coordenador geral pela tela. Cobra por dentro (`exigirCoordenador`) porque é
+ * O segundo gesto que `incluirAdmin_` deixou para trás, e o único que cria
+ * coordenador geral pela tela. Cobra por dentro (`exigirCoordenador_`) porque é
  * literalmente a função de conceder e revogar poder — qualquer coordenador
  * geral promove e rebaixa qualquer um, inclusive outro coordenador, com a única
  * trava de a lista nunca ficar sem nenhum.
@@ -1006,12 +1340,12 @@ function removerAdmin(payload) {
  * A sessão de quem mudou de nível cai — quem faz isso é `aplicarAcessos_`,
  * comparando o nível de antes com o de depois.
  */
-function definirNivel(payload) {
+function definirNivel_(payload) {
   try {
-    exigirCoordenador(payload && payload.token);
+    exigirCoordenador_(payload && payload.token);
     payload = payload || {};
 
-    var email = normalizarEmail(payload.email);
+    var email = normalizarEmail_(payload.email);
     var nivel = String(payload.nivel || '').trim().toLowerCase();
 
     // O nível vem do cliente e é conferido contra os DOIS valores que existem.
@@ -1023,6 +1357,9 @@ function definirNivel(payload) {
     }
 
     var lista = adminEmails_();
+    // Com a lista ILEGÍVEL ninguém está na lista que vale, e a frase de baixo não
+    // diria a saída, que é do editor (ver `allowlistIlegivel_`).
+    if (allowlistIlegivel_()) return { ok: false, erro: RECUSA_LISTA_ILEGIVEL };
     if (lista.indexOf(email) === -1) {
       return { ok: false, erro: 'Esse e-mail não está na lista de acesso.' };
     }
@@ -1067,13 +1404,13 @@ function definirNivel(payload) {
 /**
  * Regrava a allowlist INTEIRA, a partir do texto do campo da aba Configurações.
  *
- * Este é o mesmo gesto de `incluirAdmin`/`removerAdmin` por outro caminho, e é
+ * Este é o mesmo gesto de `incluirAdmin_`/`removerAdmin_` por outro caminho, e é
  * por isso que ele não pode ter outras regras. `admin_emails` continua sendo uma
  * chave de configuração como as outras, e o campo de texto continua na tela — só
- * que passar por `gravarConfig` direto contornava TUDO o que a tela de "Quem tem
+ * que passar por `gravarConfig_` direto contornava TUDO o que a tela de "Quem tem
  * acesso" faz de importante:
  *
- *   1. as duas guardas contra trancar a porta por dentro. `removerAdmin` recusa
+ *   1. as duas guardas contra trancar a porta por dentro. `removerAdmin_` recusa
  *      esvaziar a lista com o acesso em GOOGLE; o campo de texto aceitava, e o
  *      resultado era o painel sem porta nenhuma;
  *   2. DERRUBAR A SESSÃO de quem saiu. Sem isso, "tirar o acesso" continuava
@@ -1093,9 +1430,12 @@ function regravarAllowlist_(valor, token) {
   var invalidos = [];
 
   String(valor || '').split(',').forEach(function (bruto) {
-    var email = normalizarEmail(bruto);
+    var email = normalizarEmail_(bruto);
     if (!email) return;
-    if (!emailValido(email)) { invalidos.push(email); return; }
+    // A forma de `adminEmails_` (ver `emailDeAcessoValido_`). É também o que
+    // denuncia o item estranho que o campo cru mostra: salvar o campo com ele
+    // dentro é recusado, dizendo qual é.
+    if (!emailDeAcessoValido_(email)) { invalidos.push(email); return; }
     if (depois.indexOf(email) === -1) depois.push(email);
   });
 
@@ -1135,14 +1475,17 @@ function regravarAllowlist_(valor, token) {
   // Sem gente nova, nada a congelar: mexer na lista de gerais para só tirar
   // alguém seria escrever uma decisão que ninguém tomou.
   var entrando = depois.filter(function (e) { return antes.indexOf(e) === -1; });
+  // Com a lista ILEGÍVEL não há o que congelar: quem chega nasceria coordenador,
+  // e o piso seguiria valendo (ver `allowlistIlegivel_`). O conserto é do editor.
+  if (entrando.length && allowlistIlegivel_()) return { ok: false, erro: RECUSA_LISTA_ILEGIVEL };
   var gerais = coordenadoresGerais_();
   var congelados = entrando.length ? materializar_(antes, gerais) : gerais;
 
   // A sessão de quem saiu, as linhas da trilha e a invariante do último
-  // coordenador são as mesmas de `removerAdmin`, e moram no mesmo lugar. O
+  // coordenador são as mesmas de `removerAdmin_`, e moram no mesmo lugar. O
   // detalhe é que muda: é o campo de texto, e não a tela de acesso, que
   // distingue esta saída daquela.
-  // `pisoOk` pela mesma razão de `removerAdmin`: o campo é a lista de QUEM
+  // `pisoOk` pela mesma razão de `removerAdmin_`: o campo é a lista de QUEM
   // ENTRA, e sem gente nova ele não decide nível nenhum.
   var r = aplicarAcessos_(depois, congelados, 'pelo campo admin_emails', true);
   if (!r.ok) {
@@ -1165,7 +1508,7 @@ function regravarAllowlist_(valor, token) {
  * Configurações.
  *
  * Irmã de `regravarAllowlist_`, e existe pela mesma razão: a chave aparece na
- * tela de Configurações de qualquer jeito — `lerConfiguracoes` lista toda chave
+ * tela de Configurações de qualquer jeito — `lerConfiguracoes_` lista toda chave
  * que exista no banco, e `chaveConhecida_` aceita para gravação toda chave que
  * exista no banco —, então ou ela tem uma porta com guardas, ou ela é a porta
  * dos fundos de todas as guardas desta peça.
@@ -1190,7 +1533,7 @@ function regravarGerais_(valor, token) {
   var forasteiros = [];
 
   String(valor || '').split(',').forEach(function (bruto) {
-    var email = normalizarEmail(bruto);
+    var email = normalizarEmail_(bruto);
     if (!email) return;
     if (lista.indexOf(email) === -1) {
       if (forasteiros.indexOf(email) === -1) forasteiros.push(email);
@@ -1228,7 +1571,7 @@ function regravarGerais_(valor, token) {
  * `cancelado_por`, `revisado_por`.
  *
  * Não é mais quem assina a trilha — isso virou a coluna `usuario`, preenchida
- * pelo operador que `exigirAdmin` anota (04_Log.gs). Ela fica porque o campo
+ * pelo operador que `exigirAdmin_` anota (04_Log.gs). Ela fica porque o campo
  * gravado no documento é outra coisa: ele sobrevive à retenção de um ano do
  * log e viaja junto com a cópia (a inscrição anulada, o matriculado excluído),
  * onde não há coluna nenhuma para consultar.
@@ -1307,7 +1650,7 @@ function emailDaSessao_(token) {
   if (!bruto) return '';
 
   try {
-    var email = normalizarEmail(JSON.parse(bruto).email);
+    var email = normalizarEmail_(JSON.parse(bruto).email);
     return email === 'anonimo' ? '' : email;
   } catch (e) {
     return '';
@@ -1316,7 +1659,7 @@ function emailDaSessao_(token) {
 
 function emailAutorizado_(email) {
   if (!email || email === 'anonimo') return false;
-  return adminEmails_().indexOf(normalizarEmail(email)) !== -1;
+  return adminEmails_().indexOf(normalizarEmail_(email)) !== -1;
 }
 
 /** Remove sessões vencidas — o armazenamento de propriedades é limitado (500 KB). */
@@ -1335,9 +1678,9 @@ function faxinaSessoes_() {
   });
 }
 
-/** Derruba as sessões de UMA pessoa. Usado por `removerAdmin`. */
+/** Derruba as sessões de UMA pessoa. Usado por `removerAdmin_`. */
 function invalidarSessoesDe_(email) {
-  var alvo = normalizarEmail(email);
+  var alvo = normalizarEmail_(email);
   if (!alvo) return;
 
   var props = PropertiesService.getScriptProperties();
@@ -1346,15 +1689,27 @@ function invalidarSessoesDe_(email) {
   Object.keys(todas).forEach(function (k) {
     if (k.indexOf('sess_') !== 0) return;
     try {
-      if (normalizarEmail(JSON.parse(todas[k]).email) === alvo) props.deleteProperty(k);
+      if (normalizarEmail_(JSON.parse(todas[k]).email) === alvo) props.deleteProperty(k);
     } catch (e) {
       props.deleteProperty(k);
     }
   });
 }
 
-/** Derruba TODAS as sessões. O botão de pânico de quem suspeita de invasão. */
+/**
+ * Derruba TODAS as sessões. O botão de pânico de quem suspeita de invasão.
+ *
+ * O "botão" é o Executar do editor do Apps Script: nenhuma tela a chama, e ela
+ * não está em despacho nenhum. Todo mundo volta à tela de login e entra de novo
+ * pelo Google ou pelo link — o que não apaga nada além das sessões.
+ */
 function invalidarSessoes() {
+  exigirDono_();
+  return invalidarSessoes_();
+}
+
+/** O trabalho de `invalidarSessoes`, depois da guarda. É esta que o código chama por dentro. */
+function invalidarSessoes_() {
   var props = PropertiesService.getScriptProperties();
   Object.keys(props.getProperties()).forEach(function (k) {
     if (k.indexOf('sess_') === 0) props.deleteProperty(k);

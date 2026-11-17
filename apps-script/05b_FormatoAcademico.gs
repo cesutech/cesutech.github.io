@@ -58,12 +58,13 @@ var PADRAO_TURMA_CELULA = new RegExp('^(?:' + PADRAO_TURMA.source + ')$');
 /**
  * A turma que houver no trecho, ou ''.
  *
- * Pública para o teste alcançar: é ela que carrega a trava do DDD, e a trava
- * some sem ninguém notar quando só se testa pelo caminho da matriz — lá a
+ * Função própria para o teste alcançá-la sozinha (o ambiente dos testes enxerga
+ * toda função global, privada ou não): é ela que carrega a trava do DDD, e a
+ * trava some sem ninguém notar quando só se testa pelo caminho da matriz — lá a
  * célula é a turma inteira e o telefone mora em coluna própria, então a
  * armadilha nem chega a ser oferecida.
  */
-function turmaDoTexto(trecho) {
+function turmaDoTexto_(trecho) {
   return (String(trecho === null || trecho === undefined ? '' : trecho)
     .match(PADRAO_TURMA) || [])[0] || '';
 }
@@ -178,7 +179,7 @@ function extrairTelefones_(texto) {
  * melhor cair na maioria das linhas do que gravar `ADS4L` como chave).
  *
  * Devolve { turma, turmaBruta, semestre, origem, turmas, aviso }:
- *   turma       chave normalizada (`normalizarTurma`) ou ''
+ *   turma       chave normalizada (`normalizarTurma_`) ou ''
  *   turmaBruta  como veio ('ADM 41 (MATRIZ NOVA)') — o par matricula/matricula_oficial
  *   semestre    '2026/2' ou ''
  *   origem      'CABECALHO' | 'DISCIPLINA' | ''
@@ -199,7 +200,7 @@ function cabecalhoDoArquivo_(texto) {
   var brutas = {};
   var semestres = {};
   while ((m = cabecalho.exec(plano)) !== null) {
-    var chave = normalizarTurma(m[1]);
+    var chave = normalizarTurma_(m[1]);
     if (!chave) continue;
     if (brutas[chave] === undefined) { turmas.push(chave); brutas[chave] = m[1].trim(); }
     semestres[m[2] + '/' + m[3]] = true;
@@ -230,7 +231,7 @@ function cabecalhoDoArquivo_(texto) {
   var daDisciplina = [];
   var brutasDisciplina = {};
   while ((m = disciplina.exec(plano)) !== null) {
-    var chaveDisciplina = normalizarTurma(m[1]);
+    var chaveDisciplina = normalizarTurma_(m[1]);
     if (!chaveDisciplina) continue;
     if (brutasDisciplina[chaveDisciplina] === undefined) {
       daDisciplina.push(chaveDisciplina);
@@ -294,7 +295,7 @@ function extrairAcademicoDeTexto_(texto) {
     // turma, e o último aluno lido ainda sem turma. Um cabeçalho de seção não
     // passa (o anterior já teria turma, ou não haveria anterior).
     if (!/\(\d{4,}\)/.test(bruta)) {
-      var continuacao = turmaDoTexto(bruta);
+      var continuacao = turmaDoTexto_(bruta);
       var ultimo = registros[registros.length - 1];
       if (continuacao && ultimo && !ultimo[2]) {
         ultimo[2] = continuacao;
@@ -318,7 +319,7 @@ function extrairAcademicoDeTexto_(texto) {
 
     // A turma da própria linha ganha da turma do título: o relatório lista
     // aluno de outra fase cursando junto (ex.: PMM41 numa turma PMM21).
-    var turmaLinha = turmaDoTexto(resto);
+    var turmaLinha = turmaDoTexto_(resto);
 
     registros.push([
       pessoa.nome,
@@ -379,7 +380,7 @@ function extrairAcademicoAchatado_(texto) {
     registros.push([
       nome,
       achados[i].matricula,
-      turmaDoTexto(depois),
+      turmaDoTexto_(depois),
       extrairTelefones_(depois)
     ]);
   }

@@ -44,7 +44,7 @@
  *      campo e só escreve o documento que MUDOU. Numa reconciliação em que nada
  *      mudou, o custo em escrita é ZERO — inclusive o log, que também é uma
  *      escrita e por isso só sai quando houve mudança (ver o fim de
- *      `reconciliar`). Existe teste que roda duas vezes e conta as requisições.
+ *      `reconciliar_`). Existe teste que roda duas vezes e conta as requisições.
  *
  * ---------------------------------------------------- Uma linha por PESSOA
  *
@@ -65,7 +65,7 @@
  *
  * ------------------------------------------------------------ Orçamento
  *
- * `reconciliar()` é a função mais cara do sistema, e a única que lê três
+ * `reconciliar_()` é a função mais cara do sistema, e a única que lê três
  * coleções de uma vez. Ela precisa dos dois lados em memória — a cascata indexa
  * por matrícula, CPF, e-mail e nome+nascimento antes de comparar qualquer coisa
  * — e precisa do terceiro para saber o que já está gravado.
@@ -91,7 +91,7 @@
  * Tempo: a etapa 5 da cascata (nome parecido) é a única quadrática — ela compara
  * cada inscrição que falhou os quatro índices contra TODOS os matriculados. Com
  * 500 inscrições sem match e 2.500 matriculados são 1,25 milhão de chamadas a
- * `similaridade`, na casa de dezenas de segundos. Na prática quase toda
+ * `similaridade_`, na casa de dezenas de segundos. Na prática quase toda
  * inscrição casa na etapa 0 (matrícula) e nunca chega lá; o pior caso é uma
  * lista oficial importada com a coluna de matrícula errada — que a importação já
  * recusa (05_Importacao.gs).
@@ -114,14 +114,14 @@
  * 10_Painel.gs lê esta coleção e depende de três coisas, todas cumpridas aqui e
  * todas com teste:
  *
- *   1. o id do documento é determinístico e é ele que volta em `resolverAluno` e
- *      `detalheAluno`. NÃO existe campo `id` — ele vem do nome do documento;
+ *   1. o id do documento é determinístico e é ele que volta em `resolverAluno_` e
+ *      `detalheAluno_`. NÃO existe campo `id` — ele vem do nome do documento;
  *   2. `matricula_id` guarda a matrícula normalizada (o id do documento em
  *      `matriculados`) e `inscricao_id` guarda a chave de dedup (o id do
  *      documento em `inscricoes`). É o que faz o detalhe do aluno custar três
  *      leituras de ponto em vez de três varreduras;
  *   3. os campos `cpf` e `email` EXISTEM em todo documento, ainda que vazios —
- *      `painelEstatisticas` conta quem tem CPF como "total menos os que têm o
+ *      `painelEstatisticas_` conta quem tem CPF como "total menos os que têm o
  *      campo vazio", e no Firestore campo AUSENTE não casa com filtro de
  *      igualdade. `montarAluno_` grava a chave sempre, mesmo em branco.
  *
@@ -219,7 +219,7 @@ var RECONCILIACAO_MAX_CURSOS = 100;
  *
  * `atualizado_em` está FORA de propósito, e essa ausência é o arquivo inteiro: se
  * ele entrasse na comparação, todo documento seria diferente em toda rodada
- * (`agora()` muda sempre), a diferença nunca seria zero e o upsert por diferença
+ * (`agora_()` muda sempre), a diferença nunca seria zero e o upsert por diferença
  * viraria o mesmo "regrava tudo" que este arquivo existe para não fazer. Ele é
  * carimbado só quando algum dos campos abaixo mudou — que é, aliás, o que
  * "atualizado em" deveria significar.
@@ -239,12 +239,12 @@ var ALUNO_CAMPOS = ['cpf', 'nome', 'email', 'telefone', 'data_nascimento',
 /**
  * Cruza as duas listas e deixa `alunos` igual ao resultado, escrevendo o mínimo.
  *
- * Devolve o resumo que o `Admin.html` mostra (Admin.html:554) e que
+ * Devolve o resumo que o painel mostra (docs/painel/index.html) e que
  * `resumoReconciliacao_` (05_Importacao.gs) repassa ao fim de cada importação.
  * Lança quando não dá para confiar no resultado; quem chama pelo painel embrulha
- * em `rodarReconciliacao`.
+ * em `rodarReconciliacao_`.
  */
-function reconciliar() {
+function reconciliar_() {
   var inscricoes = colecaoCompleta_(INSCRICOES_COLECAO);
   var matriculados = colecaoCompleta_(MATRICULADOS_COLECAO);
   var existentes = porId_(colecaoCompleta_(ALUNOS_COLECAO));
@@ -310,7 +310,7 @@ function reconciliar() {
   });
 
   var mudados = [];
-  var quando = agora();
+  var quando = agora_();
 
   ordem.forEach(function (chave) {
     var novo = calculados[chave];
@@ -334,8 +334,8 @@ function reconciliar() {
   // a importação teve de resolver (05_Importacao.gs): o que ficou de fora
   // continua diferente do calculado, e a próxima rodada o grava. O upsert por
   // diferença é retomável por construção.
-  escreverEmLote(ALUNOS_COLECAO, mudados);
-  remocao.ids.forEach(function (id) { excluir(ALUNOS_COLECAO, id); });
+  escreverEmLote_(ALUNOS_COLECAO, mudados);
+  remocao.ids.forEach(function (id) { excluir_(ALUNOS_COLECAO, id); });
 
   var lista = ordem.map(function (chave) { return calculados[chave]; });
   var agregado = atualizarAgregadoDeCursos_(lista);
@@ -349,11 +349,11 @@ function reconciliar() {
 
   // O log é uma ESCRITA, e por isso não é gratuito. Uma rodada que não mudou
   // nada não tem o que registrar — anotar "reconciliei e estava tudo igual" oito
-  // vezes por dia é o mesmo desperdício que `registrarRecusa` (04_Log.gs) existe
+  // vezes por dia é o mesmo desperdício que `registrarRecusa_` (04_Log.gs) existe
   // para evitar, com o agravante de sair da cota de quem se inscreve. Quando
   // houve mudança, ou quando uma remoção foi recusada, o registro sai inteiro.
   if (mudados.length || remocao.ids.length || remocao.recusa || agregado) {
-    registrar('RECONCILIACAO', 'alunos', '', JSON.stringify(resumo));
+    registrar_('RECONCILIACAO', 'alunos', '', JSON.stringify(resumo));
   }
 
   return resumo;
@@ -380,7 +380,7 @@ function reconciliar() {
  * `matriculados` que o chamador JÁ leu, e a distinção entre os dois "vazios" é
  * deliberada: `undefined` é "leia você", `null` é "eu li e não existe".
  * Confundi-los gastaria uma leitura por inclusão para reler o que
- * `incluirInscricao` acabou de ler.
+ * `incluirInscricao_` acabou de ler.
  *
  * NUNCA LANÇA — é o padrão de `reconciliarDepoisDaEdicao_` (10_Painel.gs). Uma
  * falha aqui não pode derrubar a inclusão que já está gravada; ela vira
@@ -401,7 +401,7 @@ function reconciliar() {
  *
  * ------------------------------------------------------- O que ele NÃO faz
  *
- *   - só chave `mat:`. CPF, e-mail e nome não têm consulta barata (`chaveNome`
+ *   - só chave `mat:`. CPF, e-mail e nome não têm consulta barata (`chaveNome_`
  *     não é campo gravado, o degrau 4 exige contagem global e o 5 varre a lista
  *     inteira), e uma chave só é o que mantém o custo em requisições contadas;
  *   - NUNCA apaga ficha: remoção é global por construção, e o teto de
@@ -436,7 +436,7 @@ function reconciliar() {
 function reconciliarPessoa_(matricula, opcoes) {
   opcoes = opcoes || {};
 
-  var chave = normalizarMatricula(matricula);
+  var chave = normalizarMatricula_(matricula);
   if (!chave) return adiarReconciliacao_('esta inscrição não tem matrícula', '');
 
   // O MESMO endereço que a rodada usaria: `chaveDePessoa_` devolve 'mat:' +
@@ -447,14 +447,14 @@ function reconciliarPessoa_(matricula, opcoes) {
 
   try {
     // `undefined` é "leia você"; `null` é "eu li e não existe". Ver o cabeçalho.
-    var mat = opcoes.matriculado !== undefined ? opcoes.matriculado : ler(MATRICULADOS_COLECAO, chave);
+    var mat = opcoes.matriculado !== undefined ? opcoes.matriculado : ler_(MATRICULADOS_COLECAO, chave);
     if (!mat) return adiarReconciliacao_('a matrícula não está na lista oficial importada', id);
 
     // Consulta PRÓPRIA, e não `inscricoesDaPessoa_` (04_Inscricoes.gs): aquela
     // descarta inscrição sem `projeto_id` (o formulário interno grava uma), e a
     // rodada não descarta nada. Reusá-la faria o incremental escolher OUTRA
     // inscrição como "a mais antiga" e divergir da rodada no resto da ficha.
-    var pagina = listar(INSCRICOES_COLECAO, {
+    var pagina = listar_(INSCRICOES_COLECAO, {
       campo: 'matricula', valor: chave, limite: RECONCILIACAO_PESSOA_MAX_INSCRICOES
     });
     if (pagina.cursor) {
@@ -472,7 +472,7 @@ function reconciliarPessoa_(matricula, opcoes) {
     // matriculado com uma pessoa de chave diferente (CPF, e-mail, nome): mexer
     // aqui criaria a segunda ficha da mesma pessoa, que é o defeito que o id
     // determinístico existe para não ter.
-    var fichas = listar(ALUNOS_COLECAO, {
+    var fichas = listar_(ALUNOS_COLECAO, {
       campo: 'matricula_id', valor: chave, limite: RECONCILIACAO_PESSOA_MAX_FICHAS
     }).itens;
     var alheias = fichas.filter(function (f) { return f._id !== id; });
@@ -483,7 +483,7 @@ function reconciliarPessoa_(matricula, opcoes) {
     // sai de graça. SO_INSCRITO tem `matricula_id` vazio, e ficha nova não
     // existe: aí a leitura de ponto é obrigatória — e é ela que traz o `_versao`
     // da precondição da escrita.
-    var atual = fichas.filter(function (f) { return f._id === id; })[0] || ler(ALUNOS_COLECAO, id);
+    var atual = fichas.filter(function (f) { return f._id === id; })[0] || ler_(ALUNOS_COLECAO, id);
 
     var novo;
     if (inscricoes.length) {
@@ -515,9 +515,9 @@ function reconciliarPessoa_(matricula, opcoes) {
       return { feito: true, escreveu: false, motivo: '', id: id, status: novo.status };
     }
 
-    novo.atualizado_em = agora();
+    novo.atualizado_em = agora_();
 
-    // `escreverAtomico` com precondição, e não `escreverEmLote`: custa a MESMA
+    // `escreverAtomico_` com precondição, e não `escreverEmLote_`: custa a MESMA
     // requisição e RECUSA quando a ficha mudou entre a leitura e a escrita —
     // enquanto o upsert cego substituiria o documento inteiro por cima do que o
     // outro gravou. Ficha nova entra por `criar` (`exists:false`), que é o mesmo
@@ -534,7 +534,7 @@ function reconciliarPessoa_(matricula, opcoes) {
       // (02_Repo.gs) vale inteira: ou outra pessoa criou a ficha, ou o primeiro
       // `:commit` entrou e só a resposta se perdeu — e aí a ficha que "já existia"
       // é a minha. É a mesma ordem que o `catch` logo abaixo usa, pela mesma razão.
-      var recusa = escreverAtomico([escrita]);
+      var recusa = escreverAtomico_([escrita]);
       if (recusa.jaExistia) {
         return adiarReconciliacao_(recusa.retentou
           ? 'não consegui confirmar a gravação da ficha'
@@ -580,7 +580,7 @@ function adiarReconciliacao_(motivo, id) {
 /**
  * Lê uma coleção inteira, paginando, e recusa quando ela não cabe.
  *
- * Sem `ordenarPor`: `listar` cai em `__name__` ascendente, que é o desempate
+ * Sem `ordenarPor`: `listar_` cai em `__name__` ascendente, que é o desempate
  * embutido em todo índice automático e não exige índice composto nenhum. Ordenar
  * por campo aqui pediria um índice por coleção e ainda perderia documentos
  * empatados na virada da página.
@@ -595,7 +595,7 @@ function colecaoCompleta_(colecao) {
   var cursor = null;
 
   do {
-    var pagina = listar(colecao, { limite: RECONCILIACAO_BLOCO, cursor: cursor });
+    var pagina = listar_(colecao, { limite: RECONCILIACAO_BLOCO, cursor: cursor });
     itens = itens.concat(pagina.itens);
     cursor = pagina.cursor;
   } while (cursor && itens.length < RECONCILIACAO_TETO);
@@ -646,14 +646,14 @@ function porChegada_(a, b) {
  * documento de origem, que garante linha própria em vez de fundir estranhos.
  */
 function chaveDePessoa_(dados) {
-  var matricula = normalizarMatricula(dados.matricula);
+  var matricula = normalizarMatricula_(dados.matricula);
   if (matricula) return 'mat:' + matricula;
 
-  var cpf = normalizarCpf(dados.cpf);
+  var cpf = normalizarCpf_(dados.cpf);
   if (cpf.length === 11) return 'cpf:' + cpf;
 
-  var email = normalizarEmail(dados.email);
-  var nome = chaveNome(dados.nome);
+  var email = normalizarEmail_(dados.email);
+  var nome = chaveNome_(dados.nome);
   if (email || nome) return 'pes:' + email + '|' + nome;
 
   return '';
@@ -662,7 +662,7 @@ function chaveDePessoa_(dados) {
 /**
  * O id do documento em `alunos`: determinístico, derivado da matrícula.
  *
- * `hash` (01_Utils.gs) faz aqui o mesmo trabalho que faz em `chaveDedup_`
+ * `hash_` (01_Utils.gs) faz aqui o mesmo trabalho que faz em `chaveDedup_`
  * (04_Inscricoes.gs): largura fixa, alfabeto seguro para URL, e — o que
  * importa — impede que matrícula, CPF ou e-mail virem endereço de documento. Id
  * aparece em URL de API, em log de erro e na tela de quem inspeciona o banco;
@@ -675,7 +675,7 @@ function chaveDePessoa_(dados) {
  * chance é da ordem de 3 em 10^12.
  */
 function chaveAluno_(chavePessoa) {
-  return hash('aluno::' + chavePessoa);
+  return hash_('aluno::' + chavePessoa);
 }
 
 /** Nomes de projeto somados, sem repetir. Uma pessoa cabe em mais de um. */
@@ -708,19 +708,19 @@ function indexar_(matriculados) {
   var porNome = {};
 
   matriculados.forEach(function (m) {
-    var mat = normalizarMatricula(m.matricula);
+    var mat = normalizarMatricula_(m.matricula);
     if (mat) (porMatricula[mat] = porMatricula[mat] || []).push(m);
 
-    var cpf = normalizarCpf(m.cpf);
+    var cpf = normalizarCpf_(m.cpf);
     if (cpf.length === 11) (porCpf[cpf] = porCpf[cpf] || []).push(m);
 
-    var email = normalizarEmail(m.email);
+    var email = normalizarEmail_(m.email);
     if (email) (porEmail[email] = porEmail[email] || []).push(m);
 
-    var nome = chaveNome(m.nome);
+    var nome = chaveNome_(m.nome);
     if (nome) {
       (porNome[nome] = porNome[nome] || []).push(m);
-      var nasc = normalizarData(m.data_nascimento);
+      var nasc = normalizarData_(m.data_nascimento);
       if (nasc) (porNomeNasc[nome + '|' + nasc] = porNomeNasc[nome + '|' + nasc] || []).push(m);
     }
   });
@@ -744,13 +744,13 @@ function casar_(insc, idx, usados) {
   };
 
   // 0. Matrícula — a chave institucional do CESUTECH, a mais forte de todas.
-  var matricula = normalizarMatricula(insc.matricula);
+  var matricula = normalizarMatricula_(insc.matricula);
   if (matricula) {
     var porMat = livre(idx.porMatricula[matricula]);
     if (porMat.length) {
       var mm = porMat[0];
-      var simMat = similaridade(insc.nome, mm.nome);
-      if (simMat < LIMIAR_NOME_DIVERGENTE && chaveNome(mm.nome)) {
+      var simMat = similaridade_(insc.nome, mm.nome);
+      if (simMat < LIMIAR_NOME_DIVERGENTE && chaveNome_(mm.nome)) {
         return { matriculado: mm, metodo: 'Matrícula (nome diverge)', score: simMat, status: STATUS.DIVERGENCIA };
       }
       return { matriculado: mm, metodo: 'Matrícula', score: 1, status: STATUS.CONFIRMADO };
@@ -758,14 +758,14 @@ function casar_(insc, idx, usados) {
   }
 
   // 1. CPF
-  var cpf = normalizarCpf(insc.cpf);
+  var cpf = normalizarCpf_(insc.cpf);
   if (cpf.length === 11) {
     var porCpf = livre(idx.porCpf[cpf]);
     if (porCpf.length) {
       var m = porCpf[0];
       // CPF bate mas o nome é outro: alguém digitou errado. Não confirma.
-      var sim = similaridade(insc.nome, m.nome);
-      if (sim < LIMIAR_NOME_DIVERGENTE && chaveNome(m.nome)) {
+      var sim = similaridade_(insc.nome, m.nome);
+      if (sim < LIMIAR_NOME_DIVERGENTE && chaveNome_(m.nome)) {
         return { matriculado: m, metodo: 'CPF (nome diverge)', score: sim, status: STATUS.DIVERGENCIA };
       }
       return { matriculado: m, metodo: 'CPF', score: 1, status: STATUS.CONFIRMADO };
@@ -773,12 +773,12 @@ function casar_(insc, idx, usados) {
   }
 
   // 2. E-mail
-  var email = normalizarEmail(insc.email);
+  var email = normalizarEmail_(insc.email);
   if (email) {
     var porEmail = livre(idx.porEmail[email]);
     if (porEmail.length) {
       var me = porEmail[0];
-      var cpfMat = normalizarCpf(me.cpf);
+      var cpfMat = normalizarCpf_(me.cpf);
       // Mesmo e-mail com CPFs diferentes: conta de família, ou erro. Não confirma.
       if (cpf.length === 11 && cpfMat.length === 11 && cpf !== cpfMat) {
         return { matriculado: me, metodo: 'E-mail (CPF diverge)', score: 0.5, status: STATUS.DIVERGENCIA };
@@ -788,8 +788,8 @@ function casar_(insc, idx, usados) {
   }
 
   // 3. Nome + data de nascimento
-  var nome = chaveNome(insc.nome);
-  var nasc = normalizarData(insc.data_nascimento);
+  var nome = chaveNome_(insc.nome);
+  var nasc = normalizarData_(insc.data_nascimento);
   if (nome && nasc) {
     var porNN = livre(idx.porNomeNasc[nome + '|' + nasc]);
     if (porNN.length) {
@@ -814,7 +814,7 @@ function casar_(insc, idx, usados) {
     var melhor = null;
     idx.todos.forEach(function (m) {
       if (usados[m._id]) return;
-      var s = similaridade(insc.nome, m.nome);
+      var s = similaridade_(insc.nome, m.nome);
       if (s >= LIMIAR_NOME_APROXIMADO && (!melhor || s > melhor.score)) melhor = { m: m, score: s };
     });
     if (melhor) {
@@ -838,7 +838,7 @@ function casar_(insc, idx, usados) {
  * uma cópia dele aqui dentro seria mais um valor livre para divergir.
  *
  * TODOS os campos são gravados, inclusive em branco. Não é zelo: no Firestore um
- * campo AUSENTE não casa com filtro de igualdade, e `painelEstatisticas`
+ * campo AUSENTE não casa com filtro de igualdade, e `painelEstatisticas_`
  * (10_Painel.gs) conta "quantos têm CPF" como total menos os que têm `cpf` igual
  * a vazio. Omitir a chave faria o painel anunciar 100% de CPF em silêncio.
  *
@@ -851,16 +851,16 @@ function montarAluno_(insc, mat, metodo, score, status) {
   mat = mat || {};
 
   return {
-    cpf: normalizarCpf(insc.cpf) || normalizarCpf(mat.cpf),
-    nome: formatarNome(mat.nome || insc.nome),
-    email: normalizarEmail(insc.email) || normalizarEmail(mat.email),
+    cpf: normalizarCpf_(insc.cpf) || normalizarCpf_(mat.cpf),
+    nome: formatarNome_(mat.nome || insc.nome),
+    email: normalizarEmail_(insc.email) || normalizarEmail_(mat.email),
     // O telefone da lista oficial entra como reserva, o que o sistema sobre
     // Sheets não fazia (montarAluno_ olhava só a inscrição). Sem isso, o aluno
     // SO_MATRICULADO — justamente aquele que a coordenação precisa procurar,
     // porque não se inscreveu — fica sem nenhuma forma de contato na tela.
-    telefone: normalizarTelefone(insc.whatsapp || insc.telefone) || normalizarTelefone(mat.telefone),
-    data_nascimento: normalizarData(insc.data_nascimento) || normalizarData(mat.data_nascimento),
-    matricula: normalizarMatricula(mat.matricula) || normalizarMatricula(insc.matricula),
+    telefone: normalizarTelefone_(insc.whatsapp || insc.telefone) || normalizarTelefone_(mat.telefone),
+    data_nascimento: normalizarData_(insc.data_nascimento) || normalizarData_(mat.data_nascimento),
+    matricula: normalizarMatricula_(mat.matricula) || normalizarMatricula_(insc.matricula),
     matricula_conferida: insc.matricula_conferida || (mat._id ? 'SIM' : 'NAO'),
     projeto: String(insc.projeto_nome || '').trim(),
     curso: String(mat.curso || insc.curso_fase || insc.curso || '').trim(),
@@ -898,7 +898,7 @@ function montarAluno_(insc, mat, metodo, score, status) {
  * defeito que lá era invisível: dois alunos sem CPF e sem e-mail com o mesmo nome
  * herdavam a decisão um do outro.
  *
- * `revisado_por` é o sinal de que houve gente: `resolverAluno` (10_Painel.gs)
+ * `revisado_por` é o sinal de que houve gente: `resolverAluno_` (10_Painel.gs)
  * sempre o preenche, e a reconciliação nunca.
  *
  * CANCELADO (21/09) passa por cima da decisão humana nos DOIS sentidos, e só o
@@ -1007,7 +1007,7 @@ function resumoDe_(lista) {
  * rodada; ela grava o resultado num documento, e o painel o lê por 1 leitura.
  *
  * Um campo por curso, com o nome do curso como nome do campo — é o formato que
- * `painelCursos_` (10_Painel.gs) lê. `escreverEmLote`, e não `atualizar`: o
+ * `painelCursos_` (10_Painel.gs) lê. `escreverEmLote_`, e não `atualizar_`: o
  * `update` sem máscara substitui o documento inteiro, que é o certo para um
  * histograma (curso que sumiu tem de sumir) e evita passar nome de curso por
  * `updateMask.fieldPaths`, onde ponto e espaço têm significado.
@@ -1037,11 +1037,11 @@ function atualizarAgregadoDeCursos_(lista) {
   var documento = { _id: AGREGADOS_CURSOS };
   cursos.forEach(function (curso) { documento[curso] = String(contagem[curso]); });
 
-  var atual = ler(AGREGADOS_COLECAO, AGREGADOS_CURSOS);
+  var atual = ler_(AGREGADOS_COLECAO, AGREGADOS_CURSOS);
   if (atual && !histogramaMudou_(documento, atual)) return false;
 
-  documento.atualizado_em = agora();
-  escreverEmLote(AGREGADOS_COLECAO, [documento]);
+  documento.atualizado_em = agora_();
+  escreverEmLote_(AGREGADOS_COLECAO, [documento]);
   return true;
 }
 
@@ -1063,11 +1063,11 @@ function histogramaMudou_(novo, atual) {
 
 // ------------------------------------------------------------ Ações do painel
 
-/** Botão "Reconciliar agora" (Admin.html:554). */
-function rodarReconciliacao(payload) {
+/** Botão "Reconciliar agora" do painel (docs/painel/index.html). */
+function rodarReconciliacao_(payload) {
   try {
-    exigirAdmin(payload && payload.token);
-    return { ok: true, resumo: reconciliar() };
+    exigirAdmin_(payload && payload.token);
+    return { ok: true, resumo: reconciliar_() };
   } catch (err) {
     console.error('rodarReconciliacao: ' + err.message);
     return { ok: false, erro: err.message };
@@ -1075,19 +1075,19 @@ function rodarReconciliacao(payload) {
 }
 
 /**
- * Botão "Sincronizar respostas do Forms" (Admin.html:566).
+ * Botão "Sincronizar respostas do Forms" do painel (docs/painel/index.html).
  *
  * A reconciliação só roda se entrou resposta nova. Ela custa milhares de
  * leituras (ver o orçamento no topo) e não tem o que recalcular quando nada
  * chegou — e o `Admin.html` nem mostra o resultado dela nesta tela.
  */
-function sincronizarForms(payload) {
+function sincronizarForms_(payload) {
   try {
     payload = payload || {};
-    exigirAdmin(payload.token);
+    exigirAdmin_(payload.token);
 
-    var r = sincronizarRespostasForms(payload.completo);
-    if (!r.aviso && r.novas > 0) reconciliar();
+    var r = sincronizarRespostasForms_(payload.completo);
+    if (!r.aviso && r.novas > 0) reconciliar_();
 
     return { ok: true, resultado: r };
   } catch (err) {
@@ -1149,8 +1149,8 @@ var SYNC_FORMS_MAX = 1000;
  * `completo = true` ignora a marca e varre tudo, que é o modo de reconstruir o
  * histórico.
  */
-function sincronizarRespostasForms(completo) {
-  var formId = String(config('form_id', '')).trim();
+function sincronizarRespostasForms_(completo) {
+  var formId = String(config_('form_id', '')).trim();
   if (!formId) {
     return {
       novas: 0, duplicadas: 0, ignoradas: 0,
@@ -1168,7 +1168,7 @@ function sincronizarRespostasForms(completo) {
   var marca = '';
 
   leitura.itens.forEach(function (resposta) {
-    var dados = mapearParaInscricao(resposta.bruto, 'GOOGLE_FORMS');
+    var dados = mapearParaInscricao_(resposta.bruto, 'GOOGLE_FORMS');
 
     // Resposta sem nada que identifique a pessoa: sem matrícula, sem CPF, sem
     // e-mail e sem nome, TODAS colapsam na mesma chave de dedup e só a primeira
@@ -1179,7 +1179,7 @@ function sincronizarRespostasForms(completo) {
       return;
     }
 
-    var r = gravarInscricao(dados);
+    var r = gravarInscricao_(dados);
     if (r.duplicada) duplicadas++; else novas++;
     if (resposta.quando) marca = resposta.quando;
   });
@@ -1187,7 +1187,7 @@ function sincronizarRespostasForms(completo) {
   if (marca) PropertiesService.getScriptProperties().setProperty(SYNC_FORMS_MARCA, marca);
 
   if (novas || duplicadas || ignoradas) {
-    registrar('SYNC_FORMS', 'inscricao', '',
+    registrar_('SYNC_FORMS', 'inscricao', '',
       'novas=' + novas + ' duplicadas=' + duplicadas + ' ignoradas=' + ignoradas);
   }
 
@@ -1291,17 +1291,17 @@ function marcaDaSincronizacao_() {
  * porque é o único caminho do Forms que existe no projeto novo — não há gatilho
  * `onFormSubmit`, porque não há planilha-container onde instalá-lo.
  *
- * O casamento das perguntas usa `adivinharCampo` (01_Utils.gs), o mesmo
+ * O casamento das perguntas usa `adivinharCampo_` (01_Utils.gs), o mesmo
  * dicionário de sinônimos que a importação de planilha usa. A pergunta do
  * formulário do CESUTECH muda de redação todo semestre; o dicionário é o que
  * evita reconfigurar o sistema a cada mudança.
  */
-function mapearParaInscricao(bruto, origem) {
+function mapearParaInscricao_(bruto, origem) {
   var out = { origem: origem || 'DESCONHECIDA', raw_json: JSON.stringify(bruto) };
   var scores = {};
 
   Object.keys(bruto).forEach(function (pergunta) {
-    var palpite = adivinharCampo(pergunta);
+    var palpite = adivinharCampo_(pergunta);
     if (!palpite) return;
 
     // Vence o MAIOR score, e o empate fica com a primeira pergunta. O sistema
@@ -1310,7 +1310,7 @@ function mapearParaInscricao(bruto, origem) {
     // porque o casamento exato vale 1 e o parcial vale 0,85.
     //
     // O que a regra de lá NÃO resolve é o casamento parcial que chega ANTES do
-    // exato. `adivinharCampo` aceita substring, e 'ra' é sinônimo de matrícula
+    // exato. `adivinharCampo_` aceita substring, e 'ra' é sinônimo de matrícula
     // (de "registro acadêmico"): qualquer pergunta com "ra" no meio — "Carimbo
     // de data/hora", "Sua turma", "Horário" — casava com matrícula por 0,85 e,
     // vindo primeiro, tomava o lugar da pergunta "Matrícula", que vale 1. A
@@ -1324,9 +1324,9 @@ function mapearParaInscricao(bruto, origem) {
 
   // Consentimento LGPD: qualquer pergunta cuja resposta seja um "sim" explícito.
   Object.keys(bruto).forEach(function (pergunta) {
-    var p = normalizarTexto(pergunta);
+    var p = normalizarTexto_(pergunta);
     if (p.indexOf('lgpd') !== -1 || p.indexOf('autoriz') !== -1 || p.indexOf('consent') !== -1) {
-      var resp = normalizarTexto(bruto[pergunta]);
+      var resp = normalizarTexto_(bruto[pergunta]);
       out.consentimento_lgpd = (resp.indexOf('sim') !== -1 || resp.indexOf('aceito') !== -1 ||
         resp.indexOf('autorizo') !== -1 || resp.indexOf('concordo') !== -1) ? 'SIM' : 'NAO';
     }
@@ -1339,7 +1339,9 @@ function mapearParaInscricao(bruto, origem) {
 
 /**
  * Nome do gatilho diário. Fixo, para `instalarGatilhoDiario` conseguir
- * reconhecer o que já instalou e não empilhar cópias.
+ * reconhecer o que já instalou e não empilhar cópias — e porque o acionador já
+ * instalado chama a função POR ESTE NOME: trocá-lo faz a reconciliação da
+ * madrugada parar, sem erro nenhum na tela.
  */
 var GATILHO_RECONCILIACAO = 'reconciliarAutomatico';
 
@@ -1358,21 +1360,35 @@ var GATILHO_RECONCILIACAO = 'reconciliarAutomatico';
  * O custo é baixo justamente porque a reconciliação virou upsert por diferença:
  * num dia sem inscrição nova ela lê os dois lados e NÃO ESCREVE NADA. Antes
  * desse conserto, um gatilho diário seria uma arma apontada para a cota.
+ *
+ * A primeira linha confere quem chama (`exigirGatilhoOuDono_`, 07_Auth.gs): o
+ * acionador deste projeto passa, e o dono rodando no editor também. É o único
+ * lugar em que esta função lança — o trabalho, em `reconciliarAutomatico_`,
+ * engole a falha e a registra.
  */
-function reconciliarAutomatico() {
+function reconciliarAutomatico(e) {
+  exigirGatilhoOuDono_(e);
+  return reconciliarAutomatico_();
+}
+
+/** O trabalho de `reconciliarAutomatico`, depois da guarda. É esta que o código chama por dentro. */
+function reconciliarAutomatico_() {
   try {
-    var r = reconciliar();
-    registrar('RECONCILIACAO_AUTOMATICA', 'sistema', '',
-      // `escritos`, e não `gravados`: é o nome que `reconciliar()` devolve (ver o
+    var r = reconciliar_();
+    registrar_('RECONCILIACAO_AUTOMATICA', 'sistema', '',
+      // `escritos`, e não `gravados`: é o nome que `reconciliar_()` devolve (ver o
       // resumo no fim dela). O campo errado fazia a única linha da madrugada
       // dizer "gravados: undefined" — e uma linha que não informa nada é pior
       // que nenhuma, porque parece informação.
       'alunos: ' + (r && r.total) + ', gravados: ' + (r && r.escritos));
   } catch (e) {
     // Gatilho que lança manda e-mail de falha para o dono do script todo dia.
-    // O erro fica no Stackdriver e no log do sistema, que é onde se procura.
+    // O erro fica no Stackdriver e no log do sistema, que é onde se procura —
+    // na trilha, pela régua dela (`semIdDeDocumento_`, 04_Log.gs): a linha fica
+    // um ano no banco e vai para o backup, e o erro do Repo traz o caminho do
+    // documento, que é a matrícula.
     console.error('reconciliarAutomatico: ' + e.message);
-    registrar('ERRO', 'sistema', '', 'reconciliação automática: ' + e.message);
+    registrar_('ERRO', 'sistema', '', 'reconciliação automática: ' + semIdDeDocumento_(e));
   }
 }
 
@@ -1383,8 +1399,22 @@ function reconciliarAutomatico() {
  * isso, rodar duas vezes deixaria dois gatilhos e a reconciliação rodaria em
  * dobro — e gatilho duplicado é invisível até alguém abrir a tela de
  * acionadores para procurar.
+ *
+ * IDEMPOTENTE SÓ PARA A CONTA QUE RODA. `ScriptApp.getProjectTriggers()` devolve
+ * os acionadores de quem executa, e não os do projeto inteiro: o que OUTRA conta
+ * instalou não está nessa lista, não é removido aqui, e rodar isto ao lado dele
+ * faz a reconciliação rodar duas vezes por dia. ANTES DE RODAR, confira a tela
+ * Acionadores do editor (o relógio, no menu da esquerda): se já houver um
+ * `reconciliarAutomatico`, de outra conta, não rode. O que ela imprime no fim
+ * repete o aviso.
  */
 function instalarGatilhoDiario() {
+  exigirDono_();
+  return instalarGatilhoDiario_();
+}
+
+/** O trabalho de `instalarGatilhoDiario`, depois da guarda. É esta que o código chama por dentro. */
+function instalarGatilhoDiario_() {
   var existentes = ScriptApp.getProjectTriggers();
   var removidos = 0;
 
@@ -1404,5 +1434,8 @@ function instalarGatilhoDiario() {
   Logger.log('=== instalarGatilhoDiario ===');
   if (removidos) Logger.log('gatilhos antigos removidos: %s', removidos);
   Logger.log('reconciliação automática instalada para rodar entre 5h e 6h, todo dia.');
+  Logger.log('Esta função só vê e só substitui os acionadores desta conta. Confira a tela ' +
+    'Acionadores (o relógio, no menu da esquerda): se houver outro reconciliarAutomatico, de ' +
+    'outra conta, apague um dos dois — com os dois, a reconciliação roda duas vezes por dia.');
   Logger.log('O botão "Reconciliar agora" continua valendo para quando não dá para esperar.');
 }

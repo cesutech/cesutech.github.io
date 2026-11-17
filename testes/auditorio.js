@@ -129,7 +129,7 @@ function tokenAdmin(api) {
 }
 
 function criarProjeto(api, id, campos) {
-  api.inserir('projetos', Object.assign({
+  api.inserir_('projetos', Object.assign({
     codigo: id,
     nome: 'Projeto ' + id,
     professor: 'Marina Exemplo',
@@ -145,7 +145,7 @@ function criarProjeto(api, id, campos) {
 /**
  * Uma inscrição gravada como o servidor a grava.
  *
- * `em_espera` e `espera_de` andam JUNTOS — é assim que `gravarInscricao` os
+ * `em_espera` e `espera_de` andam JUNTOS — é assim que `gravarInscricao_` os
  * escreve (04_Inscricoes.gs) e é o par que `contarEmEspera_` conta
  * (09_Projetos.gs). Escrever um sem o outro montaria um banco que o sistema
  * nunca produz, e o teste mediria um mundo que não existe.
@@ -164,7 +164,7 @@ function inscrever(api, id, campos) {
   }, campos || {});
 
   if (doc.em_espera === 'SIM') doc.espera_de = doc.projeto_id;
-  api.inserir('inscricoes', doc, id);
+  api.inserir_('inscricoes', doc, id);
   return id;
 }
 
@@ -228,7 +228,7 @@ function auditorioLotado(api) {
   inscrever(api, 'i3', { nome: 'Bruno Souza', matricula: '110002', criado_em: '2026-08-14 21:00:03', em_espera: 'SIM' });
   inscrever(api, 'i4', { nome: 'Carla Dias', matricula: '110003', criado_em: '2026-08-14 21:00:04', em_espera: 'SIM' });
   inscrever(api, 'i5', { nome: 'Diego Melo', matricula: '110004', criado_em: '2026-08-14 21:00:05', em_espera: 'SIM' });
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
 }
 
 // ============================================================================
@@ -243,7 +243,7 @@ teste('as cinco recusam token ausente, vazio, forjado — e não tocam no banco'
   comLock(api, falso);
   const antes = idsDe(falso, 'inscricoes');
 
-  ['inscricoesRecentes', 'filaDeEspera', 'anularInscricoes', 'restaurarInscricoes', 'promoverDaEspera']
+  ['inscricoesRecentes_', 'filaDeEspera_', 'anularInscricoes_', 'restaurarInscricoes_', 'promoverDaEspera_']
     .forEach((nome) => {
       [undefined, '', 'token-inventado', null].forEach((token) => {
         const r = api[nome]({ token: token, ids: ['i1', 'i2'] });
@@ -256,26 +256,30 @@ teste('as cinco recusam token ausente, vazio, forjado — e não tocam no banco'
   igual(idsDe(falso, 'inscricoes_anuladas'), [], 'e ninguém foi para a quarentena');
 });
 
-// A lista branca diz "o navegador pode chamar"; o `exigirAdmin` diz "só com
+// A lista branca diz "o navegador pode chamar"; o `exigirAdmin_` diz "só com
 // token". As duas conferências existem, e é a primeira linha de cada função que
-// garante a segunda quando ela é chamada por google.script.run.
+// garante a segunda se ela um dia for chamada por outro caminho.
 teste('as cinco estão na lista branca do painel, e nenhuma outra do arquivo está', () => {
   const codigo = fs.readFileSync(path.join(PASTA_GS, '08_Api.gs'), 'utf8');
   const doArquivo = fs.readFileSync(path.join(PASTA_GS, '13_Auditorio.gs'), 'utf8');
 
+  // Cada linha da lista é `nomeDoFio: funcao_,` — a chave é o que o painel
+  // manda, o valor é a função que roda.
   ['inscricoesRecentes', 'filaDeEspera', 'anularInscricoes', 'restaurarInscricoes', 'promoverDaEspera']
     .forEach((nome) => {
-      verdadeiro(new RegExp('\\n\\s*' + nome + ': ' + nome + ',?\\n').test(codigo),
+      verdadeiro(new RegExp('\\n\\s*' + nome + ': ' + nome + '_,?\\n').test(codigo),
         nome + ' não está na lista branca literal de funcoesDoPainel_');
     });
 
-  // As internas terminam em `_`, e é isso que as mantém fora da lista: o dia em
-  // que uma delas entrar, entra sem `exigirAdmin` nenhum na frente.
-  const publicas = (doArquivo.match(/^function ([a-zA-Z][\w$]*)\(/gm) || [])
+  // Desde 16/11/2026 TODA função do arquivo termina em `_` — é o servidor
+  // inteiro que é privado —, e o que separa as cinco das internas é estar na
+  // lista. O dia em que uma interna entrar nela, entra sem `exigirAdmin_` nenhum
+  // na frente: a conta abaixo é a das funções do arquivo que a lista alcança.
+  const doArquivoNaLista = (doArquivo.match(/^function ([a-zA-Z][\w$]*)\(/gm) || [])
     .map((l) => l.replace(/^function /, '').replace(/\($/, ''))
-    .filter((n) => n.slice(-1) !== '_');
-  igual(publicas.sort(), ['anularInscricoes', 'filaDeEspera', 'inscricoesRecentes',
-    'promoverDaEspera', 'restaurarInscricoes']);
+    .filter((n) => new RegExp('\\n\\s*[A-Za-z]\\w*: ' + n.replace(/\$/g, '\\$') + ',?\\n').test(codigo));
+  igual(doArquivoNaLista.sort(), ['anularInscricoes_', 'filaDeEspera_', 'inscricoesRecentes_',
+    'promoverDaEspera_', 'restaurarInscricoes_']);
 });
 
 // A colisão de nomes entre arquivos é silenciosa no Apps Script: os `.gs`
@@ -308,7 +312,7 @@ teste('devolve da mais nova para a mais velha, com o teto pedido', () => {
   const { api } = ambiente();
   auditorioLotado(api);
 
-  const r = api.inscricoesRecentes({ token: tokenAdmin(api), limite: 3 });
+  const r = api.inscricoesRecentes_({ token: tokenAdmin(api), limite: 3 });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.inscricoes.map((i) => i.id), ['i5', 'i4', 'i3']);
@@ -326,7 +330,7 @@ teste('ordena por criado_em e NÃO manda filtro na consulta — o filtro é em J
   inscrever(api, 'i9', { projeto_id: 'p2', criado_em: '2026-08-14 21:00:09' });
   falso.requisicoes.length = 0;
 
-  const r = api.inscricoesRecentes({ token: tokenAdmin(api), projeto_id: 'p1', limite: 200 });
+  const r = api.inscricoesRecentes_({ token: tokenAdmin(api), projeto_id: 'p1', limite: 200 });
 
   const consulta = consultas(falso)[0];
   igual(consulta.orderBy[0].field.fieldPath, 'criado_em');
@@ -343,7 +347,7 @@ teste('não ordena por __name__, que é a outra forma da mesma armadilha', () =>
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
-  api.inscricoesRecentes({ token: tokenAdmin(api) });
+  api.inscricoesRecentes_({ token: tokenAdmin(api) });
 
   consultas(falso).forEach((c) => {
     verdadeiro(c.orderBy[0].field.fieldPath !== '__name__',
@@ -359,11 +363,11 @@ teste('o teto da leitura é 1000, e um limite absurdo não passa por cima dele',
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
-  api.inscricoesRecentes({ token: tokenAdmin(api), limite: 5000 });
+  api.inscricoesRecentes_({ token: tokenAdmin(api), limite: 5000 });
   igual(consultas(falso)[0].limit, 1000, 'o teto de escrita não manda no tamanho da janela');
 
   falso.requisicoes.length = 0;
-  api.inscricoesRecentes({ token: tokenAdmin(api), limite: 'trinta' });
+  api.inscricoesRecentes_({ token: tokenAdmin(api), limite: 'trinta' });
   igual(consultas(falso)[0].limit, 50, 'sem número, o padrão da tela');
 });
 
@@ -375,11 +379,11 @@ teste('truncada é true quando a janela corta de verdade, e false quando sobra e
   auditorioLotado(api);   // cinco inscrições
   const token = tokenAdmin(api);
 
-  igual(api.inscricoesRecentes({ token: token, limite: 3 }).truncada, true,
+  igual(api.inscricoesRecentes_({ token: token, limite: 3 }).truncada, true,
     'três pedidas, três vindas, cinco no banco: há duas que a tela não viu');
-  igual(api.inscricoesRecentes({ token: token, limite: 6 }).truncada, false,
+  igual(api.inscricoesRecentes_({ token: token, limite: 6 }).truncada, false,
     'sobrou espaço na janela: o que veio é tudo o que existe');
-  igual(api.inscricoesRecentes({ token: token }).truncada, false,
+  igual(api.inscricoesRecentes_({ token: token }).truncada, false,
     'e o padrão de 50 sobra do mesmo jeito');
 });
 
@@ -398,7 +402,7 @@ teste('janela do tamanho EXATO da coleção não é corte: truncada false, e sem
   const token = tokenAdmin(api);
   falso.requisicoes.length = 0;
 
-  const r = api.inscricoesRecentes({ token: token, limite: 5 });
+  const r = api.inscricoesRecentes_({ token: token, limite: 5 });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.lidas, 5);
@@ -412,7 +416,7 @@ teste('janela do tamanho EXATO da coleção não é corte: truncada false, e sem
   // E uma a mais no banco devolve o corte, pela MESMA agregação: o teste acima
   // não pode estar provando "truncada nunca é true".
   inscrever(api, 'i6', { nome: 'Elis Prado', matricula: '110005', criado_em: '2026-08-14 21:00:06' });
-  const cortou = api.inscricoesRecentes({ token: token, limite: 5 });
+  const cortou = api.inscricoesRecentes_({ token: token, limite: 5 });
   igual(cortou.truncada, true, 'seis no banco, cinco na tela: uma ficou de fora');
   igual(cortou.total, 6);
 });
@@ -425,12 +429,12 @@ teste('a janela cheia traz o total do banco por UMA agregação; a folgada não 
     falso.requisicoes.filter((q) => q.url.indexOf(':runAggregationQuery') !== -1).length;
 
   falso.requisicoes.length = 0;
-  const cortada = api.inscricoesRecentes({ token: token, limite: 2 });
+  const cortada = api.inscricoesRecentes_({ token: token, limite: 2 });
   igual(cortada.total, 5, 'sem o total, "2 de quantas?" não tem resposta na tela');
   igual(agregacoes(), 1, 'o total do banco é uma agregação, não uma releitura da coleção');
 
   falso.requisicoes.length = 0;
-  const inteira = api.inscricoesRecentes({ token: token, limite: 50 });
+  const inteira = api.inscricoesRecentes_({ token: token, limite: 50 });
   igual(inteira.total, undefined, 'com a janela folgada, `lidas` já É o total');
   igual(agregacoes(), 0, 'contar de novo seria leitura paga para repetir um número que a tela tem');
 });
@@ -446,7 +450,7 @@ teste('a agregação que FALHA leva embora o total, e mais nada', () => {
   const token = tokenAdmin(api);
   const tentativas = comAgregacaoQuebrada(api);
 
-  const r = api.inscricoesRecentes({ token: token, limite: 2 });
+  const r = api.inscricoesRecentes_({ token: token, limite: 2 });
 
   igual(r.ok, true, 'a falha do rodapé derrubou a resposta inteira: ' + r.erro);
   igual(r.inscricoes.map((i) => i.id), ['i5', 'i4'], 'as linhas já lidas foram jogadas fora');
@@ -467,7 +471,7 @@ teste('o payload do aluno não vaza inteiro para a tela', () => {
   const { api } = ambiente();
   auditorioLotado(api);
 
-  const primeira = api.inscricoesRecentes({ token: tokenAdmin(api) }).inscricoes[0];
+  const primeira = api.inscricoesRecentes_({ token: tokenAdmin(api) }).inscricoes[0];
   igual(primeira.raw_json, undefined, 'raw_json é o formulário inteiro repetido — 200 deles não passeiam');
 });
 
@@ -477,7 +481,7 @@ teste('a fila volta em ORDEM DE CHEGADA, com a posição de cada um', () => {
   const { api } = ambiente();
   auditorioLotado(api);
 
-  const r = api.filaDeEspera({ token: tokenAdmin(api) });
+  const r = api.filaDeEspera_({ token: tokenAdmin(api) });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.fila.map((f) => f.id), ['i3', 'i4', 'i5'], 'quem chegou primeiro tem de vir primeiro');
@@ -493,7 +497,7 @@ teste('a posição é POR PROJETO — duas filas não se somam', () => {
   inscrever(api, 'x1', { projeto_id: 'p2', criado_em: '2026-08-14 21:00:00', em_espera: 'SIM' });
   inscrever(api, 'x2', { projeto_id: 'p2', criado_em: '2026-08-14 21:00:06', em_espera: 'SIM' });
 
-  const r = api.filaDeEspera({ token: tokenAdmin(api) });
+  const r = api.filaDeEspera_({ token: tokenAdmin(api) });
   const porId = {};
   r.fila.forEach((f) => { porId[f.id] = f; });
 
@@ -507,7 +511,7 @@ teste('o resumo por projeto traz vagas, confirmados, quantos esperam e quantos c
   const { api } = ambiente();
   auditorioLotado(api);
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
 
   igual(p, {
     id: 'p1', nome: 'Robótica', vagas: 2, confirmados: 2, emEspera: 3,
@@ -522,10 +526,10 @@ teste('o resumo por projeto traz vagas, confirmados, quantos esperam e quantos c
 teste('a chave que desliga a contagem da lista NÃO desliga a conta do auditório', () => {
   const { api } = ambiente();
   auditorioLotado(api);
-  api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
-  api.limparCacheConfig();
+  api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
+  api.limparCacheConfig_();
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
 
   igual(p, {
     id: 'p1', nome: 'Robótica', vagas: 2, confirmados: 2, emEspera: 3,
@@ -536,11 +540,11 @@ teste('a chave que desliga a contagem da lista NÃO desliga a conta do auditóri
 teste('e com vaga sobrando ela continua dizendo quantos cabem, e não a fila toda', () => {
   const { api } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '3' });
-  api.gravarConfig('contar_ocupacao_na_lista', 'NAO');
-  api.limparCacheConfig();
+  api.atualizar_('projetos', 'p1', { vagas: '3' });
+  api.gravarConfig_('contar_ocupacao_na_lista', 'NAO');
+  api.limparCacheConfig_();
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
   igual(p.confirmados, 2);
   igual(p.cabem, 1, 'sem contagem, "cabem 3" ofereceria promover quem não cabe');
 });
@@ -551,9 +555,9 @@ teste('e com vaga sobrando ela continua dizendo quantos cabem, e não a fila tod
 teste('cabem nunca fica negativo, mesmo com o projeto estourado', () => {
   const { api } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '1' });
+  api.atualizar_('projetos', 'p1', { vagas: '1' });
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
   igual(p.confirmados, 2);
   igual(p.cabem, 0);
 });
@@ -561,21 +565,21 @@ teste('cabem nunca fica negativo, mesmo com o projeto estourado', () => {
 teste('projeto ilimitado cabe a fila inteira, e não zero', () => {
   const { api } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '0' });
+  api.atualizar_('projetos', 'p1', { vagas: '0' });
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
   igual(p.vagas, 0);
   igual(p.cabem, 3, 'vagas 0 é ilimitado: a subtração diria 0, que é o oposto da verdade');
 });
 
-// Projeto fechado não recebe promoção — `promoverDaEspera` recusa. Oferecer o
+// Projeto fechado não recebe promoção — `promoverDaEspera_` recusa. Oferecer o
 // botão seria prometer um clique que o servidor nega.
 teste('projeto fechado ou inativo mostra cabem 0, mesmo com vaga sobrando', () => {
   const { api } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10', inscricoes_abertas: 'NAO' });
+  api.atualizar_('projetos', 'p1', { vagas: '10', inscricoes_abertas: 'NAO' });
 
-  const p = api.filaDeEspera({ token: tokenAdmin(api) }).projetos[0];
+  const p = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos[0];
   igual(p.situacao, 'FECHADO');
   igual(p.cabem, 0, 'a tela ofereceria promover para um projeto que o servidor recusa');
 });
@@ -585,7 +589,7 @@ teste('a consulta da fila leva UM filtro e nenhuma ordenação declarada', () =>
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
-  api.filaDeEspera({ token: tokenAdmin(api) });
+  api.filaDeEspera_({ token: tokenAdmin(api) });
 
   const consulta = consultas(falso)[0];
   igual(consulta.where.fieldFilter.field.fieldPath, 'em_espera');
@@ -601,7 +605,7 @@ teste('o filtro por projeto também é feito em JavaScript', () => {
   inscrever(api, 'x1', { projeto_id: 'p2', criado_em: '2026-08-14 21:00:00', em_espera: 'SIM' });
   falso.requisicoes.length = 0;
 
-  const r = api.filaDeEspera({ token: tokenAdmin(api), projeto_id: 'p2' });
+  const r = api.filaDeEspera_({ token: tokenAdmin(api), projeto_id: 'p2' });
 
   igual(r.fila.map((f) => f.id), ['x1']);
   igual(r.projetos.map((p) => p.id), ['p2'], 'pedindo um projeto, é dele que a tela fala');
@@ -618,7 +622,7 @@ teste('projeto ativo SEM fila aparece no cabeçalho, com emEspera 0', () => {
   criarProjeto(api, 'p2', { vagas: '2', nome: 'Sossegado', ordem: '2' });
   inscrever(api, 'i1', {});
 
-  const r = api.filaDeEspera({ token: tokenAdmin(api) });
+  const r = api.filaDeEspera_({ token: tokenAdmin(api) });
 
   igual(r.fila, [], 'ninguém está esperando');
   igual(r.projetos.map((p) => p.id), ['p1', 'p2'], 'os dois ativos, com fila ou sem');
@@ -635,9 +639,9 @@ teste('projeto inativo só aparece se tiver gente esperando nele', () => {
   criarProjeto(api, 'p_off', { vagas: '2', nome: 'Desativado', ativo: 'NAO' });
   criarProjeto(api, 'p_off2', { vagas: '2', nome: 'Desativado sem fila', ativo: 'NAO' });
   inscrever(api, 'e1', { projeto_id: 'p_off', em_espera: 'SIM' });
-  api.gravarConfig('vagas_excedentes_em_espera', 'SIM');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'SIM');
 
-  const ids = api.filaDeEspera({ token: tokenAdmin(api) }).projetos.map((p) => p.id);
+  const ids = api.filaDeEspera_({ token: tokenAdmin(api) }).projetos.map((p) => p.id);
 
   igual(ids, ['p1', 'p_off'], 'a fila teria linha apontando para projeto que a tela não conhece');
   igual(ids.indexOf('p_off2'), -1, 'projeto fora do ar e sem fila não é assunto da noite');
@@ -647,7 +651,7 @@ teste('sem projeto nenhum, a resposta é vazia e não custa agregação', () => 
   const { api, falso } = ambiente();
   falso.requisicoes.length = 0;
 
-  const r = api.filaDeEspera({ token: tokenAdmin(api) });
+  const r = api.filaDeEspera_({ token: tokenAdmin(api) });
 
   igual(r.fila, []);
   igual(r.projetos, []);
@@ -663,7 +667,7 @@ teste('a cópia para a quarentena vai ANTES da exclusão', () => {
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
   igual(r.ok, true, 'erro foi: ' + r.erro);
 
   const passos = commits(falso);
@@ -673,7 +677,7 @@ teste('a cópia para a quarentena vai ANTES da exclusão', () => {
 });
 
 teste('a recusa do anular chega à tela e ao console SEM o caminho do documento (D-27, camada do Auditório)', () => {
-  // O Geral chama `anularInscricoes` DIRETO — não passa pela revisão, que
+  // O Geral chama `anularInscricoes_` DIRETO — não passa pela revisão, que
   // tem a própria régua. Se o catch daqui voltar a devolver `err.message`
   // cru, o texto do Firestore ('projects/<id do projeto Cloud>/databases/...')
   // vai para a faixa da tela e para o log de execução: o id do projeto é o
@@ -698,7 +702,7 @@ teste('a recusa do anular chega à tela e ao console SEM o caminho do documento 
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
   igual(r.ok, false);
   igual(r.erro.indexOf('projects/'), -1, 'o caminho vazou na resposta: ' + r.erro);
   igual(r.erro.indexOf('meu-projeto-123'), -1, r.erro);
@@ -716,9 +720,9 @@ teste('com a quarentena caída, NADA é apagado', () => {
 
   // A cópia falha. É o momento exato em que a ordem inversa teria destruído a
   // inscrição e ficado sem cópia nenhuma.
-  api.escreverEmLote = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
+  api.escreverEmLote_ = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
 
   igual(r.ok, false);
   igual(idsDe(falso, 'inscricoes'), ['i1', 'i2', 'i3', 'i4', 'i5'], 'apagou sem ter guardado');
@@ -730,16 +734,16 @@ teste('morrer entre a cópia e a exclusão deixa duplicata — e o desfazer a li
   auditorioLotado(api);
   comLock(api, falso);
 
-  api.excluirEmLote = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
-  igual(api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] }).ok, false);
+  api.excluirEmLote_ = () => { throw new Error('Firestore 503 UNAVAILABLE'); };
+  igual(api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] }).ok, false);
 
   igual(idsDe(falso, 'inscricoes').indexOf('i2') !== -1, true, 'a inscrição continua onde estava');
   igual(idsDe(falso, 'inscricoes_anuladas'), ['i2'], 'e a cópia ficou para trás');
 
   // O estrago inteiro: uma cópia órfã. Restaurar percebe que ela já está de
   // volta, limpa a quarentena e não disputa vaga nenhuma.
-  delete api.excluirEmLote;
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  delete api.excluirEmLote_;
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   igual(r.ja_estavam, 1);
   igual(r.restauradas, 1);
@@ -750,7 +754,7 @@ teste('a cópia preserva o id original e carimba quem anulou e quando', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
 
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   const copia = campos(falso, 'inscricoes_anuladas', 'i2');
   verdadeiro(copia !== null, 'a cópia tem de morar no id original: ele é a chave de dedup');
@@ -761,14 +765,14 @@ teste('a cópia preserva o id original e carimba quem anulou e quando', () => {
   igual(campos(falso, 'inscricoes', 'i2'), null);
 });
 
-// Apagar só LIBERA vaga; quem decide vaga é `reservarVaga`, contando dentro do
+// Apagar só LIBERA vaga; quem decide vaga é `reservarVaga_`, contando dentro do
 // lock. Segurar o lock do auditório para fazer limpeza é o oposto do objetivo.
 teste('anular NÃO pega o lock', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   const eventos = comLock(api, falso);
 
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
 
   igual(eventos.length, 0, 'a limpeza parou a fila da inscrição do aluno');
 });
@@ -778,7 +782,7 @@ teste('a vaga liberada aparece na contagem, e a fila continua fora dela', () => 
   auditorioLotado(api);
 
   igual(api.contarInscritos_('p1'), 2);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   igual(api.contarInscritos_('p1'), 1, 'anular não devolveu a vaga');
   igual(api.contarEmEspera_('p1'), 3, 'e não mexeu em quem espera');
@@ -789,7 +793,7 @@ teste('id que não existe mais não derruba o lote, e é contado à parte', () =
   const { api, falso } = ambiente();
   auditorioLotado(api);
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'sumiu', 'i2'] });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'sumiu', 'i2'] });
 
   igual(r.anuladas, 2);
   igual(r.nao_encontradas, 1);
@@ -801,7 +805,7 @@ teste('lote inteiro inexistente responde ok, sem apagar nem gravar', () => {
   auditorioLotado(api);
   falso.requisicoes.length = 0;
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: ['nada', 'nadinha'] });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: ['nada', 'nadinha'] });
 
   igual(r.ok, true);
   igual(r.anuladas, 0);
@@ -817,11 +821,11 @@ teste('o relato do anular não repete a contagem que a tela já tem', () => {
   auditorioLotado(api);
   const token = tokenAdmin(api);
 
-  const limpo = api.anularInscricoes({ token: token, ids: ['i1', 'i2'] });
+  const limpo = api.anularInscricoes_({ token: token, ids: ['i1', 'i2'] });
   igual([limpo.anuladas, limpo.pedidas], [2, 2]);
   igual(limpo.mensagem, '', 'sem nada a acrescentar, a frase é vazia');
 
-  const comSobra = api.anularInscricoes({ token: token, ids: ['i3', 'sumiu'] });
+  const comSobra = api.anularInscricoes_({ token: token, ids: ['i3', 'sumiu'] });
   igual([comSobra.anuladas, comSobra.pedidas, comSobra.nao_encontradas], [1, 2, 1]);
   verdadeiro(comSobra.mensagem.indexOf('já não estava') !== -1, 'a frase foi: ' + comSobra.mensagem);
 });
@@ -832,7 +836,7 @@ teste('sem id nenhum é recusado antes de qualquer leitura', () => {
   falso.requisicoes.length = 0;
 
   [{}, { ids: [] }, { ids: ['', '   '] }, { ids: 'i1/../projetos' }].forEach((payload) => {
-    const r = api.anularInscricoes(Object.assign({ token: tokenAdmin(api) }, payload));
+    const r = api.anularInscricoes_(Object.assign({ token: tokenAdmin(api) }, payload));
     igual(r.ok, false, JSON.stringify(payload) + ' passou');
     igual(r.erro, 'Nenhuma inscrição selecionada.');
   });
@@ -844,21 +848,21 @@ teste('id repetido no payload não vira duas cópias', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
 
-  igual(api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i1', 'i1'] }).anuladas, 1);
+  igual(api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i1', 'i1'] }).anuladas, 1);
   igual(commits(falso).filter((c) => c.tipo === 'apaga')[0].quantas, 1);
 });
 
 teste('a trilha registra uma linha por lote, com quem mandou', () => {
   // Quem anulou deixou de ser uma frase no detalhe e virou a COLUNA `usuario`,
-  // que `exigirAdmin` preenche com o e-mail da sessão (04_Log.gs). Mutação que
+  // que `exigirAdmin_` preenche com o e-mail da sessão (04_Log.gs). Mutação que
   // derruba: tirar o `anotarOperador_` da guarda — a coluna volta a 'anonimo',
-  // que é o que `usuarioAtual()` responde neste ambiente (`usuario: ''`, a
+  // que é o que `usuarioAtual_()` responde neste ambiente (`usuario: ''`, a
   // realidade do painel publicado) e em produção.
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  igual(api.usuarioAtual(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
+  igual(api.usuarioAtual_(), 'anonimo', 'o cenário devia ser o do GitHub Pages');
 
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
 
   igual(acoesDoLog(falso), ['INSCRICOES_ANULADAS'], 'uma linha por id queimaria a cota de escrita');
   let detalhe = '';
@@ -889,9 +893,9 @@ teste('com vaga livre, a inscrição volta inteira e sai da quarentena', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.restauradas, 1);
@@ -917,10 +921,10 @@ teste('o que estouraria a vaga não volta, e o relato diz quantos couberam', () 
   comLock(api, falso);
 
   // Três anuladas de um projeto de duas vagas; enquanto isso, alguém novo entra.
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['a1', 'a2', 'a3'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['a1', 'a2', 'a3'] });
   inscrever(api, 'novo', { criado_em: '2026-08-14 21:05:00' });
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['a1', 'a2', 'a3'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['a1', 'a2', 'a3'] });
 
   igual(r.restauradas, 1, 'só uma vaga sobrava');
   igual(r.naoCouberam, 2);
@@ -933,11 +937,11 @@ teste('com a fila ligada, quem não cabe volta PARA A FILA, e não some', () => 
   const { api, falso } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
   inscrever(api, 'novo1', { criado_em: '2026-08-14 21:05:00' });
   inscrever(api, 'novo2', { criado_em: '2026-08-14 21:05:01' });
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i1', 'i2'] });
 
   igual(r.restauradas, 2, 'as duas voltaram ao sistema');
   igual(r.com_vaga, 0);
@@ -953,8 +957,8 @@ teste('quem estava na fila e encontra vaga aberta volta CONFIRMADO', () => {
   auditorioLotado(api);
   comLock(api, falso);
 
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i5', 'i1', 'i2'] });
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i5'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i5', 'i1', 'i2'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i5'] });
 
   igual(r.com_vaga, 1);
   igual(campos(falso, 'inscricoes', 'i5').em_espera, undefined,
@@ -967,7 +971,7 @@ teste('restaurar não inventa inscrição que nunca foi anulada', () => {
   auditorioLotado(api);
   comLock(api, falso);
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['nunca_existiu'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['nunca_existiu'] });
 
   igual(r.restauradas, 0);
   igual(r.recusadas, [{ id: 'nunca_existiu', motivo: 'não está entre as anuladas' }]);
@@ -979,9 +983,9 @@ teste('inscrição sem projeto volta sem disputar vaga com ninguém', () => {
   auditorioLotado(api);
   inscrever(api, 'interna', { projeto_id: '', projeto_nome: '', origem: 'SITE' });
   const eventos = comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['interna'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['interna'] });
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['interna'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['interna'] });
 
   igual(r.restauradas, 1);
   igual(eventos.length, 0, 'quem não ocupa vaga não entra na fila do lock');
@@ -992,10 +996,10 @@ teste('restaurar duas vezes não duplica nem ocupa uma segunda vaga', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
-  api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
-  const segunda = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
+  const segunda = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   igual(segunda.restauradas, 0, 'a segunda não tinha nada a restaurar');
   igual(segunda.recusadas.length, 1);
@@ -1013,7 +1017,7 @@ teste('restaurar descarta tudo o que a QUARENTENA acrescenta — e só isso', ()
   comLock(api, falso);
 
   // A cópia como a TROCA do aluno a deixa, com os campos da inscrição junto.
-  api.escreverEmLote('inscricoes_anuladas', [{
+  api.escreverEmLote_('inscricoes_anuladas', [{
     _id: 'i9',
     criado_em: '2026-09-20 10:00:00', projeto_id: 'p1', projeto_nome: 'Projeto p1',
     matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com',
@@ -1022,10 +1026,10 @@ teste('restaurar descarta tudo o que a QUARENTENA acrescenta — e só isso', ()
     anulado_motivo: 'TROCA', trocado_para: 'i_nova'
   }]);
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i9'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i9'] });
   igual(r.restauradas, 1, 'erro foi: ' + r.erro);
 
-  const volta = api.ler('inscricoes', 'i9');
+  const volta = api.ler_('inscricoes', 'i9');
   igual(volta.anulado_em, undefined);
   igual(volta.anulado_por, undefined);
   igual(volta.anulado_motivo, undefined, 'o motivo da anulação não é campo da inscrição');
@@ -1045,7 +1049,7 @@ teste('com a regra ligada, restaurar recusa quem já está em outro projeto ativ
   criarProjeto(api, 'p3', { vagas: '10', nome: 'Marcenaria Social' });
   comLock(api, falso);
 
-  api.escreverEmLote('inscricoes_anuladas', [{
+  api.escreverEmLote_('inscricoes_anuladas', [{
     _id: 'i_x', criado_em: '2026-09-20 10:00:00', projeto_id: 'p1', projeto_nome: 'Robótica',
     matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com', origem: 'SITE',
     anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
@@ -1055,9 +1059,9 @@ teste('com a regra ligada, restaurar recusa quem já está em outro projeto ativ
     projeto_id: 'p3', projeto_nome: 'Marcenaria Social',
     matricula: '9110001', nome: 'Ana Prado', email: 'aluno@exemplo.com'
   });
-  api.gravarConfig('aluno_projeto_unico', 'SIM');
+  api.gravarConfig_('aluno_projeto_unico', 'SIM');
 
-  const r = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i_x'] });
+  const r = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i_x'] });
 
   igual(r.restauradas, 0);
   igual(r.recusadas, [{ id: 'i_x', motivo: 'já está em outro projeto ativo (Marcenaria Social)' }]);
@@ -1065,8 +1069,8 @@ teste('com a regra ligada, restaurar recusa quem já está em outro projeto ativ
   igual(idsDe(falso, 'inscricoes_anuladas'), ['i_x'], 'quem não voltou continua guardado');
 
   // Com a chave em NAO — o padrão — restaurar continua sendo o de sempre.
-  api.gravarConfig('aluno_projeto_unico', 'NAO');
-  igual(api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i_x'] }).restauradas, 1);
+  api.gravarConfig_('aluno_projeto_unico', 'NAO');
+  igual(api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i_x'] }).restauradas, 1);
   igual(idsDe(falso, 'inscricoes'), ['i_x', 'i_z']);
 });
 
@@ -1074,12 +1078,12 @@ teste('a trilha registra a restauração', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
-  api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   // PROJETO_ESGOTADO no meio não é ruído: a inscrição que voltou preencheu a
-  // última vaga, e é `reservarVaga` avisando o professor — o mesmo aviso que
+  // última vaga, e é `reservarVaga_` avisando o professor — o mesmo aviso que
   // sairia se um aluno tivesse ocupado aquela vaga pelo site.
   igual(acoesDoLog(falso),
     ['INSCRICOES_ANULADAS', 'PROJETO_ESGOTADO', 'INSCRICOES_RESTAURADAS']);
@@ -1091,9 +1095,9 @@ teste('promove na ordem em que os ids vieram e para quando enche', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });   // libera UMA vaga
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });   // libera UMA vaga
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.promovidos, 1);
@@ -1109,13 +1113,13 @@ teste('promove na ordem em que os ids vieram e para quando enche', () => {
 teste('o lote inteiro pega o lock UMA vez', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   criarProjeto(api, 'p2', { vagas: '10', nome: 'Outro' });
   inscrever(api, 'x1', { projeto_id: 'p2', em_espera: 'SIM', criado_em: '2026-08-14 21:00:07' });
   inscrever(api, 'x2', { projeto_id: 'p2', em_espera: 'SIM', criado_em: '2026-08-14 21:00:08' });
   const eventos = comLock(api, falso);
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5', 'x1', 'x2'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5', 'x1', 'x2'] });
 
   igual(r.promovidos, 5);
   igual(quantosDoTipo(eventos, 'pediu'), 1, 'um waitLock por pessoa põe o auditório na fila da limpeza');
@@ -1125,11 +1129,11 @@ teste('o lote inteiro pega o lock UMA vez', () => {
 teste('a contagem e a escrita caem DENTRO da região protegida; as leituras, fora', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   const eventos = comLock(api, falso);
   falso.requisicoes.length = 0;
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
 
   const pegou = marco(eventos, 'pegou');
   const soltou = marco(eventos, 'soltou');
@@ -1148,11 +1152,11 @@ teste('a contagem e a escrita caem DENTRO da região protegida; as leituras, for
 teste('a promoção é UMA escrita em lote, e não uma por pessoa', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
   falso.requisicoes.length = 0;
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
 
   const escritas = commits(falso);
   igual(escritas.length, 1, 'três PATCH dentro do lock são três vezes a fila do auditório');
@@ -1162,16 +1166,16 @@ teste('a promoção é UMA escrita em lote, e não uma por pessoa', () => {
 // ------------------------------------------------- A precondição por VERSÃO
 
 teste('cada escrita da promoção leva a VERSÃO do documento lido', () => {
-  // Mutação que derruba: voltar a `escreverEmLote` — as escritas saem sem
+  // Mutação que derruba: voltar a `escreverEmLote_` — as escritas saem sem
   // `currentDocument` nenhum, e a promoção grava por cima do que houver.
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
-  const versao = api.ler('inscricoes', 'i3')._versao;
+  const versao = api.ler_('inscricoes', 'i3')._versao;
   falso.requisicoes.length = 0;
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
 
   const commit = falso.requisicoes.filter((r) => r.url.indexOf(':commit') !== -1)[0];
   igual(commit.corpo.writes.length, 1);
@@ -1185,26 +1189,26 @@ teste('cada escrita da promoção leva a VERSÃO do documento lido', () => {
 // `inscricoes` — e a promoção, que a leu antes, a reescreveria inteira, agora
 // SEM as marcas de fila, isto é, OCUPANDO VAGA.
 teste('candidato que o aluno trocou entre a leitura e a escrita: ninguém é promovido, e ele NÃO ressuscita', () => {
-  // Mutação que derruba: tirar a precondição (o `escreverEmLote` de antes) — i3
+  // Mutação que derruba: tirar a precondição (o `escreverEmLote_` de antes) — i3
   // volta à vida ocupando vaga, a cópia na quarentena fica órfã e o aluno passa
   // a constar em dois projetos.
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   const eventos = comLock(api, falso, {
     aoEsperar: () => {
       if (!falso.documentos.has('inscricoes/i3')) return;
-      const guardada = Object.assign({}, api.ler('inscricoes', 'i3'), {
+      const guardada = Object.assign({}, api.ler_('inscricoes', 'i3'), {
         anulado_em: '2026-09-22 18:00:00', anulado_por: 'aluno',
         anulado_motivo: 'TROCA', trocado_para: 'i_nova'
       });
-      api.escreverEmLote('inscricoes_anuladas', [guardada]);
-      api.excluir('inscricoes', 'i3');
+      api.escreverEmLote_('inscricoes_anuladas', [guardada]);
+      api.excluir_('inscricoes', 'i3');
       inscrever(api, 'i_nova', { projeto_id: 'p1', criado_em: '2026-08-14 21:10:00' });
     }
   });
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('lista da tela é de antes') !== -1, 'a mensagem foi: ' + r.erro);
@@ -1225,17 +1229,17 @@ teste('candidato EDITADO entre a leitura e a escrita também recusa o lote', () 
   // aba é revertida em silêncio pela promoção.
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso, {
     aoEsperar: () => {
-      const atual = api.ler('inscricoes', 'i3');
+      const atual = api.ler_('inscricoes', 'i3');
       if (atual.curso_fase === 'ADS 4') return;
       // A aba Alunos corrigiu o curso enquanto a fila estava aberta.
-      api.escreverEmLote('inscricoes', [Object.assign({}, atual, { curso_fase: 'ADS 4' })]);
+      api.escreverEmLote_('inscricoes', [Object.assign({}, atual, { curso_fase: 'ADS 4' })]);
     }
   });
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('Recarregue') !== -1, 'a mensagem foi: ' + r.erro);
@@ -1255,11 +1259,11 @@ teste('a resposta do banco perdida DEPOIS do commit: a promoção não diz que n
   // a promoção acontece sem uma linha no log.
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
   falso.derrubarDepoisDeAplicar(':commit', 503, 'UNAVAILABLE');
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
 
   igual(r.ok, false, 'o que não se pode confirmar não volta como sucesso');
   igual(r.erro.indexOf('ninguém foi promovido'), -1, 'a mensagem foi: ' + r.erro);
@@ -1285,7 +1289,7 @@ teste('a recusa de restaurar e a de promover chegam à tela SEM o caminho do doc
   const { api, falso, registros } = ambiente();
   auditorioLotado(api);
   comLock(api, falso);
-  api.anularInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
+  api.anularInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
 
   const real = api.UrlFetchApp;
   api.UrlFetchApp = {
@@ -1299,8 +1303,8 @@ teste('a recusa de restaurar e a de promover chegam à tela SEM o caminho do doc
     fetchAll: (lote) => real.fetchAll(lote)
   };
 
-  const restaurar = api.restaurarInscricoes({ token: tokenAdmin(api), ids: ['i2'] });
-  const promover = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  const restaurar = api.restaurarInscricoes_({ token: tokenAdmin(api), ids: ['i2'] });
+  const promover = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
   api.UrlFetchApp = real;
 
   [restaurar, promover].forEach((r) => {
@@ -1319,10 +1323,10 @@ teste('a recusa de restaurar e a de promover chegam à tela SEM o caminho do doc
 teste('promover preserva o resto do documento, campo por campo', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
 
   const doc = campos(falso, 'inscricoes', 'i3');
   igual(doc.nome.stringValue, 'Bruno Souza');
@@ -1336,10 +1340,10 @@ teste('promover preserva o resto do documento, campo por campo', () => {
 teste('projeto fechado ou inativo não recebe promoção, e nem paga o lock por isso', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10', inscricoes_abertas: 'NAO' });
+  api.atualizar_('projetos', 'p1', { vagas: '10', inscricoes_abertas: 'NAO' });
   const eventos = comLock(api, falso);
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
 
   igual(r.promovidos, 0);
   igual(r.naoCouberam, 2);
@@ -1351,10 +1355,10 @@ teste('projeto fechado ou inativo não recebe promoção, e nem paga o lock por 
 teste('promover quem já está confirmado não duplica nem consome vaga', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i1', 'i3', 'i1'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i1', 'i3', 'i1'] });
 
   igual(r.promovidos, 1, 'só o i3 estava na fila');
   igual(r.ja_confirmadas, 1, 'e o i1 já ocupava vaga — repetido no payload ou não');
@@ -1365,11 +1369,11 @@ teste('promover quem já está confirmado não duplica nem consome vaga', () => 
 teste('promover a mesma pessoa duas vezes seguidas é inofensivo', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
-  const segunda = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
+  const segunda = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
 
   igual(segunda.promovidos, 0);
   igual(segunda.ja_confirmadas, 1);
@@ -1379,10 +1383,10 @@ teste('promover a mesma pessoa duas vezes seguidas é inofensivo', () => {
 teste('inscrição que sumiu entre a tela e o clique não derruba o lote', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['sumiu', 'i3'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['sumiu', 'i3'] });
 
   igual(r.promovidos, 1);
   igual(r.recusadas, [{ id: 'sumiu', motivo: 'inscrição não encontrada' }]);
@@ -1391,10 +1395,10 @@ teste('inscrição que sumiu entre a tela e o clique não derruba o lote', () =>
 teste('sem lock, ninguém é promovido — e a mensagem diz isso', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso, { falhar: true });
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3'] });
 
   igual(r.ok, false);
   verdadeiro(r.erro.indexOf('ninguém foi promovido') !== -1, 'a mensagem foi: ' + r.erro);
@@ -1404,11 +1408,11 @@ teste('sem lock, ninguém é promovido — e a mensagem diz isso', () => {
 teste('projeto ilimitado promove a fila inteira sem agregação nenhuma', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '0' });
+  api.atualizar_('projetos', 'p1', { vagas: '0' });
   comLock(api, falso);
   falso.requisicoes.length = 0;
 
-  const r = api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
+  const r = api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4', 'i5'] });
 
   igual(r.promovidos, 3);
   igual(falso.requisicoes.filter((q) => q.url.indexOf(':runAggregationQuery') !== -1).length, 0,
@@ -1418,10 +1422,10 @@ teste('projeto ilimitado promove a fila inteira sem agregação nenhuma', () => 
 teste('a trilha registra quem promoveu e quantos', () => {
   const { api, falso } = ambiente();
   auditorioLotado(api);
-  api.atualizar('projetos', 'p1', { vagas: '10' });
+  api.atualizar_('projetos', 'p1', { vagas: '10' });
   comLock(api, falso);
 
-  api.promoverDaEspera({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
+  api.promoverDaEspera_({ token: tokenAdmin(api), ids: ['i3', 'i4'] });
 
   igual(acoesDoLog(falso), ['PROMOCAO_ESPERA']);
 });
@@ -1442,7 +1446,7 @@ teste('lote acima de 200 é recusado nas TRÊS que escrevem, antes de ler ou gra
   const muitos = ['i3'];
   for (let i = 0; i < 499; i++) muitos.push('inexistente_' + i);
 
-  ['anularInscricoes', 'restaurarInscricoes', 'promoverDaEspera'].forEach((nome) => {
+  ['anularInscricoes_', 'restaurarInscricoes_', 'promoverDaEspera_'].forEach((nome) => {
     falso.requisicoes.length = 0;
     const r = api[nome]({ token: token, ids: muitos });
 
@@ -1467,8 +1471,8 @@ teste('as DUAS leituras devolvem o teto de escrita, e é o teto que as três apl
   comLock(api, falso);
   const token = tokenAdmin(api);
 
-  const recentes = api.inscricoesRecentes({ token: token });
-  const fila = api.filaDeEspera({ token: token });
+  const recentes = api.inscricoesRecentes_({ token: token });
+  const fila = api.filaDeEspera_({ token: token });
 
   igual(recentes.lote_maximo, api.AUDITORIO_LOTE_MAXIMO,
     'sem lote_maximo em inscricoesRecentes, a barra de ações oferece lote que o servidor recusa');
@@ -1479,9 +1483,9 @@ teste('as DUAS leituras devolvem o teto de escrita, e é o teto que as três apl
   // exatamente onde a recusa começa, e não um segundo teto combinado de cabeça.
   const cabe = [];
   for (let i = 0; i < recentes.lote_maximo; i++) cabe.push('inexistente_' + i);
-  igual(api.anularInscricoes({ token: token, ids: cabe }).ok, true,
+  igual(api.anularInscricoes_({ token: token, ids: cabe }).ok, true,
     'o lote do tamanho anunciado foi recusado: o número que a tela recebeu mente para menos');
-  igual(api.anularInscricoes({ token: token, ids: cabe.concat(['inexistente_a_mais']) }).ok, false,
+  igual(api.anularInscricoes_({ token: token, ids: cabe.concat(['inexistente_a_mais']) }).ok, false,
     'um a mais que o anunciado passou: o número que a tela recebeu mente para mais');
 });
 
@@ -1495,7 +1499,7 @@ teste('exatamente 200 passa, e o payload chega inteiro', () => {
   const duzentos = ['i2'];
   for (let i = 0; i < 199; i++) duzentos.push('inexistente_' + i);
 
-  const r = api.anularInscricoes({ token: tokenAdmin(api), ids: duzentos });
+  const r = api.anularInscricoes_({ token: tokenAdmin(api), ids: duzentos });
 
   igual(r.ok, true, 'erro foi: ' + r.erro);
   igual(r.pedidas, 200, 'os ids chegam todos: fatiar em silêncio é que era o defeito');
@@ -1513,16 +1517,16 @@ teste('anular o lixo e promover a fila mantém o projeto em exatamente 2 de 2', 
   comLock(api, falso);
   const token = tokenAdmin(api);
 
-  igual(api.filaDeEspera({ token: token }).projetos[0].cabem, 0, 'lotado, com três esperando');
+  igual(api.filaDeEspera_({ token: token }).projetos[0].cabem, 0, 'lotado, com três esperando');
 
-  api.anularInscricoes({ token: token, ids: ['i2'] });
-  const depoisDeAnular = api.filaDeEspera({ token: token });
+  api.anularInscricoes_({ token: token, ids: ['i2'] });
+  const depoisDeAnular = api.filaDeEspera_({ token: token });
   igual(depoisDeAnular.projetos[0].cabem, 1);
   igual(depoisDeAnular.fila[0].id, 'i3', 'quem chegou primeiro é o primeiro a ser oferecido');
 
-  api.promoverDaEspera({ token: token, ids: [depoisDeAnular.fila[0].id] });
+  api.promoverDaEspera_({ token: token, ids: [depoisDeAnular.fila[0].id] });
 
-  const fim = api.filaDeEspera({ token: token });
+  const fim = api.filaDeEspera_({ token: token });
   igual(fim.projetos[0].confirmados, 2);
   igual(fim.projetos[0].cabem, 0);
   igual(fim.projetos[0].emEspera, 2);
@@ -1538,11 +1542,11 @@ teste('desligar a chave com gente na fila engorda a contagem, e nunca a esvazia'
   auditorioLotado(api);
   igual(api.contarInscritos_('p1'), 2);
 
-  api.gravarConfig('vagas_excedentes_em_espera', 'NAO');
+  api.gravarConfig_('vagas_excedentes_em_espera', 'NAO');
 
   igual(api.contarInscritos_('p1'), 5,
     'com a fila desligada, quem espera volta a contar como vaga ocupada');
-  igual(api.listarProjetos(false)[0].situacao, 'ESGOTADO', 'e o erro cai para o lado seguro');
+  igual(api.listarProjetos_(false)[0].situacao, 'ESGOTADO', 'e o erro cai para o lado seguro');
 });
 
 // ---------------------------------------------------------------- Resultado

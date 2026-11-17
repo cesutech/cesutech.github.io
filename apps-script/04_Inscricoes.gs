@@ -1,13 +1,16 @@
 /**
  * 04_Inscricoes.gs — a entrada de inscrições, sobre o Firestore.
  *
- * Duas portas chegam aqui, e as duas desembocam em `gravarInscricao`:
- *   1. `submeterInscricao` COM `projeto_id` — o site hospedado no GitHub Pages,
- *      que entra por doPost e passa por `reservarVaga` (09_Projetos.gs) para
- *      disputar vaga;
- *   2. `submeterInscricao` SEM `projeto_id` — o formulário interno
- *      (Cadastro.html, por google.script.run), que não conhece projeto e não
- *      disputa vaga nenhuma.
+ * Uma porta chega aqui — o `doPost` (08_Api.gs), que é por onde o site do
+ * GitHub Pages manda a inscrição —, e ela tem dois caminhos, os dois desembocando
+ * em `gravarInscricao_`:
+ *   1. `submeterInscricao_` COM `projeto_id` — o caminho do site, que passa por
+ *      `reservarVaga_` (09_Projetos.gs) para disputar vaga;
+ *   2. `submeterInscricao_` SEM `projeto_id` — que não conhece projeto e não
+ *      disputa vaga nenhuma. Era o caminho do formulário interno (Cadastro.html),
+ *      que saiu do servidor em 16/11/2026 junto com as outras páginas do
+ *      HtmlService; o site sempre manda projeto, e o caminho continua aqui porque
+ *      tirá-lo é decisão de produto, e não desta limpeza.
  *
  * ------------------------------------------------- A dedup mudou de dono
  *
@@ -29,7 +32,7 @@
  *
  * Aqui a chave de dedup É o id do documento, e quem recusa a segunda gravação é o
  * banco: `createDocument` com `documentId` responde 409 ALREADY_EXISTS numa
- * operação atômica, sem leitura prévia e sem lock (ver `inserir` em 02_Repo.gs —
+ * operação atômica, sem leitura prévia e sem lock (ver `inserir_` em 02_Repo.gs —
  * medido contra o Firestore de verdade em 05/08/2026). Os quatro caminhos ficam
  * fechados de uma vez, inclusive os que ninguém serializa. E o terceiro, o único
  * que roda dentro do lock, encolhe de "varrer a coleção" para UMA escrita — que é
@@ -52,9 +55,9 @@
  * A ausência é o desenho — com `vagas_excedentes_em_espera` em NAO, que é o
  * padrão, o documento gravado é exatamente o de antes de a fila existir, campo
  * por campo. Quem conta os dois é `contarEmEspera_` (09_Projetos.gs); por que
- * são dois, está em `gravarInscricao`.
+ * são dois, está em `gravarInscricao_`.
  *
- * O que isso custa: a chave é `hash()` (01_Utils.gs), MD5 cortado em 16 dígitos
+ * O que isso custa: a chave é `hash_()` (01_Utils.gs), MD5 cortado em 16 dígitos
  * hexadecimais, ou seja 64 bits. Colisão entre duas pessoas diferentes deixaria
  * de ser "linha repetida no cadastro" e passaria a ser INSCRIÇÃO PERDIDA, com o
  * aluno lendo "você já está inscrito". Com dez mil inscrições a chance é da ordem
@@ -63,14 +66,14 @@
  *
  * -------------------------------------------------- Contrato com a importação
  *
- * `matriculaConhecida` deixou de ler a lista oficial inteira e virou UMA leitura
+ * `matriculaConhecida_` deixou de ler a lista oficial inteira e virou UMA leitura
  * por id. Isso só funciona se a fase de importação gravar a coleção
  * `matriculados` com o id do documento = MATRÍCULA NORMALIZADA
- * (`normalizarMatricula`, que devolve só [A-Z0-9]).
+ * (`normalizarMatricula_`, que devolve só [A-Z0-9]).
  *
  * Consequência que a importação precisa saber: nenhum id que contenha caractere
  * fora de [A-Z0-9] é alcançável por esta função, porque a matrícula consultada
- * sempre passa por `normalizarMatricula`. Linha de lista oficial SEM matrícula —
+ * sempre passa por `normalizarMatricula_`. Linha de lista oficial SEM matrícula —
  * que o sistema sobre Sheets aceita, desde que tenha nome — pode portanto ser
  * gravada com id sorteado sem risco de colidir com matrícula de ninguém. Ela
  * simplesmente nunca será encontrada por matrícula, que é o comportamento certo.
@@ -104,7 +107,7 @@
  * POR QUE A CONSULTA CORRE DE NOVO LÁ DENTRO. Fora do lock ela é cortesia: duas
  * abas do mesmo aluno com a PRIMEIRA inscrição de cada leem vazio ao mesmo tempo
  * e gravam as duas. Quem decide o conjunto que será cancelado é a leitura feita
- * depois de esperar na fila — a mesma razão pela qual `reservarVaga` conta as
+ * depois de esperar na fila — a mesma razão pela qual `reservarVaga_` conta as
  * vagas lá dentro, e não antes do `waitLock`.
  *
  * O QUE O LOCK PROTEGE E O QUE O `:commit` PROTEGE. O lock serializa a DECISÃO
@@ -119,7 +122,7 @@
  * cancelar a inscrição de alguém exige que o e-mail do envio seja o mesmo da
  * inscrição que sairia; divergindo, a recusa não nomeia projeto nenhum — dizer
  * "você está em X" a quem só acertou a matrícula seria entregar o oráculo que
- * `matriculaConhecida` se recusa a ser. E inscrição feita PELA COORDENAÇÃO não é
+ * `matriculaConhecida_` se recusa a ser. E inscrição feita PELA COORDENAÇÃO não é
  * trocável pelo aluno (J4-2): o e-mail dela veio da lista oficial, e o
  * institucional é derivável da matrícula — ele não prova posse de nada.
  *
@@ -159,9 +162,9 @@ var MATRICULADOS_COLECAO = 'matriculados';
  * `excluido_em`, `excluido_por` e `excluido_lote_id` — sempre copia-depois-
  * apaga, para a pessoa nunca deixar de existir em algum lugar. Só o Excluir
  * pessoa a pessoa da revisão (05c_Revisao.gs) escreve aqui, e NINGUÉM lê:
- * excluído é "não está na lista" para todo consumidor — `matriculaConhecida`,
+ * excluído é "não está na lista" para todo consumidor — `matriculaConhecida_`,
  * a reconciliação, a aba Alunos, a Disciplinas. Restaurar é operação de console
- * (copiar de volta com `inserir`). "Apagar matriculados" (o expurgo de um lote
+ * (copiar de volta com `inserir_`). "Apagar matriculados" (o expurgo de um lote
  * inteiro) NÃO passa por aqui: 2.500 por semestre estourariam o teto do backup
  * em três ou quatro semestres, e a vassoura de fim de semestre já tem o backup
  * diário como rede.
@@ -180,7 +183,7 @@ var MATRICULADOS_EXCLUIDOS_COLECAO = 'matriculados_excluidos';
 // ------------------------------------------------------------ Matrícula
 
 /** Matrícula normalizada: só alfanumérico, caixa alta. */
-function normalizarMatricula(v) {
+function normalizarMatricula_(v) {
   if (!v) return '';
   var limpa = String(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -224,11 +227,11 @@ function normalizarMatricula(v) {
  * torto na própria tela de Configurações.
  *
  * O padrão de fábrica sai de CONFIG_PADRAO, e não de um segundo literal aqui:
- * o `config(chave, '7')` já é conferido contra CONFIG_PADRAO por teste, e um
+ * o `config_(chave, '7')` já é conferido contra CONFIG_PADRAO por teste, e um
  * terceiro 7 escrito à mão seria o que envelhece sozinho.
  */
 function matriculaDigitos_() {
-  var bruto = String(config('matricula_digitos', '7')).trim();
+  var bruto = String(config_('matricula_digitos', '7')).trim();
   if (/^[1-9]\d*$/.test(bruto)) return Number(bruto);
 
   var semente = '';
@@ -246,17 +249,17 @@ function matriculaDigitos_() {
  * ensina a corrigir.
  *
  * É a régua das DUAS portas, e o contrato é que nenhuma tenha conta própria: o
- * envio (`validarInscricao`) chama daqui, e a conferência ao vivo
+ * envio (`validarInscricao_`) chama daqui, e a conferência ao vivo
  * (`conferirMatricula_`, 08_Api.gs) tem de chamar daqui também. Se as duas
  * divergissem, o site diria "ok" ao sair do campo e o servidor recusaria no
  * envio — o aluno leria duas mensagens sobre o mesmo número e não saberia em
  * qual acreditar.
  *
- * São DUAS medidas, e as duas precisam bater. A chave (`normalizarMatricula`,
+ * São DUAS medidas, e as duas precisam bater. A chave (`normalizarMatricula_`,
  * que tira o zero à esquerda) tem de ter N dígitos: é o que a lista oficial
  * guarda, e é o que o cruzamento compara. E o que o aluno DIGITOU, sem pontuação,
  * tem de ter N ou N+1: as duas formas em que a matrícula circula — a do portal
- * e a da secretaria, com o zero (ver o comentário em `normalizarMatricula`).
+ * e a da secretaria, com o zero (ver o comentário em `normalizarMatricula_`).
  *
  * Por que a segunda medida existe, se a primeira já pede N: sem ela
  * `000009110001` passaria — a chave é `9110001`, certa, mas o aluno digitou doze
@@ -273,7 +276,7 @@ function erroFormatoMatricula_(bruta) {
   var soDigitos = /^\d+$/.test(digitada);
   var tamanhoCerto = digitada.length === digitos || digitada.length === digitos + 1;
 
-  if (soDigitos && tamanhoCerto && normalizarMatricula(digitada).length === digitos) return '';
+  if (soDigitos && tamanhoCerto && normalizarMatricula_(digitada).length === digitos) return '';
 
   return 'A matrícula tem ' + digitos + ' dígitos. Confira o número no seu portal do aluno.';
 }
@@ -293,7 +296,7 @@ function erroFormatoMatricula_(bruta) {
  * expõe esta função tem teto de consultas por hora. Matrícula CANCELADA pela
  * revisão de uma importação responde o MESMO que inexistente — a mesma frase no
  * formulário, o mesmo corpo em `?api=matricula` (08_Api.gs). A porta da
- * coordenação (`buscarMatriculado`, `incluirInscricao`, 10_Painel.gs) é que
+ * coordenação (`buscarMatriculado_`, `incluirInscricao_`, 10_Painel.gs) é que
  * avisa, porque lá quem pergunta é gente autenticada com a lista na frente.
  *
  * O que mudou do sistema sobre
@@ -302,7 +305,7 @@ function erroFormatoMatricula_(bruta) {
  * corrige. Agora é uma leitura por id — 1 documento, contra as 50 mil por dia do
  * plano Spark.
  */
-function matriculaConhecida(matricula) {
+function matriculaConhecida_(matricula) {
   // Cancelado na lista oficial = não encontrado, para esta porta. Distinguir os
   // dois seria um segundo bit sobre uma pessoa no oráculo — "existe e está
   // cancelada" é mais do que "existe", e a régua daqui é entregar o mínimo.
@@ -314,12 +317,12 @@ function matriculaConhecida(matricula) {
  * A ficha da lista oficial, ou null. UMA leitura de ponto — a mesma de sempre.
  *
  * Existe porque o envio faz DUAS perguntas sobre a mesma matrícula, e elas têm
- * de caber na mesma leitura: "está na lista?" (o que `matriculaConhecida`
+ * de caber na mesma leitura: "está na lista?" (o que `matriculaConhecida_`
  * responde, e o que decide `matricula_conferida`) e "foi CANCELADA pela revisão
  * de uma importação?" (`cadastroCancelado_`).
  *
  * Para a porta pública as duas são a mesma resposta de propósito — cancelado
- * responde o MESMO que inexistente, ver `matriculaConhecida`. A TROCA é que
+ * responde o MESMO que inexistente, ver `matriculaConhecida_`. A TROCA é que
  * precisa separá-las (N4): a inscrição nova continua possível para quem a
  * coordenação acabou de cancelar (ela não destrói nada, e já é possível hoje),
  * mas cancelar sozinho a inscrição que a coordenação incluiu à mão, não. Sem
@@ -331,9 +334,9 @@ function matriculaConhecida(matricula) {
  * regra vale pela matrícula digitada. O gatilho é a marca, e só ela.
  */
 function fichaOficialDe_(matricula) {
-  var alvo = normalizarMatricula(matricula);
+  var alvo = normalizarMatricula_(matricula);
   if (!alvo) return null;
-  return ler(MATRICULADOS_COLECAO, alvo);
+  return ler_(MATRICULADOS_COLECAO, alvo);
 }
 
 /**
@@ -342,7 +345,7 @@ function fichaOficialDe_(matricula) {
  * A marca são quatro campos gravados pela revisão de uma importação
  * (05c_Revisao.gs): `situacao_cadastro = 'CANCELADO'`, `cancelado_em`,
  * `cancelado_por` e `cancelado_lote_id`. Ela some pela REIMPORTAÇÃO — a lista
- * nova reescreve o documento inteiro (`escreverEmLote` substitui, 02_Repo.gs) e
+ * nova reescreve o documento inteiro (`escreverEmLote_` substitui, 02_Repo.gs) e
  * `montarRegistro_` (05_Importacao.gs) não conhece o campo —, e é por isso que
  * não existe "reativar": quem a secretaria mandou de novo está de volta.
  *
@@ -358,11 +361,11 @@ function cadastroCancelado_(m) {
 /**
  * SIM quando existe pelo menos uma lista oficial importada.
  *
- * Agregação, e não `listar`: a resposta é um número e não precisa trazer
+ * Agregação, e não `listar_`: a resposta é um número e não precisa trazer
  * documento nenhum. A suposição que isto carrega está no cabeçalho.
  */
 function temListaOficial_() {
-  return contar(MATRICULADOS_COLECAO) > 0;
+  return contar_(MATRICULADOS_COLECAO) > 0;
 }
 
 /**
@@ -389,12 +392,12 @@ function temListaOficial_() {
 function checarMatriculaNaLista_(matricula, projetoId, conhecida) {
   if (!projetoValidaMatricula_(projetoId)) return '';
 
-  if (conhecida === undefined) conhecida = matriculaConhecida(matricula);
+  if (conhecida === undefined) conhecida = matriculaConhecida_(matricula);
   if (conhecida) return '';
 
   if (!temListaOficial_()) return '';
 
-  var modo = String(config('modo_validacao_matricula', 'BLOQUEAR')).toUpperCase();
+  var modo = String(config_('modo_validacao_matricula', 'BLOQUEAR')).toUpperCase();
   if (modo === 'BLOQUEAR') {
     return 'Matrícula não encontrada na lista de alunos matriculados. ' +
            'Confira o número digitado. Se estiver certo, procure a coordenação do CESUTECH.';
@@ -411,14 +414,14 @@ function checarMatriculaNaLista_(matricula, projetoId, conhecida) {
  * Sem projeto (formulário interno), assume que valida — é o caso comum.
  *
  * Custo conhecido e aceito: esta é a primeira das DUAS leituras do documento do
- * projeto que uma inscrição faz, porque `reservarVaga` lê de novo, por dentro. As
+ * projeto que uma inscrição faz, porque `reservarVaga_` lê de novo, por dentro. As
  * duas somam 2 das ~4 leituras por inscrição, contra 50 mil por dia — e fechar a
  * repetição exigiria ou passar o projeto para dentro de 09_Projetos.gs, que não é
  * arquivo desta fase, ou um cache de execução que só existiria para isto.
  */
 function projetoValidaMatricula_(projetoId) {
   if (!projetoId) return true;
-  var p = projetoPorId(projetoId);
+  var p = projetoPorId_(projetoId);
   if (!p) return true;
   // Projeto criado antes deste campo existir tem o campo vazio: vale como SIM.
   return String(p.validar_matricula).toUpperCase() !== 'NAO';
@@ -434,7 +437,7 @@ function projetoValidaMatricula_(projetoId) {
  *
  * Ordem de preferência: matrícula > CPF > e-mail + nome.
  *
- * O `hash` continua no meio do caminho, e agora carrega um segundo papel: ele é
+ * O `hash_` continua no meio do caminho, e agora carrega um segundo papel: ele é
  * o que impede a matrícula do aluno de virar endereço de documento. Id de
  * documento aparece em URL de API, em log de erro e na tela de quem inspeciona o
  * banco; matrícula ali seria dado pessoal exposto por descuido de desenho, e
@@ -442,12 +445,12 @@ function projetoValidaMatricula_(projetoId) {
  * dois de graça, e de quebra tem largura fixa e alfabeto seguro para a URL.
  */
 function chaveDedup_(dados) {
-  var matricula = normalizarMatricula(dados.matricula);
-  var cpf = normalizarCpf(dados.cpf);
+  var matricula = normalizarMatricula_(dados.matricula);
+  var cpf = normalizarCpf_(dados.cpf);
   var pessoa = matricula || cpf ||
-    (normalizarEmail(dados.email) + '|' + chaveNome(dados.nome));
+    (normalizarEmail_(dados.email) + '|' + chaveNome_(dados.nome));
 
-  return hash(String(dados.projeto_id || 'sem-projeto') + '::' + pessoa);
+  return hash_(String(dados.projeto_id || 'sem-projeto') + '::' + pessoa);
 }
 
 /**
@@ -465,15 +468,15 @@ function chaveDedup_(dados) {
  *
  * ---------------------------------------- O segundo argumento, e por que é um
  *
- * `pelaCoordenacao` é `{ incluido_por }` quando quem grava é `incluirInscricao`
+ * `pelaCoordenacao` é `{ incluido_por }` quando quem grava é `incluirInscricao_`
  * (10_Painel.gs), e ausente em todos os outros chamadores. Ele muda DUAS coisas
  * no documento: entra `incluido_por`, e os três aceites vão VAZIOS — a
  * coordenação não consente pelo aluno, e 'NAO' ali afirmaria que o aluno
  * RECUSOU uma pergunta que ninguém lhe fez.
  *
  * É um ARGUMENTO, e não um campo de `dados`, porque `dados` é o payload que o
- * cliente manda: `submeterInscricao` recebe o corpo do POST inteiro, e o
- * `sincronizarRespostasForms` recebe o que o Forms trouxe. Qualquer marca posta
+ * cliente manda: `submeterInscricao_` recebe o corpo do POST inteiro, e o
+ * `sincronizarRespostasForms_` recebe o que o Forms trouxe. Qualquer marca posta
  * dentro de `dados` — um campo `incluido_por`, um aceite mandado como texto
  * vazio — viajaria no mesmo envelope que o aluno preenche, e o caminho público
  * passaria a gravar um documento que ele nunca gravou (a primeira versão desta
@@ -483,17 +486,17 @@ function chaveDedup_(dados) {
  * função grava o documento de sempre, campo por campo — e é isso que o teste
  * do caminho público compara.
  */
-function gravarInscricao(dados, pelaCoordenacao) {
+function gravarInscricao_(dados, pelaCoordenacao) {
   var chave = chaveDedup_(dados);
-  var gravacao = inserir(INSCRICOES_COLECAO, montarRegistroDaInscricao_(dados, pelaCoordenacao), chave);
+  var gravacao = inserir_(INSCRICOES_COLECAO, montarRegistroDaInscricao_(dados, pelaCoordenacao), chave);
   return { id: chave, duplicada: gravacao.jaExistia };
 }
 
 /**
  * O DOCUMENTO da inscrição, montado e normalizado — sem gravar nada.
  *
- * Extraído de `gravarInscricao` para a troca de projeto (item 4): lá o
- * documento novo não vai por `inserir`, e sim dentro do `:commit` que apaga a
+ * Extraído de `gravarInscricao_` para a troca de projeto (item 4): lá o
+ * documento novo não vai por `inserir_`, e sim dentro do `:commit` que apaga a
  * inscrição antiga no mesmo movimento (ver o gravador da troca, mais abaixo).
  * Sem a extração haveria uma SEGUNDA normalização do mesmo payload no mesmo
  * arquivo, e a divergência entre as duas seria descoberta no dia em que um
@@ -516,20 +519,20 @@ function gravarInscricao(dados, pelaCoordenacao) {
  */
 function montarRegistroDaInscricao_(dados, pelaCoordenacao) {
   var registro = {
-    criado_em: agora(),
+    criado_em: agora_(),
     origem: dados.origem || 'DESCONHECIDA',
     projeto_id: dados.projeto_id || '',
     projeto_nome: dados.projeto_nome || '',
-    matricula: normalizarMatricula(dados.matricula),
+    matricula: normalizarMatricula_(dados.matricula),
     // Marca a procedência do dado: conferido contra a lista oficial, ou
     // digitado sem conferência. É o que separa cadastro confiável de palpite.
     matricula_conferida: dados.matricula_conferida || 'NAO',
-    nome: formatarNome(dados.nome),
-    email: normalizarEmail(dados.email),
-    whatsapp: normalizarTelefone(dados.whatsapp || dados.telefone),
+    nome: formatarNome_(dados.nome),
+    email: normalizarEmail_(dados.email),
+    whatsapp: normalizarTelefone_(dados.whatsapp || dados.telefone),
     curso_fase: String(dados.curso_fase || dados.curso || '').trim(),
-    cpf: normalizarCpf(dados.cpf),
-    data_nascimento: normalizarData(dados.data_nascimento),
+    cpf: normalizarCpf_(dados.cpf),
+    data_nascimento: normalizarData_(dados.data_nascimento),
     observacoes: String(dados.observacoes || '').trim(),
     // Booleano vira SIM/NAO, e QUALQUER outra coisa também: `''`, `null` e
     // `'não'` são NAO, como sempre foram. O terceiro estado, "não perguntado",
@@ -542,7 +545,7 @@ function montarRegistroDaInscricao_(dados, pelaCoordenacao) {
 
   // ------------------------------------------------------ Pela coordenação
   //
-  // O que só existe no documento de quem entrou por `incluirInscricao` — é a
+  // O que só existe no documento de quem entrou por `incluirInscricao_` — é a
   // mesma decisão da fila de espera, logo abaixo: o caminho público não tem
   // como pedir isto, e continua gravando o documento de sempre.
   //
@@ -594,15 +597,15 @@ function montarRegistroDaInscricao_(dados, pelaCoordenacao) {
  * Sheets isso ficava escondido dentro de um `||` que percorria quatro colunas
  * lidas inteiras; aqui vira a escolha do campo do filtro.
  *
- * Que fique dito, porque é a tentação óbvia: `listar` aceita UM `fieldFilter` só.
+ * Que fique dito, porque é a tentação óbvia: `listar_` aceita UM `fieldFilter` só.
  * Procurar por matrícula OU e-mail no mesmo passo não é um predicado mais
  * complicado, são duas consultas — e duas consultas mudariam a regra de negócio,
  * não só o custo. Não é o que a produção validou.
  *
- * Filtro de igualdade em um campo, sem ordenação declarada: `listar` ordena por
+ * Filtro de igualdade em um campo, sem ordenação declarada: `listar_` ordena por
  * `__name__` ASCENDENTE, que é o desempate embutido em todo índice automático de
  * campo único. Não exige índice composto — e não é a armadilha do `__name__`
- * DESCENDENTE, que exigiria (ver `ultimosRegistros` em 04_Log.gs).
+ * DESCENDENTE, que exigiria (ver `ultimosRegistros_` em 04_Log.gs).
  */
 var INSCRICOES_OUTROS_PROJETOS_MAX = 20;
 
@@ -616,19 +619,19 @@ function outrosProjetosDe_(dados) {
  * A MESMA consulta de `outrosProjetosDe_`, devolvendo a inscrição em vez do
  * nome: `{ id, projeto_id, projeto_nome, em_espera }` por projeto.
  *
- * Existe para `buscarMatriculado` (10_Painel.gs), que precisa de mais do que o
+ * Existe para `buscarMatriculado_` (10_Painel.gs), que precisa de mais do que o
  * nome: a janela "Incluir aluno" marca "(este projeto)" pelo ID — o nome é
  * desnormalizado na escrita, e um projeto renomeado depois da inscrição, ou
  * dois homônimos, deixariam a marca errada — e diz "(em espera)" quando a
  * pessoa está na FILA deste projeto, porque aí o Incluir promove a inscrição
- * que existe em vez de criar outra (`incluirInscricao`). `outrosProjetosDe_` continua
- * devolvendo nomes, que é o que `submeterInscricao` lê desde o primeiro
+ * que existe em vez de criar outra (`incluirInscricao_`). `outrosProjetosDe_` continua
+ * devolvendo nomes, que é o que `submeterInscricao_` lê desde o primeiro
  * semestre; separar a leitura da consulta é o que deixa os chamadores
  * compartilharem o filtro sem um mudar o contrato do outro — o filtro mora em
  * `inscricoesDaPessoa_`, logo abaixo, e hoje são TRÊS os que o compartilham.
  */
 function inscricoesEmOutrosProjetos_(dados) {
-  return inscricoesDaPessoa_(normalizarMatricula(dados.matricula), normalizarEmail(dados.email))
+  return inscricoesDaPessoa_(normalizarMatricula_(dados.matricula), normalizarEmail_(dados.email))
     .filter(function (inscricao) {
       return String(inscricao.projeto_id) !== String(dados.projeto_id || '');
     })
@@ -643,7 +646,7 @@ function inscricoesEmOutrosProjetos_(dados) {
 }
 
 /**
- * O FILTRO, sozinho: as inscrições COM projeto desta pessoa, como `listar` as
+ * O FILTRO, sozinho: as inscrições COM projeto desta pessoa, como `listar_` as
  * trouxe — documento inteiro, `_id` e `_versao` inclusive.
  *
  * São três leitores do mesmo filtro (igualdade em `matricula`, teto de
@@ -651,8 +654,8 @@ function inscricoesEmOutrosProjetos_(dados) {
  * contratos diferentes, e é por isso que o que se compartilha é ele e não a
  * projeção:
  *
- *   `outrosProjetosDe_` ......... quer NOMES (`submeterInscricao` desde o
- *                                 primeiro semestre, e `incluirInscricao`);
+ *   `outrosProjetosDe_` ......... quer NOMES (`submeterInscricao_` desde o
+ *                                 primeiro semestre, e `incluirInscricao_`);
  *   `inscricoesEmOutrosProjetos_` quer `{id, projeto_id, projeto_nome,
  *                                 em_espera}` (a janela Incluir aluno marca
  *                                 "(este projeto)" pelo ID, porque o nome é
@@ -689,7 +692,7 @@ function inscricoesDaPessoa_(matricula, email) {
   busca.limite = INSCRICOES_OUTROS_PROJETOS_MAX;
 
   var achados = [];
-  listar(INSCRICOES_COLECAO, busca).itens.forEach(function (inscricao) {
+  listar_(INSCRICOES_COLECAO, busca).itens.forEach(function (inscricao) {
     // Inscrição sem projeto não é "outro projeto". O sistema sobre Sheets não
     // fazia esta conferência e empurrava a linha assim mesmo: `projeto_nome ||
     // projeto_id` devolvia string vazia, e o aluno lia "Você já está inscrito em
@@ -707,7 +710,7 @@ function inscricoesDaPessoa_(matricula, email) {
  * Os ids de PROJETO que o aluno consentiu em cancelar — o `trocar_de` do POST.
  *
  * Texto, sem barra, sem repetição, e TODOS eles: quem decide o que fazer com uma
- * lista grande demais é `submeterInscricao`, que recusa o envio INTEIRO antes de
+ * lista grande demais é `submeterInscricao_`, que recusa o envio INTEIRO antes de
  * ler qualquer coisa. Cortar em silêncio seria consentir por baixo do aluno —
  * ele veria a pergunta com dois projetos, clicaria uma vez, e um deles
  * continuaria de pé sem que ninguém dissesse nada.
@@ -718,7 +721,7 @@ function inscricoesDaPessoa_(matricula, email) {
  * acontece sem prova de posse conferida contra escrita nenhuma). A barra é
  * recusada pela mesma razão de `idsDoPayload_` (13_Auditorio.gs): id sem barra é
  * invariante deste banco, e uma barra ali mudaria a coleção alvo em vez de
- * errar — aqui o id chega a `projetoPorId` quando o projeto precisa ser lido.
+ * errar — aqui o id chega a `projetoPorId_` quando o projeto precisa ser lido.
  *
  * Duas funções e não uma porque o caminho público não pode depender do arquivo
  * do auditório, e porque o TETO é outro: lá ele é aplicado por quem escreve, e
@@ -750,7 +753,7 @@ function idsDeTroca_(bruto) {
  *
  * Devolve `{ mesma, outras }`: a inscrição no projeto ALVO (é ela que responde
  * "você já está inscrito neste projeto", com o protocolo de verdade e ZERO
- * escritas) e as dos outros projetos ativos, como `listar` as trouxe — documento
+ * escritas) e as dos outros projetos ativos, como `listar_` as trouxe — documento
  * inteiro, porque é ele que vai para a quarentena.
  *
  * SÓ PELA MATRÍCULA (D3). Sem matrícula a regra não se aplica e esta função
@@ -765,7 +768,7 @@ function idsDeTroca_(bruto) {
  *                      `codigo` do projeto;
  *   DENTRO do lock ... projeto que não está no mapa é tratado como ATIVO, sem
  *                      leitura (D11). A razão não é "ela acabou de passar por
- *                      `reservarVaga`" — `incluirInscricao` grava em projeto
+ *                      `reservarVaga_`" — `incluirInscricao_` grava em projeto
  *                      INATIVO sem passar por lá —, e sim o CONJUNTO CONSENTIDO:
  *                      `trocar_de` só pode nomear projetos que a rodada 1
  *                      nomeou, e esses são exatamente os que o mapa tem. Uma
@@ -790,7 +793,7 @@ function inscricoesAtivasDe_(ctx) {
 /** O projeto, lido no máximo uma vez por execução. Null quando não existe. */
 function projetoDaTroca_(ctx, projetoId) {
   if (!Object.prototype.hasOwnProperty.call(ctx.mapa, projetoId)) {
-    ctx.mapa[projetoId] = projetoPorId(projetoId);
+    ctx.mapa[projetoId] = projetoPorId_(projetoId);
   }
   return ctx.mapa[projetoId];
 }
@@ -862,7 +865,7 @@ function nomesDasAtivas_(inscricoes) {
  * e o lado da troca é destrutivo. Sem isto, saber o número de alguém bastaria
  * para cancelar a inscrição dessa pessoa.
  *
- * A recusa NÃO NOMEIA PROJETO NENHUM, e é a mesma decisão de `matriculaConhecida`:
+ * A recusa NÃO NOMEIA PROJETO NENHUM, e é a mesma decisão de `matriculaConhecida_`:
  * dizer "você está em X" a quem só acertou a matrícula entrega o oráculo que
  * todo o resto do sistema se recusa a ser. Quem é a pessoa de verdade lê a
  * frase, usa o e-mail da inscrição anterior e segue; quem não é, fica sem saber
@@ -870,7 +873,7 @@ function nomesDasAtivas_(inscricoes) {
  */
 function recusaDePosse_(ctx, outras) {
   var divergem = outras.some(function (inscricao) {
-    return normalizarEmail(inscricao.email) !== ctx.email;
+    return normalizarEmail_(inscricao.email) !== ctx.email;
   });
   if (!divergem) return null;
 
@@ -885,7 +888,7 @@ function recusaDePosse_(ctx, outras) {
 /**
  * Inscrição feita PELA COORDENAÇÃO não é trocável pelo aluno (J4-2).
  *
- * O e-mail gravado nela veio da lista oficial (`buscarMatriculado` pré-preenche
+ * O e-mail gravado nela veio da lista oficial (`buscarMatriculado_` pré-preenche
  * de `matriculados.email`), e o institucional é `matrícula@...` — derivável da
  * matrícula, logo não prova posse de coisa alguma. A prova de posse de D4 passa
  * sem provar nada, e o aluno cancelaria sozinho a inscrição que a coordenação
@@ -983,9 +986,9 @@ function copiaParaQuarentena_(inscricao, carimbo, idNova) {
 }
 
 /**
- * O GRAVADOR da troca: o que roda DENTRO do lock de `reservarVaga`.
+ * O GRAVADOR da troca: o que roda DENTRO do lock de `reservarVaga_`.
  *
- * `reservarVaga` já contou as vagas quando isto começa, e o `emEspera` que chega
+ * `reservarVaga_` já contou as vagas quando isto começa, e o `emEspera` que chega
  * é a decisão dela. Daqui para baixo, na ordem, e cada passo com a razão de
  * estar onde está:
  *
@@ -1016,7 +1019,7 @@ function copiaParaQuarentena_(inscricao, carimbo, idNova) {
  */
 function gravadorDaTroca_(dados, ctx) {
   return function (projeto, emEspera) {
-    // G0 — o nome vem do projeto lido pelo `reservarVaga`, nunca do payload, e
+    // G0 — o nome vem do projeto lido pelo `reservarVaga_`, nunca do payload, e
     // a marca de fila é a decisão de lá, honrada aqui (o contrato de 09).
     dados.projeto_nome = projeto.nome;
     dados.em_espera = emEspera ? 'SIM' : 'NAO';
@@ -1037,7 +1040,7 @@ function gravadorDaTroca_(dados, ctx) {
 
     // G3 — exatamente o caminho de quem não está em lugar nenhum.
     if (!ativas.outras.length) {
-      var gravada = gravarInscricao(dados);
+      var gravada = gravarInscricao_(dados);
       return { ok: true, duplicada: gravada.duplicada, id: gravada.id, em_espera: Boolean(emEspera) };
     }
 
@@ -1083,11 +1086,11 @@ function gravadorDaTroca_(dados, ctx) {
     // A procedência no documento NOVO (N6), simétrica ao `trocado_para` da
     // cópia: sem ela a inscrição em Y é indistinguível de uma comum, e a única
     // trilha da troca seria a linha do log. Nenhuma escrita a mais, e campo que
-    // ninguém filtra — o cuidado de `gravarInscricao` é com as marcas de fila,
+    // ninguém filtra — o cuidado de `gravarInscricao_` é com as marcas de fila,
     // que uma agregação conta.
     registro.trocada_de = ativas.outras.map(function (i) { return String(i._id); }).join(',');
 
-    var carimbo = agora();
+    var carimbo = agora_();
     var escritas = [];
     ativas.outras.forEach(function (inscricao) {
       // A cópia é UPSERT, sem precondição: se a coordenação anulou esta
@@ -1112,7 +1115,7 @@ function gravadorDaTroca_(dados, ctx) {
     // troca de sobrescrever a inscrição de outra pessoa no mesmo id.
     escritas.push({ criar: { colecao: INSCRICOES_COLECAO, id: idNova, objeto: registro } });
 
-    var escrito = escreverAtomico(escritas);
+    var escrito = escreverAtomico_(escritas);
 
     // O 409 do `criar` diz uma coisa só: o documento de Y JÁ ESTAVA no lugar
     // quando o commit chegou. Ele NÃO diz quem o pôs lá — e são duas histórias
@@ -1140,11 +1143,11 @@ function gravadorDaTroca_(dados, ctx) {
     //   linha `INSCRICAO_TROCADA` sai MESMO ASSIM, dizendo o que não se pode
     //   confirmar pela resposta. É a régua do ramo indeterminado do Auditório
     //   (13_Auditorio.gs) e do Incluir aluno (10_Painel.gs), aplicada ao
-    //   terceiro escritor de `escreverAtomico`. Quem registra é
+    //   terceiro escritor de `escreverAtomico_`. Quem registra é
     //   `decorarComATroca_`, fora do lock, como toda escrita de log daqui.
     //
     //   SEM retentativa: alguém gravou Y entre G1 e este commit, e não é
-    //   hipótese — `incluirInscricao` (10_Painel.gs) grava em `inscricoes` com a
+    //   hipótese — `incluirInscricao_` (10_Painel.gs) grava em `inscricoes` com a
     //   MESMA `chaveDedup_` e SEM o lock, que é a porta da coordenação. Aqui o
     //   commit inteiro foi RECUSADO: a inscrição antiga continua VIVA, a
     //   quarentena está vazia, nada foi cancelado. A resposta é a duplicada
@@ -1158,7 +1161,7 @@ function gravadorDaTroca_(dados, ctx) {
       // e a antiga está viva por construção.
       var trocaEntrou = escrito.retentou &&
         ativas.outras.every(function (inscricao) {
-          return ler(INSCRICOES_COLECAO, String(inscricao._id)) === null;
+          return ler_(INSCRICOES_COLECAO, String(inscricao._id)) === null;
         });
 
       if (trocaEntrou) {
@@ -1166,7 +1169,7 @@ function gravadorDaTroca_(dados, ctx) {
           ok: true, duplicada: true, id: idNova, em_espera: false,
           // Só id e nome, montados aqui com o que G1 já tinha na mão: a linha do
           // log não lê projeto nenhum, e ler dentro do lock é fila para quem
-          // está atrás (o contrato de `reservarVaga`).
+          // está atrás (o contrato de `reservarVaga_`).
           troca_indeterminada: {
             de: ativas.outras.map(function (inscricao) {
               return {
@@ -1202,7 +1205,7 @@ function gravadorDaTroca_(dados, ctx) {
  * leitura por projeto que ainda não está no `ctx.mapa`, e nenhuma delas tem o
  * direito de acontecer dentro da região protegida: a vaga já foi decidida, e
  * cada ida a mais lá dentro é ~0,5 s de fila para todo aluno que está atrás (o
- * contrato de `reservarVaga`, 09_Projetos.gs). Então o gravador devolve
+ * contrato de `reservarVaga_`, 09_Projetos.gs). Então o gravador devolve
  * CONJUNTOS de inscrição e é aqui que eles viram frase.
  *
  * Três saídas, e cada uma sabe de onde tira o conjunto:
@@ -1211,7 +1214,7 @@ function gravadorDaTroca_(dados, ctx) {
  *                             inteira é reconstruída por `perguntaDeTroca_`;
  *   a recusa com situação ... `ctx.ativasNoLock` é o que a consulta de DENTRO
  *                             viu; sem ele (a recusa que nem chegou ao gravador,
- *                             como FECHADO e INATIVO, que `reservarVaga` recusa
+ *                             como FECHADO e INATIVO, que `reservarVaga_` recusa
  *                             antes do lock) vale o conjunto de fora, que é o
  *                             que o aluno tinha na tela;
  *   a troca feita ........... `trocada.de` chega com os documentos cancelados e
@@ -1247,7 +1250,7 @@ function decorarSaidaDaTroca_(ctx, achadas, resultado) {
  * [Trocar] autorizou um cancelamento, e ler "as inscrições deste projeto estão
  * encerradas" sem mais nada é concluir que ficou sem as duas. O projeto novo
  * pode ter FECHADO ou sido desligado entre a pergunta e a confirmação — e aí a
- * recusa vem de `reservarVaga`, antes do lock, sem passar pelo gravador. A
+ * recusa vem de `reservarVaga_`, antes do lock, sem passar pelo gravador. A
  * rodada 1 já dizia isso; a rodada 2, que é a de maior aposta, não dizia.
  *
  * ABERTO nunca chega aqui (é sucesso), e a recusa sem situação — lock estourado,
@@ -1277,11 +1280,11 @@ function decorarRecusaDaTroca_(ctx, achadas, resultado) {
  * chave está vazia OU inválida.
  *
  * A comparação é de TEXTO, e é o raciocínio de `dentroDoPeriodo_` no painel:
- * `agora()` sai em 'yyyy-MM-dd HH:mm:ss' no fuso de APP.timezone, a chave é o
+ * `agora_()` sai em 'yyyy-MM-dd HH:mm:ss' no fuso de APP.timezone, a chave é o
  * mesmo carimbo sem os segundos, e os dois têm largura fixa com zero à esquerda
  * — comparar texto é comparar instante. `new Date('2026-10-01 08:00')` leria a
  * chave como UTC (ou como nada, dependendo do motor) e a inscrição abriria três
- * horas antes do combinado. Os 16 primeiros caracteres de `agora()` contra os
+ * horas antes do combinado. Os 16 primeiros caracteres de `agora_()` contra os
  * 16 da chave: no minuto do fim, 'HH:mm' >= 'HH:mm' já é DEPOIS — que é o
  * instante em que o contador do site chega a zero.
  *
@@ -1304,9 +1307,9 @@ function limiteDaJanela_(chave, bruto) {
 }
 
 function janelaDeInscricao_() {
-  var inicio = limiteDaJanela_('inscricoes_inicio', config('inscricoes_inicio', ''));
-  var fim = limiteDaJanela_('inscricoes_fim', config('inscricoes_fim', ''));
-  var minuto = agora().slice(0, 16);
+  var inicio = limiteDaJanela_('inscricoes_inicio', config_('inscricoes_inicio', ''));
+  var fim = limiteDaJanela_('inscricoes_fim', config_('inscricoes_fim', ''));
+  var minuto = agora_().slice(0, 16);
 
   var estado;
   if (!inicio && !fim) estado = 'SEM_JANELA';
@@ -1335,12 +1338,12 @@ function recusaPelaJanela_() {
 
 /**
  * Recepção do formulário público.
- * Chamada pelo site (doPost) e pelo Cadastro.html (google.script.run) — tudo é
- * revalidado aqui, porque validação de front-end é conveniência, não segurança.
+ * Chamada pelo site, através do `doPost` — tudo é revalidado aqui, porque
+ * validação de front-end é conveniência, não segurança.
  */
-function submeterInscricao(dados) {
+function submeterInscricao_(dados) {
   try {
-    if (config('cadastro_aberto', 'SIM').toUpperCase() !== 'SIM') {
+    if (config_('cadastro_aberto', 'SIM').toUpperCase() !== 'SIM') {
       return { ok: false, erro: 'As inscrições estão encerradas no momento.' };
     }
 
@@ -1356,7 +1359,7 @@ function submeterInscricao(dados) {
     var abuso = verificarAntiAbuso_(dados);
     if (abuso) return { ok: false, erro: abuso };
 
-    var erros = validarInscricao(dados);
+    var erros = validarInscricao_(dados);
     if (erros.length) return { ok: false, erro: erros.join(' ') };
 
     // Uma consulta à lista oficial por inscrição, e uma só. As TRÊS perguntas
@@ -1376,7 +1379,7 @@ function submeterInscricao(dados) {
     dados.origem = dados.origem || 'SITE';
     dados.consentimento_lgpd = dados.consentimento_lgpd ? 'SIM' : 'NAO';
 
-    // Quem decide fila de espera é `reservarVaga`, contando dentro do lock — e é
+    // Quem decide fila de espera é `reservarVaga_`, contando dentro do lock — e é
     // ele que devolve a decisão logo abaixo. Zerar aqui é o mesmo cuidado que
     // `doPost` tem com `origem`: o campo tem nome conhecido, viaja no mesmo
     // payload que o aluno preenche, e sem esta linha bastaria mandar
@@ -1384,11 +1387,11 @@ function submeterInscricao(dados) {
     // consumiu. Não é ataque grave; é dado sujo entrando por descuido de desenho.
     dados.em_espera = 'NAO';
 
-    // Sem projeto: formulário interno, sem controle de vaga. Grava direto, FORA
-    // de qualquer lock — e é seguro justamente porque a unicidade agora é do
-    // banco, não de uma varredura serializada.
+    // Sem projeto: o caminho do antigo formulário interno, sem controle de vaga.
+    // Grava direto, FORA de qualquer lock — e é seguro justamente porque a
+    // unicidade agora é do banco, não de uma varredura serializada.
     if (!dados.projeto_id) {
-      return finalizarInscricao_(gravarInscricao(dados), 'INSCRICAO_SITE');
+      return finalizarInscricao_(gravarInscricao_(dados), 'INSCRICAO_SITE');
     }
 
     // A REGRA DE UM PROJETO ATIVO POR MATRÍCULA (item 4). Ela depende de DUAS
@@ -1396,8 +1399,8 @@ function submeterInscricao(dados) {
     // regra não se aplica (§4) — e aí `trocar_de` é apagado do payload pelo
     // mesmo cuidado que `em_espera` recebe acima: campo de nome conhecido, no
     // mesmo envelope que o aluno preenche.
-    var regra = String(config('aluno_projeto_unico', 'NAO')).toUpperCase() === 'SIM' &&
-      normalizarMatricula(dados.matricula) !== '';
+    var regra = String(config_('aluno_projeto_unico', 'NAO')).toUpperCase() === 'SIM' &&
+      normalizarMatricula_(dados.matricula) !== '';
 
     var jaEstaEm = [];
     var ctx = null;
@@ -1416,8 +1419,8 @@ function submeterInscricao(dados) {
       }
 
       ctx = {
-        matricula: normalizarMatricula(dados.matricula),
-        email: normalizarEmail(dados.email),
+        matricula: normalizarMatricula_(dados.matricula),
+        email: normalizarEmail_(dados.email),
         alvo: String(dados.projeto_id),
         trocarDe: trocarDe,
         cancelada: ficha !== null && cadastroCancelado_(ficha),
@@ -1485,12 +1488,12 @@ function submeterInscricao(dados) {
     // contrato que 09_Projetos.gs escreveu em maiúsculas: ignorá-lo gravaria o
     // excedente como se ele ocupasse vaga, e o projeto fecharia com mais gente do
     // que tem lugar.
-    var resultado = reservarVaga(dados.projeto_id, regra
+    var resultado = reservarVaga_(dados.projeto_id, regra
       ? gravadorDaTroca_(dados, ctx)
       : function (projeto, emEspera) {
         dados.projeto_nome = projeto.nome;
         dados.em_espera = emEspera ? 'SIM' : 'NAO';
-        var r = gravarInscricao(dados);
+        var r = gravarInscricao_(dados);
         return { ok: true, duplicada: r.duplicada, id: r.id, em_espera: Boolean(emEspera) };
       });
 
@@ -1511,7 +1514,7 @@ function submeterInscricao(dados) {
     // A TROCA É A ÚNICA ESCRITA QUE MUDA A FICHA SEM MUDAR CONTAGEM NENHUMA.
     //
     // O `:commit` apaga a inscrição antiga e cria a nova de uma vez, então
-    // `contar('inscricoes')` fica IGUAL — e o freio 1 do Atualizar da aba Alunos
+    // `contar_('inscricoes')` fica IGUAL — e o freio 1 do Atualizar da aba Alunos
     // compara exatamente essas contagens (`reconciliarSeValerAPena_`,
     // 10_Painel.gs). Sem esta linha, a coordenação clica em Atualizar e lê "nada
     // entrou desde a última vez" com a ficha mostrando o projeto ANTIGO e um
@@ -1543,12 +1546,15 @@ function submeterInscricao(dados) {
     // mensagem de um `:commit` recusado carrega 'projects/<id do projeto
     // Cloud>/.../inscricoes/<hash>' — o id do projeto e o protocolo do aluno.
     console.error('submeterInscricao: ' + semCaminhoDeDocumento_(err));
+    // E na trilha, pelo mesmo motivo do `doGet`: é lá que a coordenação olha
+    // (ver `registrarErroInterno_`, 04_Log.gs).
+    registrarErroInterno_('inscricao', err);
     return { ok: false, erro: 'Erro ao registrar. Tente novamente em instantes.' };
   }
 }
 
 function finalizarInscricao_(r, acao) {
-  registrar(acao, 'inscricao', r.id, r.duplicada ? 'duplicada' : (r.em_espera ? 'nova, em espera' : 'nova'));
+  registrar_(acao, 'inscricao', r.id, r.duplicada ? 'duplicada' : (r.em_espera ? 'nova, em espera' : 'nova'));
 
   return decorarComATroca_(r, respostaDaInscricao_(r));
 }
@@ -1568,7 +1574,7 @@ function finalizarInscricao_(r, acao) {
  */
 function decorarComATroca_(r, saida) {
   if (r.trocada) {
-    registrar('INSCRICAO_TROCADA', 'inscricao', r.id,
+    registrar_('INSCRICAO_TROCADA', 'inscricao', r.id,
       'de ' + r.trocada.de.map(function (a) { return a.id; }).join(',') + ' para ' + r.id +
       ' (' + r.trocada.de.map(function (a) { return a.projeto_nome; }).join(', ') +
       ' → ' + r.trocada.para + ')');
@@ -1594,7 +1600,7 @@ function decorarComATroca_(r, saida) {
   // a resposta ao aluno não anuncia cancelamento nenhum. É a régua do ramo
   // indeterminado do Auditório e do Incluir aluno, com as palavras desta porta.
   if (r.troca_indeterminada) {
-    registrar('INSCRICAO_TROCADA', 'inscricao', r.id,
+    registrar_('INSCRICAO_TROCADA', 'inscricao', r.id,
       'resultado INDETERMINADO: a resposta do banco se perdeu numa retentativa e a troca pode ' +
       'ter entrado — de ' +
       r.troca_indeterminada.de.map(function (a) { return a.id; }).join(',') + ' para ' + r.id +
@@ -1616,7 +1622,7 @@ function respostaDaInscricao_(r) {
   // REENVIO DEVOLVE O MESMO PROTOCOLO, e não só o mesmo "ok".
   //
   // A dedup já era do banco: a chave do documento é `chaveDedup_(dados)`, o
-  // `createDocument` recusa a segunda com 409 ALREADY_EXISTS, e `inserir` trata
+  // `createDocument` recusa a segunda com 409 ALREADY_EXISTS, e `inserir_` trata
   // esse 409 como resposta — nunca como erro. Quem reenvia depois de uma queda de
   // rede portanto NÃO duplica, e recebe sucesso. Isso já estava certo.
   //
@@ -1641,7 +1647,7 @@ function respostaDaInscricao_(r) {
       ok: true,
       duplicada: false,
       em_espera: true,
-      mensagem: config('texto_espera', 'Inscrição registrada! Você entrou na lista de espera deste projeto: as vagas previstas já foram preenchidas, e a coordenação do CESUTECH vai confirmar a sua participação. Guarde o protocolo abaixo.'),
+      mensagem: config_('texto_espera', 'Inscrição registrada! Você entrou na lista de espera deste projeto: as vagas previstas já foram preenchidas, e a coordenação do CESUTECH vai confirmar a sua participação. Guarde o protocolo abaixo.'),
       protocolo: r.id
     };
   }
@@ -1663,7 +1669,7 @@ function verificarAntiAbuso_(d) {
   // 1. Honeypot: campo escondido por CSS. Humano nunca preenche; robô que
   //    preenche tudo, sim.
   if (String(d.website || '').trim()) {
-    registrarRecusa('BLOQUEIO', 'inscricao', '', 'honeypot preenchido', 'honeypot');
+    registrarRecusa_('BLOQUEIO', 'inscricao', '', 'honeypot preenchido', 'honeypot');
     return 'Não foi possível registrar a inscrição.';
   }
 
@@ -1674,18 +1680,20 @@ function verificarAntiAbuso_(d) {
   //    simplesmente não mandando nada. Quem chega pelo endpoint público tem de
   //    provar que veio do formulário.
   //
-  //    A exigência vale só para SITE_EXTERNO, que é a superfície de ataque. O
-  //    Cadastro.html entra por google.script.run, já dentro do Google, e não
-  //    informa o tempo.
+  //    A exigência vale só para SITE_EXTERNO, que é a superfície de ataque — e,
+  //    desde que o formulário interno (Cadastro.html) saiu do servidor, a única
+  //    origem que chega aqui: o `doPost` carimba SITE_EXTERNO em toda inscrição.
+  //    O ramo das outras origens ficou para quem chamar `submeterInscricao_` por
+  //    dentro do projeto, que hoje são só os testes.
   var ms = Number(d.tempoPreenchimento || 0);
 
   if (String(d.origem) === 'SITE_EXTERNO' && !ms) {
-    registrarRecusa('BLOQUEIO', 'inscricao', '', 'envio externo sem sinal de origem', 'sem_origem');
+    registrarRecusa_('BLOQUEIO', 'inscricao', '', 'envio externo sem sinal de origem', 'sem_origem');
     return 'Não foi possível registrar a inscrição. Preencha pelo formulário do site.';
   }
 
   if (ms > 0 && ms < 3000) {
-    registrarRecusa('BLOQUEIO', 'inscricao', '', 'preenchido em ' + ms + 'ms', 'rapido_demais');
+    registrarRecusa_('BLOQUEIO', 'inscricao', '', 'preenchido em ' + ms + 'ms', 'rapido_demais');
     return 'Não foi possível registrar a inscrição.';
   }
 
@@ -1703,7 +1711,7 @@ function verificarAntiAbuso_(d) {
   //    `acao=inscricao`, e os dois passam por aqui. Com 2000/hora e 300 alunos
   //    num evento, a folga continua sendo de quase sete vezes — mas quem baixar
   //    esta chave tem de contar as trocas em dobro.
-  var limite = Number(config('limite_inscricoes_hora', '2000'));
+  var limite = Number(config_('limite_inscricoes_hora', '2000'));
   var props = PropertiesService.getScriptProperties();
   var janela = String(Math.floor(new Date().getTime() / 3600000));
   var contagem = (props.getProperty('throttle_janela') === janela)
@@ -1711,7 +1719,7 @@ function verificarAntiAbuso_(d) {
     : 0;
 
   if (contagem >= limite) {
-    registrarRecusa('BLOQUEIO', 'inscricao', '', 'teto de ' + limite + '/hora atingido', 'teto_hora');
+    registrarRecusa_('BLOQUEIO', 'inscricao', '', 'teto de ' + limite + '/hora atingido', 'teto_hora');
     return 'Estamos recebendo muitas inscrições agora. Tente novamente em alguns minutos.';
   }
   props.setProperty('throttle_janela', janela);
@@ -1720,13 +1728,13 @@ function verificarAntiAbuso_(d) {
   return '';
 }
 
-function validarInscricao(d) {
+function validarInscricao_(d) {
   var erros = [];
 
   if (!String(d.nome || '').trim() || String(d.nome).trim().split(/\s+/).length < 2) {
     erros.push('Informe o nome completo.');
   }
-  if (!emailValido(d.email)) {
+  if (!emailValido_(d.email)) {
     erros.push('E-mail inválido.');
   }
 
@@ -1736,8 +1744,8 @@ function validarInscricao(d) {
   // matrícula digitada errada entrava e depois não casava com a lista oficial
   // (pedido do Prof. Mário, 19/09). A régua vive em `erroFormatoMatricula_`
   // porque a conferência ao vivo do site precisa da mesma.
-  if (config('exigir_matricula', 'SIM').toUpperCase() === 'SIM') {
-    if (!normalizarMatricula(d.matricula)) erros.push('Informe a matrícula.');
+  if (config_('exigir_matricula', 'SIM').toUpperCase() === 'SIM') {
+    if (!normalizarMatricula_(d.matricula)) erros.push('Informe a matrícula.');
     else {
       var formato = erroFormatoMatricula_(d.matricula);
       if (formato) erros.push(formato);
@@ -1749,11 +1757,11 @@ function validarInscricao(d) {
   // impossível de satisfazer, e foi exatamente o que aconteceu: a configuração
   // guardava exigir_cpf=SIM de quando o CPF era a chave, e toda inscrição
   // morria com "CPF inválido" sem campo onde digitá-lo.
-  if (d.cpf && !cpfValido(d.cpf)) {
+  if (d.cpf && !cpfValido_(d.cpf)) {
     erros.push('CPF inválido.');
   }
 
-  var tel = normalizarTelefone(d.whatsapp || d.telefone);
+  var tel = normalizarTelefone_(d.whatsapp || d.telefone);
   if (tel && (tel.length < 10 || tel.length > 11)) {
     erros.push('WhatsApp inválido.');
   }

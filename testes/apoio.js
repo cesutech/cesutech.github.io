@@ -225,7 +225,7 @@ function criarFirestoreFalso() {
         return erro(400, 'INVALID_ARGUMENT', 'maximum 500 writes allowed per request');
       }
       // `update` grava; `delete` apaga. As duas formas vivem no mesmo `:commit`,
-      // e é assim que `escreverEmLote`, `excluirEmLote` e `atualizarEmLote`
+      // e é assim que `escreverEmLote_`, `excluirEmLote_` e `atualizarEmLote_`
       // (02_Repo.gs) usam.
       //
       // A EXIGÊNCIA DO PREFIXO NÃO É ZELO: o Firestore de verdade recusa o lote
@@ -242,7 +242,7 @@ function criarFirestoreFalso() {
       // uma é aplicada. `currentDocument: { exists: true }` num documento que
       // não existe responde 404 NOT_FOUND e NENHUMA escrita do lote entra — nem
       // as que vieram antes dela. Um falso que aplicasse enquanto valida deixaria
-      // `atualizarEmLote` passar nos testes gravando meio lote, que é
+      // `atualizarEmLote_` passar nos testes gravando meio lote, que é
       // exatamente o que a precondição existe para impedir.
       //
       // `currentDocument: { updateTime }` é a precondição mais forte: o
@@ -278,7 +278,7 @@ function criarFirestoreFalso() {
         }
         // UMA escrita por documento por transação: o Firestore recusa o
         // commit inteiro com INVALID_ARGUMENT quando o mesmo documento aparece
-        // duas vezes. É a regra que `escreverAtomico` (02_Repo.gs) recusa antes
+        // duas vezes. É a regra que `escreverAtomico_` (02_Repo.gs) recusa antes
         // de mandar; sem ela aqui, o falso seria mais permissivo que o banco e
         // a guarda passaria a parecer zelo — que é como o prefixo `projects/`
         // escapou por 491 testes verdes.
@@ -521,8 +521,35 @@ function formatarData(data, fuso, formato) {
  *                   opção à parte porque os dois DIVERGEM justamente na
  *                   implantação de hoje: web app anônimo tem `getActiveUser`
  *                   vazio e `getEffectiveUser` respondendo a conta que implantou,
- *                   e é dessa diferença que `liberarMeuAcesso()` vive.
+ *                   e é dessa diferença que `liberarMeuAcesso_` vive — e que a
+ *                   guarda das ferramentas de editor (`exigirDono_`) cobra.
  *   relogio     relógio de `criarRelogio`, quando o teste precisa controlar a hora
+ *   gatilhos    os acionadores que `ScriptApp.getProjectTriggers()` devolve: uma
+ *               lista de ids (texto ou número, como o teste quiser) ou de
+ *               `{ id, funcao }`. Ausente, o projeto não tem acionador nenhum;
+ *               `null` faz a chamada LANÇAR, que é o caminho de falha que a
+ *               guarda dos gatilhos (`exigirGatilhoOuDono_`) precisa recusar.
+ *   gatilhosPorConta  os acionadores separados por CONTA, como o Apps Script os
+ *               guarda: `{ 'conta@...': lista }`, cada lista na forma de
+ *               `gatilhos`. Presente, vale no lugar de `gatilhos`, e
+ *               `getProjectTriggers()` devolve só a lista da conta com que a
+ *               execução RODA (a efetiva) — "do projeto e do usuário atual", nas
+ *               palavras da documentação. É o que faz o acionador instalado por
+ *               outra conta aparecer só para ela.
+ *   falhasDosGatilhos  quantas das PRIMEIRAS chamadas a `getProjectTriggers()`
+ *               lançam antes de a lista responder — a falha passageira, que a
+ *               guarda dos gatilhos pergunta de novo antes de recusar.
+ *
+ * O padrão de `usuario` é 'gestao@exemplo.com' para as DUAS contas — é o editor
+ * do Apps Script, onde quem pede a execução é quem a roda. É o estado em que as
+ * ferramentas de editor (`setup`, `liberarAcesso`...) passam pela guarda; o web
+ * app anônimo é `usuario: ''`.
+ *
+ * Um ambiente é UMA execução: depois de um `doGet` ou de um `doPost`, a marca de
+ * requisição ao web app (`EM_REQUISICAO_WEB`, 07_Auth.gs) fica ligada até o fim
+ * dele, e as guardas recusam até o editor — como no Apps Script, onde ela dura até
+ * o fim da execução. Teste que precisa do editor depois de uma requisição abre
+ * outro ambiente.
  */
 function criarAmbiente(opcoes) {
   opcoes = opcoes || {};
@@ -540,6 +567,16 @@ function criarAmbiente(opcoes) {
   if (opcoes.projeto !== null) propriedades.set('FIRESTORE_PROJETO', opcoes.projeto || PROJETO);
   if (opcoes.banco) propriedades.set('FIRESTORE_BANCO', opcoes.banco);
 
+  let falhasDosGatilhos = Number(opcoes.falhasDosGatilhos) || 0;
+
+  // A conta com que a execução RODA — a de `Session.getEffectiveUser()`, e a dona
+  // dos acionadores que `getProjectTriggers()` devolve. `null` é o Session que
+  // lança.
+  const contaEfetiva = () => {
+    const efetivo = opcoes.usuarioEfetivo === undefined ? opcoes.usuario : opcoes.usuarioEfetivo;
+    return efetivo === undefined ? 'gestao@exemplo.com' : efetivo;
+  };
+
   const contexto = {
     console: {
       log: console.log,
@@ -549,7 +586,27 @@ function criarAmbiente(opcoes) {
     String, Number, Object, Array, Boolean, RegExp, Error,
     isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
     UrlFetchApp: falso.UrlFetchApp,
-    ScriptApp: { getOAuthToken: () => 'token-de-mentira' },
+    ScriptApp: {
+      getOAuthToken: () => 'token-de-mentira',
+      // O id do projeto do Apps Script: identificador interno, que nenhuma
+      // resposta anônima pode carregar (testes/portas.js procura por ele).
+      getScriptId: () => 'id-do-script-de-teste',
+      getProjectTriggers: () => {
+        if (opcoes.gatilhos === null) throw new Error('não consegui listar os acionadores');
+        if (falhasDosGatilhos > 0) {
+          falhasDosGatilhos--;
+          throw new Error('falha passageira ao listar os acionadores');
+        }
+        const lista = opcoes.gatilhosPorConta
+          ? (opcoes.gatilhosPorConta[contaEfetiva()] || [])
+          : (opcoes.gatilhos || []);
+        return lista.map((g) => {
+          const id = (g && typeof g === 'object') ? g.id : g;
+          const funcao = (g && typeof g === 'object') ? g.funcao : '';
+          return { getUniqueId: () => id, getHandlerFunction: () => funcao };
+        });
+      }
+    },
     Logger: { log: (m) => { registros.logger.push(String(m)); } },
     Session: {
       getActiveUser: () => ({
@@ -560,9 +617,9 @@ function criarAmbiente(opcoes) {
       }),
       getEffectiveUser: () => ({
         getEmail: () => {
-          const efetivo = opcoes.usuarioEfetivo === undefined ? opcoes.usuario : opcoes.usuarioEfetivo;
+          const efetivo = contaEfetiva();
           if (efetivo === null) throw new Error('sem permissão para ver o usuário');
-          return efetivo === undefined ? 'gestao@exemplo.com' : efetivo;
+          return efetivo;
         }
       })
     },
@@ -593,7 +650,7 @@ function criarAmbiente(opcoes) {
     // os dois lados.
     //
     // Nasceu porque o falso NÃO tinha CacheService: o `catch` de
-    // `registrarRecusa` engolia a ausência e caía no registro direto. Os 213
+    // `registrarRecusa_` engolia a ausência e caía no registro direto. Os 213
     // testes passavam sem exercitar uma linha do agrupamento.
     CacheService: {
       getScriptCache: () => ({
