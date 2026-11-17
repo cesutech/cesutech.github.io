@@ -8614,6 +8614,43 @@
     atualizarAlunosUI({ tipo: 'sucesso', texto: texto });
   }
 
+  /**
+   * O "Quem" de uma linha do Histórico: quem operava e, numa entrada recusada,
+   * quem tentou entrar.
+   *
+   * A coluna é o `usuario` da linha, e o servidor só sabe quem opera quando há
+   * sessão. Na LOGIN_NEGADO não há: a recusa é justamente o que não a deixou
+   * nascer, e o `usuario` sai 'anonimo'. O e-mail de quem tentou vai em
+   * `entidade_id` (`autenticar_` e `entrarComGoogle_`, 07_Auth.gs;
+   * `entrarComLink_`, 07b_LinkPorEmail.gs), e é um e-mail PROVADO: a conta que o
+   * Google confirmou, ou a caixa que recebeu o link. Quem recusou foi só a lista
+   * de acesso. É esse e-mail que a coluna mostra.
+   *
+   * Só nesta ação. Nas outras, `entidade_id` é o ALVO, e não quem fez: o e-mail
+   * incluído em ADMIN_INCLUIDO, o documento de uma inscrição. Pô-lo em "Quem"
+   * trocaria o autor pelo alvo. E o token que o Google não confirmou não deixa
+   * e-mail nenhum (`entidade_id` vazio): ali fica o 'anonimo', que é a verdade,
+   * porque ninguém se identificou.
+   *
+   * Uma ressalva de leitura, que é do freio e não da tela: a recusa pela conta
+   * Google vira linha uma vez a cada dez minutos, e a janela é uma só para
+   * todas as contas (`registrarRecusa_`, 04_Log.gs, com a chave fixa de
+   * `entrarComGoogle_`). As recusas seguintes nessa janela não viram linha. Se
+   * outra vier em até uma hora, a linha dela leva "(+N iguais desde a última
+   * anotação)", e as N podem ser de outras contas, não da que a coluna mostra.
+   * Se não vier, elas somem sem rastro.
+   *
+   * E o endereço que alguém DIGITA no pedido de link (LINK_ENVIADO, LINK_FREIO,
+   * LINK_SEM_COTA) também vai em `entidade_id`, mas não prova nada: qualquer
+   * pessoa digita o endereço de outra. É mais um motivo para a regra ficar
+   * presa à LOGIN_NEGADO.
+   */
+  function quemNoHistorico(l) {
+    var tentou = String(l.entidade_id || '');
+    if (l.acao === 'LOGIN_NEGADO' && tentou.indexOf('@') > 0) return tentou;
+    return l.usuario;
+  }
+
   function carregarLog() {
     var el = document.getElementById('conteudo-log');
     el.className = 'carregando';
@@ -8635,7 +8672,7 @@
       r.itens.forEach(function (l) {
         html += '<tr>' +
           '<td>' + escapar(l.timestamp) + '</td>' +
-          '<td>' + escapar(l.usuario) + '</td>' +
+          '<td>' + escapar(quemNoHistorico(l)) + '</td>' +
           '<td><strong>' + escapar(l.acao) + '</strong></td>' +
           '<td>' + escapar(l.entidade) + '</td>' +
           '<td class="quebra pequeno texto-fraco">' + escapar(l.detalhe) + '</td></tr>';
