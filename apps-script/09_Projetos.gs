@@ -538,9 +538,9 @@ function projetoPorId_(id) {
  * ativos, e a coordenação não passou por rodada nenhuma que já os tivesse lido.
  * São até 20 leituras dentro desta região, e o lock é o MESMO que serializa os
  * alunos. Aceito porque é ação de coordenação, uma pessoa de cada vez, fora do
- * pico — e é por isso que o README manda não rodar a Revisão de divergências com
- * a janela de inscrição aberta. Quem ligar a chave e restaurar em lote durante o
- * evento paga essa fila.
+ * pico — e a regra operacional de guias/um-projeto-por-aluno.md, por outro
+ * motivo, já manda não rodar a Revisão de divergências com a janela de inscrição
+ * aberta. Quem ligar a chave e restaurar em lote durante o evento paga essa fila.
  *
  * E não dá para hoistar isso de graça, o que é a razão de estar ACEITO e não
  * resolvido: só se sabe QUAIS projetos ler depois de rodar a consulta por

@@ -2951,8 +2951,9 @@ teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado 
   // teto por hora é zerado aqui e o honeypot vai preenchido, que é o que um
   // robô faria — a guarda recusaria a coordenação com "Estamos recebendo muitas
   // inscrições agora", no auditório, na hora em que ela precisa incluir; e
-  // cada inclusão gastaria uma escrita em PropertiesService (`throttle_*`) que
-  // é do formulário público, não desta porta.
+  // cada inclusão gastaria uma passagem do teto por hora (no cache do script
+  // desde 17/11/2026, `inscricoes_<hora>`) que é do formulário público, não
+  // desta porta.
   const amb = cenarioInclusao();
   amb.api.gravarConfig_('cadastro_aberto', 'NAO');
   amb.api.gravarConfig_('inscricoes_fim', '2020-01-01 00:00');
@@ -2976,7 +2977,7 @@ teste('passa por fora: janela encerrada, cadastro_aberto=NAO, anti-abuso armado 
   igual(r.situacao, 'ESGOTADO');
   verdadeiro(r.mensagem.indexOf('Robótica ficou 3/2') !== -1, r.mensagem);
   igual(amb.api.contarInscritos_('p2'), 3, 'a vaga conta de verdade, sem contador gravado');
-  igual([...amb.propriedades.keys()].filter((k) => k.indexOf('throttle_') === 0), [],
+  igual(amb.api.lerContagemDaHora_('inscricoes_'), 0,
     'a inclusão gastou o contador por hora do formulário público');
   igual(linhasDoLog(amb, 'BLOQUEIO').length, 0, 'a coordenação foi tratada como robô');
 

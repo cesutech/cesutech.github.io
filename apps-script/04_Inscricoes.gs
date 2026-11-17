@@ -1713,19 +1713,16 @@ function verificarAntiAbuso_(d) {
   //    `acao=inscricao`, e os dois passam por aqui. Com 2000/hora e 300 alunos
   //    num evento, a folga continua sendo de quase sete vezes — mas quem baixar
   //    esta chave tem de contar as trocas em dobro.
+  //
+  //    A contagem mora no CACHE do script desde 17/11/2026, e não mais nas
+  //    propriedades, que têm cota diária: o envio barrado aqui lia duas delas, e
+  //    um robô esgotava a cota sem passar do teto. Cache fora do ar deixa passar.
+  //    O porquê e o preço estão no cabeçalho dos contadores por hora (01_Utils.gs).
   var limite = Number(config_('limite_inscricoes_hora', '2000'));
-  var props = PropertiesService.getScriptProperties();
-  var janela = String(Math.floor(new Date().getTime() / 3600000));
-  var contagem = (props.getProperty('throttle_janela') === janela)
-    ? Number(props.getProperty('throttle_contagem') || 0)
-    : 0;
-
-  if (contagem >= limite) {
+  if (passouDoTetoNaHora_('inscricoes_', limite)) {
     registrarRecusa_('BLOQUEIO', 'inscricao', '', 'teto de ' + limite + '/hora atingido', 'teto_hora');
     return 'Estamos recebendo muitas inscrições agora. Tente novamente em alguns minutos.';
   }
-  props.setProperty('throttle_janela', janela);
-  props.setProperty('throttle_contagem', String(contagem + 1));
 
   return '';
 }

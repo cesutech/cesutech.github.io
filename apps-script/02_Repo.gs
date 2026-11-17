@@ -29,7 +29,7 @@
  * os escopos autorizados. É a mesma escolha que 02b_Drive.gs fez: chamada mais
  * verbosa, mas sem credencial parada em lugar nenhum.
  *
- * Pré-requisitos que NÃO estão neste arquivo (ver README.md):
+ * Pré-requisitos que NÃO estão neste arquivo (ver guias/configurar-o-ambiente.md):
  *   - escopos `script.external_request` e `datastore` no appsscript.json
  *   - propriedade de script FIRESTORE_PROJETO
  */
@@ -68,6 +68,45 @@ var FS_STATUS_RETENTAVEL = 'ABORTED';
 // ---------------------------------------------------------------- Configuração
 
 /**
+ * O projeto e o banco DESTA EXECUÇÃO, lidos das propriedades na primeira ida ao
+ * banco e guardados até ela acabar.
+ *
+ * As propriedades do script têm cota diária: 50 mil leituras e gravações por dia
+ * numa conta Google comum, contadas por chamada. Até 17/11/2026 toda ida ao banco
+ * montava o endereço lendo as duas, e uma inscrição, que faz sete idas, gastava
+ * catorze leituras só nisso — o dia comportava menos alunos pela cota de
+ * propriedades do que pela de leituras do próprio banco. No Apps Script cada
+ * execução nasce com as variáveis globais zeradas, então guardar aqui vale para
+ * UMA execução e nada mais: trocar a propriedade no editor vale a partir da
+ * próxima.
+ *
+ * O erro de configuração não é guardado: a próxima chamada lê de novo, e quem
+ * acabou de criar a propriedade não precisa esperar nada.
+ */
+var FIRESTORE_DA_EXECUCAO = null;
+
+function fsAlvo_() {
+  if (FIRESTORE_DA_EXECUCAO) return FIRESTORE_DA_EXECUCAO;
+
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('FIRESTORE_PROJETO');
+  if (!id) {
+    throw new Error(
+      'Firestore não configurado. No editor do Apps Script: Configurações do projeto > ' +
+      'Propriedades do script > adicionar FIRESTORE_PROJETO com o ID do projeto do ' +
+      'Firebase (algo como unicesusc-cesutech-4f2a). Passo a passo em guias/configurar-o-ambiente.md.'
+    );
+  }
+
+  var banco = props.getProperty('FIRESTORE_BANCO');
+  FIRESTORE_DA_EXECUCAO = {
+    projeto: String(id).trim(),
+    banco: (banco && String(banco).trim()) || '(default)'
+  };
+  return FIRESTORE_DA_EXECUCAO;
+}
+
+/**
  * ID do projeto Cloud onde o Firestore vive.
  *
  * Fica nas propriedades do script, nunca no código: o diretório `docs/` deste
@@ -75,20 +114,12 @@ var FS_STATUS_RETENTAVEL = 'ABORTED';
  * para quem quiser sondar.
  */
 function fsProjeto_() {
-  var id = PropertiesService.getScriptProperties().getProperty('FIRESTORE_PROJETO');
-  if (id) return String(id).trim();
-
-  throw new Error(
-    'Firestore não configurado. No editor do Apps Script: Configurações do projeto > ' +
-    'Propriedades do script > adicionar FIRESTORE_PROJETO com o ID do projeto do ' +
-    'Firebase (algo como unicesusc-cesutech-4f2a). Passo a passo em README.md.'
-  );
+  return fsAlvo_().projeto;
 }
 
 /** Firestore aceita vários bancos por projeto; o primeiro chama-se `(default)`. */
 function fsBanco_() {
-  var banco = PropertiesService.getScriptProperties().getProperty('FIRESTORE_BANCO');
-  return (banco && String(banco).trim()) || '(default)';
+  return fsAlvo_().banco;
 }
 
 /** Raiz de todo caminho da API. Os `:métodos` são colados direto nela. */
@@ -812,7 +843,7 @@ function excluirEmLote_(colecao, ids) {
  * A MEDIR contra o banco de verdade: os status exatos das precondições DENTRO
  * de um `:commit` misto. A prova já está escrita — `provaCommitMisto`
  * (20_Prova.gs), ao lado de `provaAtualizarEmLote` —, e rodá-la é o item 1 do
- * checklist de ligar `aluno_projeto_unico=SIM` (README). O falso dos testes imita `exists:false` com o documento no
+ * checklist de ligar `aluno_projeto_unico=SIM` (guias/um-projeto-por-aluno.md). O falso dos testes imita `exists:false` com o documento no
  * lugar como 409 ALREADY_EXISTS, `exists:true` em documento ausente como 404
  * NOT_FOUND e `updateTime` divergente como 400 FAILED_PRECONDITION. Se o banco
  * divergir, corrigem-se o falso e esta função — nunca o contrário.

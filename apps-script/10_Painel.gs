@@ -2107,7 +2107,7 @@ function resolverAluno_(payload) {
  *                   coordenação desfazê-lo.
  *
  * Quem for equiparar as duas muda regra de negócio, não código: por isso está
- * escrito aqui e no README, e não deduzido do diff.
+ * escrito aqui e em guias/um-projeto-por-aluno.md, e não deduzido do diff.
  *
  * ---------------------------------------------------- E o cadastro por cima
  *

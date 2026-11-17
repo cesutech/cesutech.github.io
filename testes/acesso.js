@@ -2048,4 +2048,84 @@ teste('sessão do Google abre uma função de painel de outro arquivo', () => {
   igual(r.ok, true, 'erro foi: ' + r.erro);
 });
 
+
+// ----------------------------------------------- o freio lembrado no cache
+
+grupo('o freio do link lembrado no cache — insistir não lê propriedade');
+
+// Pedir link para um endereço DA LISTA passava pelo freio do endereço, que lê a
+// propriedade `linkfreio_<email>` — as propriedades do script têm cota diária, e
+// um robô que conhecesse um endereço da lista (os de coordenação e de professor
+// costumam ser públicos) gastava uma leitura por pedido, sem teto. Desde
+// 17/11/2026 o "não" do freio fica lembrado no cache até o próximo envio
+// permitido (`lembrarFreio_`); a propriedade continua decidindo o envio.
+
+function leiturasDoFreio(amb) {
+  return amb.usosDePropriedade.filter((u) => u.tipo === 'get' && u.chave.indexOf('linkfreio_') === 0).length;
+}
+
+teste('na rajada, só o primeiro pedido lê o freio', () => {
+  // Mutação que derruba: tirar `freioLembrado_` de `pedirLinkDeAcesso_`, ou o
+  // `lembrarFreio_` do envio.
+  const amb = comRelogio();
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  igual(destinatarios(amb).length, 1);
+
+  amb.usosDePropriedade.length = 0;
+  for (let i = 0; i < 50; i++) {
+    amb.relogio.avancar(1000);
+    igual(amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com').ok, true);
+  }
+  igual(leiturasDoFreio(amb), 0, 'a recusa leu o freio');
+  igual(destinatarios(amb).length, 1, 'enviou dentro dos dois minutos');
+});
+
+teste('vencido o intervalo, a propriedade volta a decidir e envia', () => {
+  // Mutação que derruba: a marca do intervalo durar mais que os dois minutos.
+  const amb = comRelogio();
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  amb.relogio.avancar(30 * 1000);
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  amb.relogio.avancar(90 * 1000 + 1);
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  igual(destinatarios(amb).length, 2, 'a marca durou mais que o intervalo');
+});
+
+teste('teto do dia: a recusa lê o freio no máximo a cada seis horas', () => {
+  // Mutação que derruba: não lembrar a recusa pelo teto do dia.
+  const amb = comRelogio();
+  for (let i = 0; i < 9; i++) {
+    amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+    amb.relogio.avancar(3 * 60 * 1000);
+  }
+  igual(destinatarios(amb).length, 8);
+
+  amb.usosDePropriedade.length = 0;
+  // Seis horas de pedidos, um a cada dez segundos.
+  for (let i = 0; i < 6 * 360; i++) {
+    amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+    amb.relogio.avancar(10 * 1000);
+  }
+  const lidas = leiturasDoFreio(amb);
+  verdadeiro(lidas <= 1, 'seis horas de pedidos leram o freio ' + lidas + ' vezes');
+  igual(destinatarios(amb).length, 8, 'o teto do dia deixou de valer');
+});
+
+teste('perto da meia-noite, a marca vence à meia-noite e o dia novo envia', () => {
+  // Mutação que derruba: a marca do teto do dia ignorar a meia-noite de São Paulo.
+  // 23:20 em São Paulo = 02:20Z do dia seguinte.
+  const relogio = criarRelogio(new Date('2026-08-12T02:20:00Z').getTime());
+  const amb = ambiente({ relogio: relogio, allowlist: 'coordenacao@exemplo.com' });
+  amb.relogio = relogio;
+  for (let i = 0; i < 9; i++) {
+    amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+    amb.relogio.avancar(3 * 60 * 1000);
+  }
+  igual(destinatarios(amb).length, 8, 'oito no dia');
+  // 23:47 em São Paulo; a meia-noite chega em 13 minutos.
+  amb.relogio.avancar(13 * 60 * 1000 + 1000);
+  amb.api.pedirLinkDeAcesso_('coordenacao@exemplo.com');
+  igual(destinatarios(amb).length, 9, 'o dia virou e a marca ainda recusou');
+});
+
 process.exit(resultado());
